@@ -15,14 +15,28 @@ DOMAIN_DIR = Path(__file__).resolve().parents[2] / "src" / "perf" / "domain"
 
 
 def _imported_module_names(source: str) -> set[str]:
+    """Collect every module/name an import statement pulls in.
+
+    Covers the evasive forms a naive `node.module`-only scan misses:
+    `from . import adapters` (relative, ``module`` is ``None``),
+    `from perf import adapters` (``module`` lacks the offending substring),
+    and `from ..adapters import X`. For ``ImportFrom`` we emit the module,
+    plus each imported name qualified by the module (or bare when relative),
+    so a substring match on ``adapters`` catches the package itself.
+    """
     tree = ast.parse(source)
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 names.add(alias.name)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            names.add(node.module)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                names.add(node.module)
+            for alias in node.names:
+                names.add(
+                    f"{node.module}.{alias.name}" if node.module else alias.name
+                )
     return names
 
 
@@ -38,6 +52,25 @@ def test_domain_has_no_adapter_imports():
             offenders[str(path)] = adapter_imports
 
     assert not offenders, f"domain/ modules importing adapters/: {offenders}"
+
+
+def test_boundary_detector_catches_evasive_adapter_imports():
+    """The guard must fail on every import form that reaches `adapters/`, not
+    just `import perf.adapters`. Proves the detector's teeth against the three
+    forms a naive scan would miss."""
+    evasive = [
+        "from . import adapters",
+        "from .. import adapters",
+        "from perf import adapters",
+        "from perf.adapters import store_sqlite",
+        "from ..adapters import store_sqlite",
+        "import perf.adapters.store_sqlite",
+    ]
+    for source in evasive:
+        imported = _imported_module_names(source)
+        assert any("adapters" in name for name in imported), (
+            f"detector failed to flag adapter import: {source!r} -> {imported}"
+        )
 
 
 def test_domain_package_has_no_io_stdlib_imports():
