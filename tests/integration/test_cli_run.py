@@ -139,8 +139,30 @@ def test_device_offline_exits_3(monkeypatch, tmp_path: Path):
     assert result.exit_code == 3, result.output
 
 
-def test_capture_failed_exits_3():
-    pass  # covered at the use-case unit level; CLI mapping shares the same code path as device_offline
+def test_capture_failed_exits_3(monkeypatch, tmp_path: Path):
+    """A dead/failed parallel logcat capture (`capture_failed=True`, e.g. adb
+    'more than one device') is a runtime/tooling failure → exit 3, distinct
+    from a healthy capture that saw zero markers."""
+    config = _config(sampler=None, marker_source="adb-logcat", db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_registry(
+        monkeypatch,
+        driver=FakeDriver(
+            drive_result=DriverResult(
+                ok=True,
+                iteration_outcomes=("ok",),
+                logcat_lines=(),
+                capture_failed=True,
+                diagnostics="adb: more than one device/emulator",
+            )
+        ),
+        marker_factory=_happy_marker_factory,
+    )
+
+    result = runner.invoke(main_module.app, ["run", "checkout"])
+
+    assert result.exit_code == 3, result.output
+    assert result.exit_code != 1
 
 
 @pytest.mark.parametrize(
