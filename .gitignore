@@ -18,5 +18,8 @@ htmlcov/
 .venv/
 venv/
 
+# CodeGraph index — per-checkout, never commit
+.codegraph/
+
 # Editors / OS
 .DS_Store
