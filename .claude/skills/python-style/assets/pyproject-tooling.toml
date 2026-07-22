@@ -1,0 +1,39 @@
+# Drop-in ruff + mypy configuration for perf-lab-cli.
+# Merge these blocks into the project's pyproject.toml, and add ruff + mypy
+# to the dev optional-dependencies. Python 3.11+, src/ layout.
+#
+#   [project.optional-dependencies]
+#   dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11", "hypothesis>=6"]
+#
+# Commands (also wire into CI):
+#   ruff check .           # lint
+#   ruff format --check .   # formatting gate (drop --check to apply)
+#   mypy src/perf           # type-check
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# Pragmatic, high-signal rule set — not everything-on. E: pycodestyle,
+# F: pyflakes, I: isort, UP: pyupgrade, B: bugbear, SIM: simplify,
+# C4: comprehensions, PTH: prefer pathlib, RUF: ruff-specific.
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PTH", "RUF"]
+# BLE001 (blind-except) is allowed ONLY at the documented exit-code guards,
+# which annotate it inline with `# noqa: BLE001` — so it stays off the global
+# ignore list and every use must be justified at the call site.
+
+[tool.ruff.lint.per-file-ignores]
+# Tests may use assert and slightly longer lines for fixtures/expectations.
+"tests/**" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/perf"]
+disallow_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+# typer/rich ship their own types; add per-module overrides here only if a
+# third-party stub is genuinely missing.
