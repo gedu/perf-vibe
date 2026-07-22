@@ -228,11 +228,21 @@ class ExecutionPlan:
 class DriverResult:
     """What `FlowDriver.drive(plan)` returns after executing an
     `ExecutionPlan`: per-iteration outcomes plus the captured logcat lines
-    (empty when no `MarkerSource` is active)."""
+    (empty when no `MarkerSource` is active).
+
+    Fix (resilience review): `capture_failed` distinguishes a DEAD/failed
+    parallel capture (e.g. `adb logcat` exiting non-zero because of a
+    multi-device error) from a healthy capture that simply observed zero
+    marker lines — without this flag both cases looked identical
+    ("no markers"), silently masking the failure. `diagnostics` carries
+    bounded, secret-scrubbed stderr/output text explaining WHICH
+    tool/flow/device failed and WHY (`None` on a clean success)."""
 
     ok: bool
     iteration_outcomes: Sequence[str]
     logcat_lines: Sequence[str]
+    capture_failed: bool = False
+    diagnostics: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -243,6 +253,21 @@ class MarkerParseResult:
     (design §4 / spec: markStart-without-markEnd)."""
 
     markers: Sequence[Marker]
+    partial_coverage: bool
+
+
+@dataclass(frozen=True)
+class SystemSampleParseResult:
+    """Result of `SystemSampler.parse()`: the parsed per-iteration samples
+    plus whether coverage was partial.
+
+    Fix (resilience review): Flashlight's `status` (top-level AND
+    per-iteration) MUST be honored — a FAILURE/timed-out iteration must
+    never be aggregated and persisted as if it succeeded. Failed iterations
+    are excluded from `samples` and flagged via `partial_coverage=True`
+    rather than silently vanishing or poisoning the regression history."""
+
+    samples: Sequence[SystemSample]
     partial_coverage: bool
 
 
