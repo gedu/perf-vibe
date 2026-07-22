@@ -1,0 +1,7 @@
+[PERF-META] {"app_version":"4.20.1","is_dev_bundle":true,"bundle_source":"embedded"}
+[PERF] markStart:onboarding
+[PERF] checkout: 900ms
+[PERF] {"name":"login","value":450,"unit":"ms"}
+[PERF] {bad json missing quotes}
+garbage line without perf marker
+[PERF] not-a-number: abcms
