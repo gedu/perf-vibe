@@ -13,6 +13,7 @@ recorded fixtures, not live devices").
 
 from __future__ import annotations
 
+import re
 import subprocess
 from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
@@ -57,18 +58,26 @@ def bounded_diagnostics(text: str, *, max_len: int = _MAX_DIAGNOSTICS_LENGTH) ->
     return stripped
 
 
+# Matches a forwarded `--env KEY=VALUE` secret assignment anywhere in the
+# joined argv — including when it is NESTED inside a single token such as
+# Flashlight's `--testCommand "maestro test <flow> --env PASSWORD=..."` string
+# (the TOOL_MANAGED path), not only as two standalone `--env` / `KEY=VALUE`
+# tokens (the DRIVER_MANAGED path). `\S+?` is the key, group(1) the value.
+_ENV_SECRET_RE = re.compile(r"--env\s+\S+?=(\S+)")
+
+
 def scrub_secrets(text: str, argv: Sequence[str]) -> str:
-    """Redact any `--env KEY=VALUE` secret value found in `argv` (e.g.
+    """Redact any `--env KEY=VALUE` secret value carried in `argv` (e.g.
     `PASSWORD`) from diagnostic text before it is ever surfaced — a failure
     message must never leak a forwarded secret (SKILL rule: never log
-    secrets)."""
+    secrets). Scans the JOINED argv so a value nested inside a `--testCommand`
+    string is redacted just like a standalone token."""
 
     scrubbed = text
-    for index, token in enumerate(argv):
-        if token == "--env" and index + 1 < len(argv):
-            _, _, value = argv[index + 1].partition("=")
-            if value:
-                scrubbed = scrubbed.replace(value, "***")
+    haystack = " ".join(argv)
+    for value in _ENV_SECRET_RE.findall(haystack):
+        if value:
+            scrubbed = scrubbed.replace(value, "***")
     return scrubbed
 
 

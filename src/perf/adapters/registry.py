@@ -4,21 +4,49 @@ selectable/optional (spec: "Hexagonal Boundary Enforcement... registry...
 SHALL support any adapter being absent except where the minimum-
 measurement guarantee applies"). An unknown name raises a clear
 `ValueError` BEFORE any adapter is constructed.
+
+PR3 additive extension: `build_context_provider`/`build_store`/
+`build_clock` complete the `registry.build_{driver,sampler,marker,
+context,store,clock}` composition surface design §1 describes for the CLI.
+These three have exactly one implementation each (no name-based selection
+needed), so they are plain factory functions rather than name-keyed maps.
 """
 
 from __future__ import annotations
 
-from typing import Callable, Mapping, Optional
+from pathlib import Path
+from typing import Callable, Mapping, Optional, Union
 
+from perf.adapters.clock_system import SystemClock
+from perf.adapters.context_bash_perfmeta import BashRunContextProvider
 from perf.adapters.driver_maestro import MaestroDriver
 from perf.adapters.driver_manual import ManualDriver
 from perf.adapters.markers_adb_logcat import AdbLogcatMarkerSource
 from perf.adapters.sampler_flashlight import FlashlightSampler
-from perf.domain.ports import FlowDriver, MarkerSource, SystemSampler
+from perf.adapters.store_sqlite import SqliteStore
+from perf.domain.ports import Clock, FlowDriver, MarkerSource, RunContextProvider, Store, SystemSampler
+
+def _build_maestro_driver(
+    *, known_flows=None, device=None, flow_prompts=None, runner=None
+) -> FlowDriver:
+    del flow_prompts  # maestro drives from known_flows + device
+    return MaestroDriver(known_flows or {}, device=device, runner=runner)
+
+
+def _build_manual_driver(
+    *, known_flows=None, device=None, flow_prompts=None, runner=None
+) -> FlowDriver:
+    # ManualDriver needs per-flow prompts, NOT known_flows/device. Every driver
+    # builder accepts the same COMMON kwargs and ignores the irrelevant ones, so
+    # the CLI can build ANY configured driver uniformly — this is what fixes the
+    # `driver = "manual"` TypeError (it previously received known_flows/device).
+    del known_flows, device
+    return ManualDriver(flow_prompts or {}, runner=runner)
+
 
 DRIVERS: Mapping[str, Callable[..., FlowDriver]] = {
-    "maestro": MaestroDriver,
-    "manual": ManualDriver,
+    "maestro": _build_maestro_driver,
+    "manual": _build_manual_driver,
 }
 
 SAMPLERS: Mapping[str, Callable[..., SystemSampler]] = {
@@ -47,14 +75,21 @@ def _build(
     return factory(**kwargs)
 
 
-def build_driver(name: str, **kwargs) -> FlowDriver:
-    """A `FlowDriver` is always required (spec: at least one measurement
-    source may be optional, but the driver itself is not)."""
+def build_driver(name: Optional[str], **kwargs) -> FlowDriver:
+    """Build the named `FlowDriver` from a COMMON set of build kwargs
+    (`known_flows`, `device`, `flow_prompts`, `runner`); each driver's builder
+    picks what it needs. A `FlowDriver` is always required (spec: a measurement
+    source may be optional, the driver itself is not)."""
 
-    driver = _build(DRIVERS, "driver", name, **kwargs)
-    if driver is None:
+    if name is None:
         raise ValueError("driver name is required (got None)")
-    return driver
+    try:
+        builder = DRIVERS[name]
+    except KeyError:
+        raise ValueError(
+            f"Unknown driver {name!r}; available: {sorted(DRIVERS)!r}"
+        ) from None
+    return builder(**kwargs)
 
 
 def build_sampler(name: Optional[str], **kwargs) -> Optional[SystemSampler]:
@@ -67,3 +102,25 @@ def build_marker_source(name: Optional[str], **kwargs) -> Optional[MarkerSource]
     """`None` -> no `MarkerSource` selected (spec: independently optional)."""
 
     return _build(MARKER_SOURCES, "marker source", name, **kwargs)
+
+
+def build_context_provider(**kwargs) -> RunContextProvider:
+    """`RunContextProvider` has exactly one implementation — a single
+    factory, no name-keyed map needed."""
+
+    return BashRunContextProvider(**kwargs)
+
+
+def build_store(db_path: Union[str, Path], **kwargs) -> Store:
+    """`Store` has exactly one implementation — a single factory, no
+    name-keyed map needed. `db_path` opens a LOCAL SQLite file only."""
+
+    return SqliteStore(db_path, **kwargs)
+
+
+def build_clock() -> Clock:
+    """`Clock` has exactly one production implementation — the real wall
+    clock; tests inject their own `FrozenClock` fake directly, bypassing
+    the registry entirely."""
+
+    return SystemClock()

@@ -17,11 +17,6 @@ dev = [
     "pytest>=8.0",
 ]
 
-# NOTE: `perf.cli:main` does not exist yet — the CLI (Typer app + `main()`)
-# lands in PR3 (application + CLI phases). The entry point is declared now
-# so the package metadata is stable across PR1-PR3; running the installed
-# `perf` script before PR3 will fail with ModuleNotFoundError until
-# src/perf/cli/main.py exists.
 [project.scripts]
 perf = "perf.cli:main"
 
