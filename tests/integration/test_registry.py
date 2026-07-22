@@ -26,6 +26,18 @@ def test_build_driver_manual_by_name():
     assert isinstance(driver, ManualDriver)
 
 
+def test_build_driver_accepts_uniform_cli_kwargs_for_every_driver():
+    """Regression (PR3 review, CRITICAL): the CLI builds ANY configured driver
+    with the SAME common kwargs (known_flows + device + flow_prompts). Before
+    the fix, `build_driver("manual", known_flows=..., device=...)` raised
+    `TypeError` because ManualDriver's ctor takes neither — so `driver =
+    "manual"` was completely broken end-to-end while every test called the
+    registry with per-driver kwargs and missed it."""
+    common = {"known_flows": {"checkout": "checkout.yaml"}, "device": "emulator-5554", "flow_prompts": {}}
+    assert isinstance(registry.build_driver("maestro", **common), MaestroDriver)
+    assert isinstance(registry.build_driver("manual", **common), ManualDriver)
+
+
 def test_build_sampler_flashlight_by_name():
     sampler = registry.build_sampler("flashlight")
     assert isinstance(sampler, FlashlightSampler)

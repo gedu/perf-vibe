@@ -1,0 +1,18 @@
+✓ perf run complete — run #7
+  flow:       checkout-warm
+  device:     Pixel 8 Pro|Android 14|physical
+  mode:       warm (n=2)
+  source:     local:eduardo
+  commit:     deadbeef
+  dev bundle: no
+
+  markers:
+    checkout: n=2 avg=925.0ms
+
+  flashlight (per-iteration aggregates):
+    iterations captured: 2
+    fps avg: 58.5
+    ram peak: 595.0MB
+    cpu avg: 29.0%
+
+  raw report: results/checkout-warm.json
