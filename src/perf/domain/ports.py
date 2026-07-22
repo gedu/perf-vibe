@@ -1,39 +1,82 @@
-"""Port contracts (`typing.Protocol`) the core depends on.
+"""Port contracts (`typing.Protocol`) the core depends on — REVISION 2.
 
 PURE MODULE — no adapter imports, no I/O. `domain/` and `application/`
 depend ONLY on these Protocols; concrete implementations live in
 `adapters/` (PR2) and are resolved by name through a registry (PR2), never
 imported directly here or in `application/`.
 
-Mirrors the master design §10 verbatim. All ports are defined here as the
-stable shared seam, including ports `run`'s use-case does not call
-(`Analyzer`, `Reporter`) — `compare`/`show`/`history` (later capabilities)
-depend on the same contract without editing this file again.
+Rev 2 (design `perf-cli/design/perf-run` #31, §"Key ports") rewrites the
+six core Protocols so FlowDriver/SystemSampler/MarkerSource each expose a
+pure compose-time method plus an I/O (or pure-parse) method, resolving the
+Flashlight-wraps-Maestro coupling via a compose-time `ExecutionPlan`
+(design §1) rather than a composite adapter. `Analyzer`/`Reporter` are kept
+verbatim as the stable shared seam `compare`/`show`/`history` (later
+capabilities) will depend on without editing this file again — `run`'s
+use-case never calls them.
 """
 
 from __future__ import annotations
 
-from typing import Iterable, Optional, Protocol, Sequence
+from typing import Mapping, Optional, Protocol, Sequence
 
-from perf.domain.model import Marker, RunContext, SystemSample, Verdict
+from perf.domain.model import (
+    CaptureSpec,
+    DriverCommand,
+    DriverResult,
+    ExecutionPlan,
+    Marker,
+    MarkerParseResult,
+    RunContext,
+    SamplerCommand,
+    SystemSample,
+    Verdict,
+)
 
 
 class FlowDriver(Protocol):
-    """Launches the app and drives a named flow N times."""
+    """Contributes the inner test command (pure `command()`) and owns the
+    OS process + parallel-logcat lifecycle for an assembled
+    `ExecutionPlan` (I/O `drive()`). Agnostic to WHAT `plan.command` is —
+    it may be a raw Maestro invocation or a Flashlight-wrapped one."""
 
-    def run(self, flow_name: str, iterations: int, *, mode: str, restart: bool) -> None: ...
+    def command(
+        self,
+        flow_name: str,
+        *,
+        mode: str,
+        restart: bool,
+        env: Optional[Mapping[str, str]] = None,
+    ) -> DriverCommand: ...
 
-
-class MarkerSource(Protocol):
-    """Yields in-app timing markers captured during the run (e.g. from logcat)."""
-
-    def markers(self) -> Iterable[Marker]: ...
+    def drive(self, plan: ExecutionPlan) -> DriverResult: ...
 
 
 class SystemSampler(Protocol):
-    """Yields per-iteration system metrics (e.g. from Flashlight results JSON)."""
+    """Contributes an optional command-wrapper (pure `wrap()` — `None`
+    when this sampler cannot wrap, e.g. a documented-but-unbuilt seam) and
+    later parses the artifact it declared (I/O `parse()`)."""
 
-    def samples(self) -> Iterable[SystemSample]: ...
+    def wrap(
+        self,
+        inner: DriverCommand,
+        *,
+        iterations: int,
+        restart: bool,
+        results_path: str,
+    ) -> Optional[SamplerCommand]: ...
+
+    def parse(self, results_path: str) -> list[SystemSample]: ...
+
+
+class MarkerSource(Protocol):
+    """Contributes the logcat capture spec (pure `capture_spec()` — `None`
+    when this source needs no parallel capture) and parses the buffer the
+    driver returns (pure `parse()` — no I/O of its own; the driver already
+    captured the lines)."""
+
+    def capture_spec(self) -> Optional[CaptureSpec]: ...
+
+    def parse(self, lines: Sequence[str], *, iterations: int) -> MarkerParseResult: ...
 
 
 class RunContextProvider(Protocol):
@@ -51,8 +94,10 @@ class Store(Protocol):
         flow_name: str,
         iterations: int,
         mode: str,
+        source: str,
         markers: Sequence[Marker],
         samples: Sequence[SystemSample],
+        raw_report_path: Optional[str],
     ) -> int: ...
 
     def history(

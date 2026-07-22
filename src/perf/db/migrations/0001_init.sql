@@ -20,25 +20,27 @@ CREATE TABLE flow (
   description TEXT
 );
 CREATE TABLE metric (
-  metric_id   INTEGER PRIMARY KEY,
-  name        TEXT NOT NULL UNIQUE,        -- '/loans' (stable template, NOT paths with IDs)
-  unit        TEXT NOT NULL DEFAULT 'ms'
+  metric_id        INTEGER PRIMARY KEY,
+  name             TEXT NOT NULL UNIQUE,        -- '/loans' (stable template, NOT paths with IDs)
+  unit             TEXT NOT NULL DEFAULT 'ms',
+  higher_is_better INTEGER NOT NULL DEFAULT 0    -- direction metadata: 0=lower-is-better (default), 1=higher-is-better (e.g. fps_avg/fps_min)
 );
 
 -- ===== FACTS =====
 CREATE TABLE run (
-  run_id        INTEGER PRIMARY KEY,
-  flow_id       INTEGER NOT NULL REFERENCES flow(flow_id),
-  device_id     INTEGER NOT NULL REFERENCES device(device_id),
-  started_at    TEXT    NOT NULL,          -- ISO-8601 UTC (sorts chronologically as text)
-  iterations    INTEGER NOT NULL,          -- to detect partial coverage (n < iterations)
-  mode          TEXT    NOT NULL DEFAULT 'warm',   -- 'warm' | 'cold'
-  source        TEXT    NOT NULL,          -- 'ci' | 'local:eduardo' (keeps series apart)
-  git_commit    TEXT,   git_branch   TEXT, -- bash-owned
-  app_version   TEXT,                      -- app-owned ([PERF-META])
-  is_dev_bundle INTEGER,                   -- app-owned: 0/1 — trustworthy build?
-  bundle_source TEXT,                      -- app-owned: 'dev-server' | 'embedded'
-  build_variant TEXT,   tool_version TEXT
+  run_id          INTEGER PRIMARY KEY,
+  flow_id         INTEGER NOT NULL REFERENCES flow(flow_id),
+  device_id       INTEGER NOT NULL REFERENCES device(device_id),
+  started_at      TEXT    NOT NULL,          -- ISO-8601 UTC (sorts chronologically as text)
+  iterations      INTEGER NOT NULL,          -- to detect partial coverage (n < iterations)
+  mode            TEXT    NOT NULL DEFAULT 'warm',   -- 'warm' | 'cold'
+  source          TEXT    NOT NULL,          -- 'ci' | 'local:eduardo' (keeps series apart)
+  git_commit      TEXT,   git_branch   TEXT, -- bash-owned
+  app_version     TEXT,                      -- app-owned ([PERF-META])
+  is_dev_bundle   INTEGER,                   -- app-owned: 0/1 — trustworthy build?
+  bundle_source   TEXT,                      -- app-owned: 'dev-server' | 'embedded'
+  build_variant   TEXT,   tool_version TEXT,
+  raw_report_path TEXT                       -- disk path to the Flashlight results JSON (one report per run); NULL when no sampler ran
 );
 CREATE TABLE iteration (                   -- only for data Flashlight buckets cleanly
   iteration_id INTEGER PRIMARY KEY,
@@ -56,10 +58,20 @@ CREATE TABLE measure (
   metric_id   INTEGER NOT NULL REFERENCES metric(metric_id),
   duration_ms REAL NOT NULL
 );
--- Flashlight FPS/CPU/RAM per iteration (NO network — that's Embrace). Fixed columns > EAV.
+-- Flashlight FPS/CPU/RAM per iteration (NO network — that's Embrace). Fixed
+-- columns > EAV. Aggregated from the per-sample time-series (§37/§39):
+-- total_time_ms/start_time_ms are the iteration's own fields; fps/ram/cpu
+-- are avg+min/peak over the measures[] series.
 CREATE TABLE system_sample (
-  iteration_id INTEGER PRIMARY KEY REFERENCES iteration(iteration_id) ON DELETE CASCADE,
-  fps_avg REAL, cpu_pct_avg REAL, ram_mb_avg REAL
+  iteration_id  INTEGER PRIMARY KEY REFERENCES iteration(iteration_id) ON DELETE CASCADE,
+  total_time_ms REAL,  -- iteration.time (total flow duration)
+  start_time_ms REAL,  -- iteration.startTime (app/screen startup)
+  fps_avg       REAL,
+  fps_min       REAL,  -- worst jank moment
+  ram_avg_mb    REAL,
+  ram_peak_mb   REAL,  -- peak growth = leak signal
+  cpu_avg_pct   REAL,
+  cpu_peak_pct  REAL   -- sum of cpu.perName per sample, then avg/peak across the series
 );
 
 -- ===== INDEXES (driven by the "this metric, this device, over time" query) =====
