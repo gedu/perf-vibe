@@ -135,6 +135,49 @@ def test_migration_0001_matches_schema_ddl(fresh_connection):
     assert "run_metric_summary" in _view_names(fresh_connection)
 
 
+def _introspect_full_schema(conn: sqlite3.Connection) -> dict:
+    """Full comparable schema across EVERY table: per-table columns
+    (name, type, NOT NULL, default, PK) and foreign keys, plus index and view
+    definitions. Table names come from sqlite_master (our own schema, not user
+    input), so interpolating them into PRAGMA is safe here."""
+    schema: dict = {}
+    tables = sorted(
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
+    )
+    for table in tables:
+        # PRAGMA table_info row: (cid, name, type, notnull, dflt_value, pk) — drop cid (ordinal).
+        columns = [tuple(row[1:]) for row in conn.execute(f"PRAGMA table_info({table})")]
+        foreign_keys = sorted(tuple(row) for row in conn.execute(f"PRAGMA foreign_key_list({table})"))
+        schema[table] = {"columns": columns, "foreign_keys": foreign_keys}
+    schema["__indexes_and_views__"] = sorted(
+        (row[0], row[1], row[2])
+        for row in conn.execute(
+            "SELECT type, name, sql FROM sqlite_master WHERE type IN ('index','view')"
+        )
+    )
+    return schema
+
+
+def test_schema_sql_and_migration_0001_are_fully_equivalent():
+    """Strong drift guard (hardens the earlier subset check): applying
+    schema.sql and 0001_init.sql to separate fresh DBs must yield IDENTICAL
+    schemas across ALL tables — columns, types, NOT NULL, defaults, PK, and
+    foreign keys — plus indexes and views. A one-sided edit to ANY table or
+    column (not just system_sample) fails this test."""
+    conn_schema = sqlite3.connect(":memory:")
+    conn_migration = sqlite3.connect(":memory:")
+    try:
+        conn_schema.executescript(SCHEMA_SQL.read_text())
+        conn_migration.executescript(MIGRATION_0001.read_text())
+        assert _introspect_full_schema(conn_schema) == _introspect_full_schema(conn_migration)
+    finally:
+        conn_schema.close()
+        conn_migration.close()
+
+
 # ===== Rev 2 schema shape (decision #40: corrected directly in 0001) =====
 
 EXPECTED_SYSTEM_SAMPLE_COLUMNS = {
