@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "perf"
+version = "0.1.0"
+description = "Local-first performance lab CLI: run Maestro flows, capture markers + Flashlight samples, persist and compare against local history."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+# NOTE: `perf.cli:main` does not exist yet — the CLI (Typer app + `main()`)
+# lands in PR3 (application + CLI phases). The entry point is declared now
+# so the package metadata is stable across PR1-PR3; running the installed
+# `perf` script before PR3 will fail with ModuleNotFoundError until
+# src/perf/cli/main.py exists.
+[project.scripts]
+perf = "perf.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+perf = ["db/schema.sql", "db/migrations/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
