@@ -29,6 +29,7 @@ from perf.domain.model import (
     RunContext,
     SamplerCommand,
     SystemSample,
+    SystemSampleParseResult,
     Verdict,
 )
 
@@ -54,7 +55,12 @@ class FlowDriver(Protocol):
 class SystemSampler(Protocol):
     """Contributes an optional command-wrapper (pure `wrap()` — `None`
     when this sampler cannot wrap, e.g. a documented-but-unbuilt seam) and
-    later parses the artifact it declared (I/O `parse()`)."""
+    later parses the artifact it declared (I/O `parse()`).
+
+    `parse()` returns a `SystemSampleParseResult`, not a bare list, so a
+    parser can flag partial coverage when one or more iterations reported a
+    non-SUCCESS status (fix: never silently aggregate a failed iteration as
+    if it succeeded)."""
 
     def wrap(
         self,
@@ -65,7 +71,7 @@ class SystemSampler(Protocol):
         results_path: str,
     ) -> Optional[SamplerCommand]: ...
 
-    def parse(self, results_path: str) -> list[SystemSample]: ...
+    def parse(self, results_path: str) -> SystemSampleParseResult: ...
 
 
 class MarkerSource(Protocol):
