@@ -129,6 +129,21 @@ def test_successful_save_run_persists_exactly_one_run_and_its_facts(store):
     assert summary["is_dev_bundle"] is False
 
 
+def test_marker_unit_is_persisted_not_defaulted_to_ms(store):
+    """Regression (PR3 verify, WARNING-2): a marker with a non-`ms` unit must
+    persist that unit on the `metric` dimension, not silently default to
+    `'ms'` (a COMPARE reading `metric.unit` would otherwise misinterpret it)."""
+    ctx = _run_context()
+    markers = [Marker(name="startup", value=1.5, unit="s")]
+
+    store.save_run(ctx, "prestamos-warm", 1, "warm", "local:eduardo", markers, [], None)
+
+    unit = store._conn.execute(
+        "SELECT unit FROM metric WHERE name = 'startup'"
+    ).fetchone()[0]
+    assert unit == "s"
+
+
 def test_save_run_raising_partway_leaves_zero_rows_full_rollback(store):
     """A crashed run leaves ZERO rows — dimension upserts happen inside the
     SAME transaction as the facts, so they roll back too (§9.6: "roll back

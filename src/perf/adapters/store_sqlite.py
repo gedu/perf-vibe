@@ -203,14 +203,16 @@ class SqliteStore:
         return row[0]
 
     @staticmethod
-    def _upsert_metric(conn: sqlite3.Connection, name: str, higher_is_better: bool) -> int:
+    def _upsert_metric(
+        conn: sqlite3.Connection, name: str, higher_is_better: bool, unit: str = "ms"
+    ) -> int:
         conn.execute(
             """
-            INSERT INTO metric (name, higher_is_better)
-            VALUES (?, ?)
+            INSERT INTO metric (name, higher_is_better, unit)
+            VALUES (?, ?, ?)
             ON CONFLICT(name) DO NOTHING
             """,
-            (name, int(higher_is_better)),
+            (name, int(higher_is_better), unit),
         )
         row = conn.execute("SELECT metric_id FROM metric WHERE name = ?", (name,)).fetchone()
         return row[0]
@@ -225,7 +227,10 @@ class SqliteStore:
         for marker in markers:
             if marker.name not in metric_ids:
                 metric_ids[marker.name] = self._upsert_metric(
-                    conn, marker.name, default_higher_is_better(marker.name)
+                    conn,
+                    marker.name,
+                    default_higher_is_better(marker.name),
+                    unit=marker.unit,
                 )
         for name in self._captured_system_sample_metric_names(samples):
             if name not in metric_ids:
