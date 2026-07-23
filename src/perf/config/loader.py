@@ -208,5 +208,9 @@ def load_config(
         floors=floors,
         min_baseline_commits=int(layers.get("min_baseline_commits", DEFAULT_MIN_BASELINE_COMMITS)),
         warmup_k=int(layers.get("warmup_k", DEFAULT_WARMUP_K)),
-        baseline_n=int(layers.get("baseline_n", DEFAULT_BASELINE_N)),
+        # FIX 3 (PR-B review): a 0/negative `baseline_n` would reach the
+        # baseline query's `LIMIT ?`, where SQLite treats `LIMIT <= -1` as
+        # UNBOUNDED — silently loading the entire history and defeating
+        # the bounded-window guarantee. Clamp to a minimum of 1.
+        baseline_n=max(1, int(layers.get("baseline_n", DEFAULT_BASELINE_N))),
     )

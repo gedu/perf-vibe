@@ -73,6 +73,45 @@ def test_boundary_detector_catches_evasive_adapter_imports():
         )
 
 
+def test_compare_domain_modules_import_no_adapters():
+    """PR-B (compare Phase 2): `regression.py`/`statistics.py`/
+    `calibration.py` must stay pure — same guard as
+    `test_domain_has_no_adapter_imports`, scoped explicitly to the
+    `compare`-specific modules (spec 'Hexagonal Boundary Enforcement')."""
+    compare_domain_files = [
+        DOMAIN_DIR / "regression.py",
+        DOMAIN_DIR / "statistics.py",
+        DOMAIN_DIR / "calibration.py",
+    ]
+    for path in compare_domain_files:
+        assert path.is_file(), f"expected {path} to exist"
+
+    offenders: dict[str, set[str]] = {}
+    for path in compare_domain_files:
+        imported = _imported_module_names(path.read_text())
+        adapter_imports = {name for name in imported if "adapters" in name}
+        if adapter_imports:
+            offenders[str(path)] = adapter_imports
+
+    assert not offenders, f"compare domain modules importing adapters/: {offenders}"
+
+
+def test_analyzer_compare_latest_returns_compare_result():
+    """design 'Verdict carrier' / tasks #59: `Analyzer.compare_latest`
+    returns a single additive `CompareResult(verdicts, calibration)`
+    carrier — RED before `domain/ports.py`/`domain/model.py` add it."""
+    import typing
+
+    from perf.domain.model import CompareResult
+    from perf.domain.ports import Analyzer
+
+    hints = typing.get_type_hints(Analyzer.compare_latest)
+    return_hint = hints["return"]
+    args = typing.get_args(return_hint)
+
+    assert CompareResult in args or return_hint is CompareResult
+
+
 def test_domain_package_has_no_io_stdlib_imports():
     """Domain modules must perform no I/O — a light guard against the most
     common accidental leaks (subprocess, socket, sqlite3, open()-adjacent

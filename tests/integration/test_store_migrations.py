@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from pathlib import Path
 
 import pytest
 
@@ -25,7 +26,7 @@ def test_fresh_db_migrates_to_latest_user_version_and_creates_schema(tmp_path):
     store = SqliteStore(db_path)
     try:
         version = store._conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 1  # only 0001_init.sql exists today; runner is generic for future files
+        assert version == 2  # 0001_init.sql + 0002_compare_baseline_index.sql
 
         tables = {
             row[0]
@@ -34,6 +35,103 @@ def test_fresh_db_migrates_to_latest_user_version_and_creates_schema(tmp_path):
         assert EXPECTED_TABLES <= tables
     finally:
         store.close()
+
+
+def test_fresh_db_has_idx_run_baseline_index(tmp_path):
+    """Rev 3 (design 'Bounded Performance'): a fresh DB (via the migration
+    runner picking up `0002_compare_baseline_index.sql`) gets the additive
+    `idx_run_baseline` index the bounded baseline query relies on."""
+    db_path = tmp_path / "perf.db"
+    store = SqliteStore(db_path)
+    try:
+        indexes = {
+            row[0]
+            for row in store._conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
+        }
+        assert "idx_run_baseline" in indexes
+    finally:
+        store.close()
+
+
+def test_migrated_pre_rev3_db_advances_to_user_version_2_and_adds_index(tmp_path):
+    """A DB created BEFORE 0002 existed (i.e. only 0001 applied) picks up
+    0002 on next open: `user_version` advances to 2 and `idx_run_baseline`
+    appears — the additive-index migration path (design 'Migration /
+    Rollout': 'applied by the existing user_version-driven runner')."""
+    db_path = tmp_path / "perf.db"
+
+    # Simulate a pre-Rev3 DB: apply ONLY 0001 by hand, bypassing the
+    # generic glob-based runner so this test controls exactly which
+    # migration has been applied so far.
+    conn = sqlite3.connect(str(db_path), isolation_level=None)
+    conn.execute("PRAGMA foreign_keys = ON")
+    init_sql = (_MIGRATIONS_DIR / "0001_init.sql").read_text()
+    conn.executescript(f"BEGIN;\n{init_sql}\nPRAGMA user_version = 1;\nCOMMIT;")
+    version_before = conn.execute("PRAGMA user_version").fetchone()[0]
+    indexes_before = {
+        row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
+    }
+    conn.close()
+    assert version_before == 1
+    assert "idx_run_baseline" not in indexes_before
+
+    store = SqliteStore(db_path)
+    try:
+        version_after = store._conn.execute("PRAGMA user_version").fetchone()[0]
+        indexes_after = {
+            row[0]
+            for row in store._conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
+        }
+        assert version_after == 2
+        assert "idx_run_baseline" in indexes_after
+    finally:
+        store.close()
+
+
+def test_fresh_schema_sql_and_migrated_db_converge_on_indexes(tmp_path):
+    """`db/schema.sql` (fresh-DB canonical shape) must mirror the same
+    `idx_run_baseline` index the migration adds, so fresh and migrated DBs
+    converge (design 'Additive migration')."""
+    schema_path = _MIGRATIONS_DIR.parent / "schema.sql"
+    schema_sql = schema_path.read_text()
+    assert "idx_run_baseline" in schema_sql
+    assert "CREATE INDEX idx_run_baseline ON run(flow_id, device_id, mode, started_at)" in (
+        schema_sql.replace("\n", " ")
+    )
+
+    fresh_conn = sqlite3.connect(":memory:")
+    fresh_conn.executescript(schema_sql)
+    fresh_indexes = {
+        row[0] for row in fresh_conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
+    }
+    fresh_conn.close()
+
+    db_path = tmp_path / "perf.db"
+    store = SqliteStore(db_path)
+    try:
+        migrated_indexes = {
+            row[0]
+            for row in store._conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
+        }
+    finally:
+        store.close()
+
+    assert fresh_indexes == migrated_indexes
+    assert "idx_run_baseline" in fresh_indexes
+
+
+def test_migration_runner_still_idempotent_at_version_2_on_reopen(tmp_path):
+    db_path = tmp_path / "perf.db"
+
+    store1 = SqliteStore(db_path)
+    store1.close()
+
+    store2 = SqliteStore(db_path)
+    try:
+        version = store2._conn.execute("PRAGMA user_version").fetchone()[0]
+        assert version == 2
+    finally:
+        store2.close()
 
 
 def test_migration_runner_is_idempotent_on_reopen(tmp_path):
@@ -48,7 +146,7 @@ def test_migration_runner_is_idempotent_on_reopen(tmp_path):
     store2 = SqliteStore(db_path)
     try:
         version = store2._conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 1
+        assert version == 2  # latest version as of Rev 3 (0001 + 0002)
     finally:
         store2.close()
 

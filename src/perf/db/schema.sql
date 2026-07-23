@@ -7,7 +7,7 @@
 PRAGMA foreign_keys = ON;        -- per connection
 PRAGMA journal_mode = WAL;       -- writer + reader coexist
 PRAGMA busy_timeout = 5000;      -- avoid SQLITE_BUSY with concurrent runs
--- PRAGMA user_version = 1;      -- schema version for migrations (set by migration runner)
+-- PRAGMA user_version = 2;      -- schema version for migrations (set by migration runner)
 
 -- ===== DIMENSIONS (deduped context) =====
 CREATE TABLE device (
@@ -81,6 +81,11 @@ CREATE TABLE system_sample (
 CREATE INDEX idx_run_flow_device_time ON run(flow_id, device_id, started_at);
 CREATE INDEX idx_measure_metric       ON measure(metric_id);
 CREATE INDEX idx_measure_run          ON measure(run_id);
+-- Rev 3 (0002_compare_baseline_index.sql): the `compare` baseline query
+-- additionally filters by `mode` — this index lets it seek directly to the
+-- (flow_id, device_id, mode) partition instead of scanning the whole
+-- flow+device history and filtering `mode` as a residual predicate.
+CREATE INDEX idx_run_baseline ON run(flow_id, device_id, mode, started_at);
 
 -- ===== VIEWS =====
 -- Per-run + metric summary (nearest-rank percentiles) — §9.3.

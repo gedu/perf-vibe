@@ -18,6 +18,7 @@ import pytest
 DB_DIR = Path(__file__).resolve().parents[2] / "src" / "perf" / "db"
 SCHEMA_SQL = DB_DIR / "schema.sql"
 MIGRATION_0001 = DB_DIR / "migrations" / "0001_init.sql"
+MIGRATION_0002 = DB_DIR / "migrations" / "0002_compare_baseline_index.sql"
 
 EXPECTED_TABLES = {"device", "flow", "metric", "run", "iteration", "measure", "system_sample"}
 EXPECTED_INDEXES = {"idx_run_flow_device_time", "idx_measure_metric", "idx_measure_run"}
@@ -124,10 +125,12 @@ def test_foreign_keys_pragma_enforced_when_enabled(fresh_connection):
 
 def test_migration_0001_matches_schema_ddl(fresh_connection):
     """`db/migrations/0001_init.sql` (task 1.2) applies cleanly on its own
-    and produces the same tables/indexes/view as `schema.sql` — the
-    migration is a versioned mirror of the canonical (Rev 2) schema (§9.5).
+    and produces the tables/indexes/view of the (Rev 2) schema (§9.5).
     Corrected directly in 0001 per decision #40 — no 0002 rename-migration,
-    since no DB has ever been deployed with the thin Rev 1 shape."""
+    since no DB has ever been deployed with the thin Rev 1 shape. `0001`
+    alone is intentionally missing the Rev 3 `idx_run_baseline` index
+    (added by `0002_compare_baseline_index.sql` — see
+    `test_schema_sql_and_migrations_are_fully_equivalent` below)."""
     fresh_connection.executescript(MIGRATION_0001.read_text())
 
     assert EXPECTED_TABLES <= _table_names(fresh_connection)
@@ -161,17 +164,22 @@ def _introspect_full_schema(conn: sqlite3.Connection) -> dict:
     return schema
 
 
-def test_schema_sql_and_migration_0001_are_fully_equivalent():
+def test_schema_sql_and_migrations_are_fully_equivalent():
     """Strong drift guard (hardens the earlier subset check): applying
-    schema.sql and 0001_init.sql to separate fresh DBs must yield IDENTICAL
-    schemas across ALL tables — columns, types, NOT NULL, defaults, PK, and
-    foreign keys — plus indexes and views. A one-sided edit to ANY table or
-    column (not just system_sample) fails this test."""
+    schema.sql on one fresh DB, and applying EVERY migration in order
+    (0001 + Rev 3's additive `0002_compare_baseline_index.sql`) on
+    another, must yield IDENTICAL schemas across ALL tables — columns,
+    types, NOT NULL, defaults, PK, foreign keys — plus indexes and views.
+    A one-sided edit to ANY table/column, or a missing/extra index (e.g.
+    forgetting to mirror `idx_run_baseline` into `schema.sql`), fails
+    this test (design 'Additive migration': 'fresh and migrated DBs
+    converge')."""
     conn_schema = sqlite3.connect(":memory:")
     conn_migration = sqlite3.connect(":memory:")
     try:
         conn_schema.executescript(SCHEMA_SQL.read_text())
         conn_migration.executescript(MIGRATION_0001.read_text())
+        conn_migration.executescript(MIGRATION_0002.read_text())
         assert _introspect_full_schema(conn_schema) == _introspect_full_schema(conn_migration)
     finally:
         conn_schema.close()
