@@ -1,0 +1,82 @@
+schema: spec-driven
+
+persistence:
+  mode: hybrid            # engram + openspec files (changed from engram-only on 2026-07-22)
+  engram_project: perf-vibe
+  note: >
+    Additive change. Existing engram artifacts (sdd-init/perf-vibe, sdd/perf-vibe/testing-capabilities,
+    perf-run apply/explore history) remain intact. From this point forward, sdd-propose/sdd-spec/
+    sdd-design/sdd-tasks/sdd-apply/sdd-verify/sdd-archive write BOTH an openspec/changes/{change}/ file
+    artifact AND the equivalent mem_save under sdd/{change}/{artifact-type}, per
+    ../_shared/sdd-phase-common.md Section C (Hybrid mode).
+  historical_export: >
+    docs/specs/perf-run/ (if/when present) is the historical record of the already-shipped `perf run`
+    (Phase 1) capability. Do not migrate it into openspec/changes/ or openspec/specs/; openspec/ covers
+    FUTURE changes only.
+
+context: |
+  Product: perf-lab-cli (package `perf`) — local-first CLI: runs a Maestro flow N times on a fixed
+  Android device, captures in-app [PERF] markers + Flashlight system metrics, persists to SQLite,
+  compares latest run vs history, prints pass/regression verdict (pretty + versioned --json contract).
+  Tech stack: Python 3.11+, src/ layout, typer (runtime dep), stdlib sqlite3 (zero-dep storage).
+  Architecture: hexagonal/ports & adapters — domain/ (pure) -> application/ (use-cases) -> adapters/
+  (side-effecting) -> cli/ (typer commands + presentation). Ports as typing.Protocol in domain/ports.py.
+  Testing: pytest, layered tests/{unit,integration,contract,golden}, fakes over mocks (tests/fakes.py),
+  hypothesis for pure-math invariants, golden files for pretty output, contract tests for --json
+  schema_version stability. Strict TDD enforced (RED before GREEN is a hard rule in python-testing skill).
+  Style: ruff (lint+format) + mypy designated by python-style skill; not yet wired into pyproject.toml
+  (no [tool.ruff]/[tool.mypy] blocks present yet — treat as a gap, not a decision reversal).
+  Status: `perf run` (Phase 1 core) is COMPLETE and MERGED. Future SDD changes build on top of this
+  real codebase, not the greenfield master-design doc used at initial (engram-only) init.
+
+strict_tdd: true   # marker found: python-testing SKILL.md hard rule 4 ("RED before GREEN, and RED for
+                   # the right reason") + pytest runner detected with 197 tests collected across
+                   # unit/integration/contract/golden layers.
+
+testing:
+  test_runner:
+    command: "pytest"        # via .venv; project also exposes `perf` console_script (pyproject.toml)
+    framework: pytest (>=8.0, dev dependency)
+    collected: 197 tests (unit/integration/contract/golden) as of 2026-07-22
+  layers:
+    unit: { available: true, tool: "pytest — tests/unit/ (pure domain: statistics, regression, run_flow, model)" }
+    integration: { available: true, tool: "pytest — tests/integration/ (adapters vs recorded fixtures, real SQLite temp DB, no live devices)" }
+    e2e: { available: false, tool: "not planned — CLI covered via contract + golden layers instead" }
+    contract: { available: true, tool: "pytest — tests/contract/ (asserts --json schema_version=1 shape stability)" }
+    golden: { available: true, tool: "pytest — tests/golden/ (pretty-output snapshots, color forced off, --update-golden)" }
+  coverage:
+    available: false
+    command: "recommend `pytest --cov=perf` (pytest-cov not yet a dev dep); priority: domain/regression.py verdict math + SQLite ingestion transaction"
+  quality_tools:
+    linter: { available: false, command: "ruff (designated by python-style skill, not yet wired into pyproject.toml)" }
+    type_checker: { available: false, command: "mypy (designated by python-style skill, not yet wired into pyproject.toml)" }
+    formatter: { available: false, command: "ruff format (designated by python-style skill, not yet wired into pyproject.toml)" }
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Respect Phase 1 scope discipline unless the proposal explicitly re-scopes to Phase 2/3
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Domain/ports.py Protocols stay pure — no I/O leaking into domain deltas
+  design:
+    - Document architecture decisions with rationale (hexagonal boundaries: domain/application/adapters/cli)
+    - Ship exactly one adapter per port unless the design explicitly adds a new platform
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+    - Follow the 400-changed-line PR review budget (see ../_shared/sdd-phase-common.md Section E)
+  apply:
+    guidelines:
+      - Follow existing hexagonal layering and the 4 project skills (perf-cli-standards, python-architecture, python-style, python-testing)
+      - Fakes over mocks; never patch the thing under test
+    tdd: true
+    test_command: "pytest"
+  verify:
+    test_command: "pytest"
+    build_command: ""
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+    - Never migrate docs/specs/perf-run/ into openspec/specs/ — it stays as the historical Phase 1 export
