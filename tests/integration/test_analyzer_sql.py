@@ -306,6 +306,31 @@ def test_dev_bundle_only_baseline_history_is_insufficient_data_not_stable(tmp_pa
         store.close()
 
 
+def test_verdict_series_is_chronological_baseline_medians_plus_latest(tmp_path):
+    """PR-C (CLI sparkline, task 3.4) needs `Verdict.series` populated —
+    chronological per-commit baseline medians (oldest first), with the
+    LATEST run's value appended last, so `compare_pretty.render_compare`
+    can draw a trend sparkline ending at "now". Reuses the SAME per-run
+    rows the baseline query already returned (no second query — design
+    'One query, two consumers')."""
+    store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
+    try:
+        for commit, value in (("c1", 100.0), ("c2", 110.0), ("c3", 105.0)):
+            _seed(store, git_commit=commit, checkout_ms=value, fps_values=[60.0], ram_values=[200.0])
+        _seed(store, git_commit="HEAD", checkout_ms=120.0, fps_values=[60.0], ram_values=[200.0])
+
+        analyzer = _make_analyzer(store, min_baseline_commits=2)
+        result = analyzer.compare_latest(FLOW, DEVICE_A, "warm")
+
+        checkout = _verdict_by_metric(result, "checkout")
+        assert checkout is not None
+        # c1, c2, c3 baseline medians in chronological (seed) order, then
+        # the latest run's own value appended last.
+        assert checkout.series == (100.0, 110.0, 105.0, 120.0)
+    finally:
+        store.close()
+
+
 def test_compare_latest_returns_none_when_no_runs_at_all(tmp_path):
     """No prior run at all for this flow/device/mode — `SqlAnalyzer`
     returns `None` (the CLI, PR-C, maps this to the usage-error exit)."""

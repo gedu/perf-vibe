@@ -58,6 +58,7 @@ def classify(
             sample_n=sample_n,
             baseline_commit_n=baseline_commit_n,
             series=tuple(series),
+            floor=floor,
         )
 
     delta = latest - baseline
@@ -90,4 +91,5 @@ def classify(
         sample_n=sample_n,
         baseline_commit_n=baseline_commit_n,
         series=tuple(series),
+        floor=floor,
     )

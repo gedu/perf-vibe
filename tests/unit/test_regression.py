@@ -211,3 +211,25 @@ def test_verdict_carries_identity_and_series_fields_through():
     assert verdict.baseline_commit_n == 8
     assert verdict.series == (58.0, 59.0, 60.0, 54.0)
     assert verdict.status == "regression"
+    assert verdict.floor == 2.0
+
+
+def test_verdict_carries_the_active_floor_even_when_insufficient_data():
+    """The `--json` contract (PR-C `contracts/compare_v1.py`) needs the
+    ACTIVE floor per-metric even when no verdict could be classified — the
+    floor is CONFIG-derived, not a symptom of enough/not-enough history, so
+    it must thread through on every path, including `insufficient-data`."""
+    verdict = classify(
+        "checkout",
+        100.0,
+        None,  # no baseline -> insufficient-data
+        unit="ms",
+        higher_is_better=False,
+        threshold_pct=5.0,
+        floor=7.5,
+        baseline_commit_n=0,
+        sample_n=3,
+        min_n=3,
+    )
+    assert verdict.status == "insufficient-data"
+    assert verdict.floor == 7.5
