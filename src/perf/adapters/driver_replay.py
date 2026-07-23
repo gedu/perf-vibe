@@ -22,8 +22,8 @@ sees the same recorded markers on every replay.
 from __future__ import annotations
 
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping, Optional, Union
 
 from perf.domain.model import DriverCommand, DriverResult, ExecutionPlan
 
@@ -34,8 +34,8 @@ class ReplayDriver:
     def __init__(
         self,
         *,
-        logcat_path: Union[str, Path],
-        flashlight_path: Optional[Union[str, Path]] = None,
+        logcat_path: str | Path,
+        flashlight_path: str | Path | None = None,
     ) -> None:
         self._logcat_path = Path(logcat_path)
         self._flashlight_path = Path(flashlight_path) if flashlight_path is not None else None
@@ -46,7 +46,7 @@ class ReplayDriver:
         *,
         mode: str,
         restart: bool,
-        env: Optional[Mapping[str, str]] = None,
+        env: Mapping[str, str] | None = None,
     ) -> DriverCommand:
         del mode, restart, env  # replay ignores these — the capture is fixed
         return DriverCommand(argv=["replay", flow_name], automated=True, prompt=None)

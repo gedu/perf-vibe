@@ -41,10 +41,11 @@ from a runtime/user-supplied name.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import fields as dc_fields
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import NamedTuple, Optional, Sequence, Union
+from typing import NamedTuple
 
 from perf.domain.model import Marker, RunContext, RunPoint, SystemSample, default_higher_is_better
 from perf.domain.ports import Clock
@@ -78,7 +79,7 @@ class LatestRun(NamedTuple):
     commit" in the baseline queries below."""
 
     run_id: int
-    git_commit: Optional[str]
+    git_commit: str | None
     started_at: str
 
 
@@ -126,7 +127,7 @@ class _RealClock:
     """Default `Clock` — used when no fake is injected (production path)."""
 
     def now_utc_iso(self) -> str:
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()
 
 
 def _parse_migration_version(filename: str) -> int:
@@ -150,9 +151,9 @@ class SqliteStore:
 
     def __init__(
         self,
-        db_path: Union[str, Path],
+        db_path: str | Path,
         *,
-        clock: Optional[Clock] = None,
+        clock: Clock | None = None,
         busy_timeout_ms: int = 5000,
     ) -> None:
         self._db_path = Path(db_path)
@@ -166,7 +167,7 @@ class SqliteStore:
     def close(self) -> None:
         self._conn.close()
 
-    def __enter__(self) -> "SqliteStore":
+    def __enter__(self) -> SqliteStore:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -226,7 +227,7 @@ class SqliteStore:
         source: str,
         markers: Sequence[Marker],
         samples: Sequence[SystemSample],
-        raw_report_path: Optional[str],
+        raw_report_path: str | None,
     ) -> int:
         conn = self._conn
         conn.execute("BEGIN")
@@ -328,7 +329,7 @@ class SqliteStore:
         iterations: int,
         mode: str,
         source: str,
-        raw_report_path: Optional[str],
+        raw_report_path: str | None,
     ) -> int:
         cur = conn.execute(
             """
@@ -403,7 +404,7 @@ class SqliteStore:
 
     # ----- minimal read for run's own confirmation output -----
 
-    def get_run_summary(self, run_id: int) -> Optional[dict]:
+    def get_run_summary(self, run_id: int) -> dict | None:
         """Minimal read model for `run`'s confirmation output only. History/
         compare read models (`Store.history`) are NOT this PR."""
 
@@ -492,7 +493,7 @@ class SqliteStore:
             for commit, started_at, value in rows
         ]
 
-    def latest_run(self, flow_name: str, device_key: str, mode: str) -> Optional[LatestRun]:
+    def latest_run(self, flow_name: str, device_key: str, mode: str) -> LatestRun | None:
         """The single most recent run `compare` evaluates — `None` when the
         flow/device/mode combination has no runs at all (corner case
         C2/C7; the CLI layer, PR-C, maps this to the usage-error exit)."""
@@ -558,7 +559,7 @@ class SqliteStore:
         flow_name: str,
         device_key: str,
         mode: str,
-        current_commit: Optional[str],
+        current_commit: str | None,
         baseline_n: int,
     ) -> Sequence[RunPoint]:
         """Rev 3 bounded, batched baseline read for the WHOLE measure
@@ -632,7 +633,7 @@ class SqliteStore:
         flow_name: str,
         device_key: str,
         mode: str,
-        current_commit: Optional[str],
+        current_commit: str | None,
         baseline_n: int,
     ) -> Sequence[BaselineSystemSamplePoint]:
         """Rev 3 bounded, batched baseline read for the WHOLE

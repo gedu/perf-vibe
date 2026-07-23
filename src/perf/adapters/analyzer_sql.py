@@ -15,7 +15,7 @@ explicit branch below, never silent (decision #53.3).
 
 from __future__ import annotations
 
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from collections.abc import Mapping, Sequence
 
 from perf.adapters.store_sqlite import (
     BaselineSystemSamplePoint,
@@ -73,7 +73,7 @@ class SqlAnalyzer:
 
     def compare_latest(
         self, flow_name: str, device_key: str, mode: str = "warm"
-    ) -> Optional[CompareResult]:
+    ) -> CompareResult | None:
         """`None` when the flow/device/mode has no runs at all (corner
         case C2/C7 — the CLI, PR-C, maps this to the usage-error exit).
         Otherwise every metric observed in the LATEST run gets a
@@ -81,14 +81,14 @@ class SqlAnalyzer:
         C1/C3/C4/C5/C7/C8/C9); a metric that exists only in the baseline,
         never in the latest run, is silently skipped (C6) — no crash."""
 
-        latest: Optional[LatestRun] = self._store.latest_run(flow_name, device_key, mode)
+        latest: LatestRun | None = self._store.latest_run(flow_name, device_key, mode)
         if latest is None:
             return None
 
-        verdicts: List[Verdict] = []
-        per_metric_points: Dict[str, Sequence[calibration.RunPointRow]] = {}
-        units: Dict[str, str] = {}
-        higher_is_better: Dict[str, bool] = {}
+        verdicts: list[Verdict] = []
+        per_metric_points: dict[str, Sequence[calibration.RunPointRow]] = {}
+        units: dict[str, str] = {}
+        higher_is_better: dict[str, bool] = {}
 
         self._compare_measure_family(
             flow_name, device_key, mode, latest, verdicts, per_metric_points, units, higher_is_better
@@ -114,10 +114,10 @@ class SqlAnalyzer:
         device_key: str,
         mode: str,
         latest: LatestRun,
-        verdicts: List[Verdict],
-        per_metric_points: Dict[str, Sequence[calibration.RunPointRow]],
-        units: Dict[str, str],
-        higher_is_better: Dict[str, bool],
+        verdicts: list[Verdict],
+        per_metric_points: dict[str, Sequence[calibration.RunPointRow]],
+        units: dict[str, str],
+        higher_is_better: dict[str, bool],
     ) -> None:
         latest_points = self._store.latest_measure_summary(latest.run_id)
         if not latest_points:
@@ -170,10 +170,10 @@ class SqlAnalyzer:
         device_key: str,
         mode: str,
         latest: LatestRun,
-        verdicts: List[Verdict],
-        per_metric_points: Dict[str, Sequence[calibration.RunPointRow]],
-        units: Dict[str, str],
-        higher_is_better: Dict[str, bool],
+        verdicts: list[Verdict],
+        per_metric_points: dict[str, Sequence[calibration.RunPointRow]],
+        units: dict[str, str],
+        higher_is_better: dict[str, bool],
     ) -> None:
         latest_raw = self._store.latest_system_sample_points(latest.run_id)
         if not latest_raw:
@@ -216,8 +216,8 @@ class SqlAnalyzer:
 
 
 def _sparkline_series(
-    points: Sequence[Tuple[str, float, str]], latest_value: Optional[float]
-) -> Tuple[float, ...]:
+    points: Sequence[tuple[str, float, str]], latest_value: float | None
+) -> tuple[float, ...]:
     """Chronological per-commit baseline medians (oldest first) + the
     LATEST run's own value appended last — feeds `Verdict.series`, which
     `cli/output/compare_pretty.py`'s sparkline renders (PR-C, design
@@ -231,8 +231,8 @@ def _sparkline_series(
     if not points:
         return (latest_value,) if latest_value is not None else ()
 
-    earliest_seen: Dict[str, str] = {}
-    values_by_commit: Dict[str, List[float]] = {}
+    earliest_seen: dict[str, str] = {}
+    values_by_commit: dict[str, list[float]] = {}
     for commit, value, started_at in points:
         values_by_commit.setdefault(commit, []).append(value)
         if commit not in earliest_seen or started_at < earliest_seen[commit]:
@@ -245,8 +245,8 @@ def _sparkline_series(
     return tuple(series)
 
 
-def _group_run_points_by_metric(rows: Sequence[RunPoint]) -> Dict[str, List[Tuple[str, float, str]]]:
-    grouped: Dict[str, List[Tuple[str, float, str]]] = {}
+def _group_run_points_by_metric(rows: Sequence[RunPoint]) -> dict[str, list[tuple[str, float, str]]]:
+    grouped: dict[str, list[tuple[str, float, str]]] = {}
     for row in rows:
         grouped.setdefault(row.metric_name, []).append((row.git_commit, row.value, row.started_at))
     return grouped
@@ -254,7 +254,7 @@ def _group_run_points_by_metric(rows: Sequence[RunPoint]) -> Dict[str, List[Tupl
 
 def _collapse_latest_system_sample(
     rows: Sequence[SystemSampleRawPoint], warmup_k: int
-) -> Dict[str, Tuple[Optional[float], int]]:
+) -> dict[str, tuple[float | None, int]]:
     """Groups the LATEST run's raw per-iteration rows by metric, drops
     `idx < warmup_k` (warm-up asymmetry: `system_sample` ONLY), then
     reduces to one p90 value + the post-warm-up sample count per metric.
@@ -266,7 +266,7 @@ def _collapse_latest_system_sample(
     guard) instead of silently DROPPING the metric entirely, which would
     look identical to the metric never having existed (C6)."""
 
-    by_metric: Dict[str, List[float]] = {}
+    by_metric: dict[str, list[float]] = {}
     seen_metrics: set = set()
     for row in rows:
         seen_metrics.add(row.metric_name)
@@ -274,7 +274,7 @@ def _collapse_latest_system_sample(
             continue
         by_metric.setdefault(row.metric_name, []).append(row.value)
 
-    result: Dict[str, Tuple[Optional[float], int]] = {}
+    result: dict[str, tuple[float | None, int]] = {}
     for metric_name in seen_metrics:
         values = by_metric.get(metric_name, [])
         if values:
@@ -286,15 +286,15 @@ def _collapse_latest_system_sample(
 
 def _collapse_baseline_system_sample(
     rows: Sequence[BaselineSystemSamplePoint], warmup_k: int
-) -> Dict[str, List[Tuple[str, float, str]]]:
+) -> dict[str, list[tuple[str, float, str]]]:
     """Same warm-up-drop as `_collapse_latest_system_sample`, but grouped
     per (metric, run) across the whole baseline window, reducing each RUN
     to one percentile point — yields `(git_commit, value, started_at)`
     PER RUN so `median_by_commit` can still collapse repeated same-commit
     runs afterwards (spec 'Baseline Correctness')."""
 
-    by_metric_run: Dict[Tuple[str, int], List[float]] = {}
-    meta: Dict[Tuple[str, int], Tuple[str, str]] = {}
+    by_metric_run: dict[tuple[str, int], list[float]] = {}
+    meta: dict[tuple[str, int], tuple[str, str]] = {}
     for row in rows:
         if row.iteration_idx < warmup_k:
             continue
@@ -302,7 +302,7 @@ def _collapse_baseline_system_sample(
         by_metric_run.setdefault(key, []).append(row.value)
         meta[key] = (row.git_commit, row.started_at)
 
-    result: Dict[str, List[Tuple[str, float, str]]] = {}
+    result: dict[str, list[tuple[str, float, str]]] = {}
     for (metric_name, _run_id), values in by_metric_run.items():
         if not values:
             continue

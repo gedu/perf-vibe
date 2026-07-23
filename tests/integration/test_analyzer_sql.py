@@ -28,10 +28,11 @@ if str(_TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(_TESTS_DIR))
 
 from fakes import SequentialClock  # noqa: E402
-
 from perf.adapters.store_sqlite import SqliteStore  # noqa: E402
-from perf.domain import regression  # noqa: E402
-from perf.domain import calibration  # noqa: E402
+from perf.domain import (
+    calibration,
+    regression,
+)
 from perf.domain.calibration import CalibrationReport  # noqa: E402
 from perf.domain.model import CompareResult, Marker, RunContext, SystemSample  # noqa: E402
 

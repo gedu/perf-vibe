@@ -24,9 +24,8 @@ from perf.config.loader import FlowConfig, PerfConfig
 # name-collision gotcha). `import_module` bypasses attribute-chain
 # resolution and always returns the real submodule from `sys.modules`.
 main_module = import_module("perf.cli.main")
-from perf.domain.model import DriverResult, MarkerParseResult, SystemSampleParseResult
-
-from fakes import FakeDriver, FakeMarkerSource, FakeRunContextProvider, FakeSystemSampler
+from fakes import FakeDriver, FakeMarkerSource, FakeRunContextProvider
+from perf.domain.model import DriverResult, MarkerParseResult
 
 runner = CliRunner()
 

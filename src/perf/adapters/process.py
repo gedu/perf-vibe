@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import re
 import subprocess
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Mapping, Optional, Sequence
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ class CaptureResult:
     process could not report one at all."""
 
     lines: list
-    returncode: Optional[int]
+    returncode: int | None
 
 
 # Bound diagnostic text before it is ever surfaced to a user (never dump an
@@ -46,7 +46,7 @@ class CaptureResult:
 _MAX_DIAGNOSTICS_LENGTH = 2000
 
 
-def bounded_diagnostics(text: str, *, max_len: int = _MAX_DIAGNOSTICS_LENGTH) -> Optional[str]:
+def bounded_diagnostics(text: str, *, max_len: int = _MAX_DIAGNOSTICS_LENGTH) -> str | None:
     """Trim/bound raw stderr or captured-output text into a diagnostics
     string, or `None` when there is nothing to say."""
 
@@ -90,8 +90,8 @@ class SubprocessRunner:
         self,
         argv: Sequence[str],
         *,
-        env: Optional[Mapping[str, str]] = None,
-        cwd: Optional[str] = None,
+        env: Mapping[str, str] | None = None,
+        cwd: str | None = None,
     ) -> CommandResult:
         completed = subprocess.run(
             list(argv),

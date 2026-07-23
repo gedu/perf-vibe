@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import sqlite3
 import time
-from pathlib import Path
 
 import pytest
 
-from perf.adapters.store_sqlite import SqliteStore, _MIGRATIONS_DIR
+from perf.adapters.store_sqlite import _MIGRATIONS_DIR, SqliteStore
 
 EXPECTED_TABLES = {"device", "flow", "metric", "run", "iteration", "measure", "system_sample"}
 
@@ -32,7 +31,7 @@ def test_fresh_db_migrates_to_latest_user_version_and_creates_schema(tmp_path):
             row[0]
             for row in store._conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
-        assert EXPECTED_TABLES <= tables
+        assert tables >= EXPECTED_TABLES
     finally:
         store.close()
 

@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import json
 
-from fakes import make_run_context
-
 from perf.application.run_flow import RunFlowResult
 from perf.contracts.json_v1 import SCHEMA_VERSION, build_run_payload
 from perf.domain.model import Marker, SystemSample

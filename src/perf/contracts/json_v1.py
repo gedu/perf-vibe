@@ -14,8 +14,9 @@ threaded into this module or its payload.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from perf.application.run_flow import RunFlowResult
 from perf.domain.model import Marker, SystemSample

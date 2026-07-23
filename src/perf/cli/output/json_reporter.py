@@ -6,7 +6,8 @@ all the way to stdout."""
 from __future__ import annotations
 
 import json
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 __all__ = ["render_json"]
 

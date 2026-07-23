@@ -52,8 +52,8 @@ def _view_names(conn: sqlite3.Connection) -> set[str]:
 def test_schema_sql_applies_cleanly_and_creates_expected_tables(fresh_connection):
     fresh_connection.executescript(SCHEMA_SQL.read_text())
 
-    assert EXPECTED_TABLES <= _table_names(fresh_connection)
-    assert EXPECTED_INDEXES <= _index_names(fresh_connection)
+    assert _table_names(fresh_connection) >= EXPECTED_TABLES
+    assert _index_names(fresh_connection) >= EXPECTED_INDEXES
     assert "run_metric_summary" in _view_names(fresh_connection)
 
 
@@ -133,8 +133,8 @@ def test_migration_0001_matches_schema_ddl(fresh_connection):
     `test_schema_sql_and_migrations_are_fully_equivalent` below)."""
     fresh_connection.executescript(MIGRATION_0001.read_text())
 
-    assert EXPECTED_TABLES <= _table_names(fresh_connection)
-    assert EXPECTED_INDEXES <= _index_names(fresh_connection)
+    assert _table_names(fresh_connection) >= EXPECTED_TABLES
+    assert _index_names(fresh_connection) >= EXPECTED_INDEXES
     assert "run_metric_summary" in _view_names(fresh_connection)
 
 

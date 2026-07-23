@@ -7,7 +7,6 @@ lets an exception escape as Python's default exit code `1`."""
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 import typer
 
@@ -37,7 +36,7 @@ __all__ = ["run"]
 def run(
     ctx: typer.Context,
     flow: str = typer.Argument(..., help="Config-known flow name to run"),
-    iterations: Optional[int] = typer.Option(
+    iterations: int | None = typer.Option(
         None,
         "--iterations",
         "-n",
@@ -47,7 +46,7 @@ def run(
     restart: bool = typer.Option(
         False, "--restart", help="Force a cold run (default: warm)"
     ),
-    device: Optional[str] = typer.Option(
+    device: str | None = typer.Option(
         None, "--device", help="Pin a device serial (overrides MAESTRO_DEVICE/config)"
     ),
 ) -> None:
@@ -139,7 +138,7 @@ def run(
         if exc.diagnostics:
             typer.echo(f"  diagnostics: {exc.diagnostics}", err=True)
         raise typer.Exit(code=3) from None
-    except Exception as exc:  # noqa: BLE001 — last-resort guard: `run` must
+    except Exception as exc:
         # NEVER exit 1 (SKILL rule 7). Any unexpected exception (a bug, an
         # adapter surprise) is still a runtime/tooling failure, not a usage
         # error — map it to exit 3 rather than let Python's default
@@ -150,7 +149,7 @@ def run(
         if store is not None and hasattr(store, "close"):
             try:
                 store.close()
-            except Exception as close_exc:  # noqa: BLE001 — a close() failure
+            except Exception as close_exc:
                 # must NEVER override the computed exit code (SKILL rule 7:
                 # never exit 1). Report it, but do not let it escape.
                 typer.echo(f"warning: failed to close store: {close_exc}", err=True)
@@ -163,7 +162,7 @@ def run(
             if output.should_nudge_stderr:
                 typer.echo(NON_TTY_NUDGE, err=True)
             typer.echo(render_confirmation(result, color=output.color_enabled))
-    except Exception as exc:  # noqa: BLE001 — rendering runs outside the main
+    except Exception as exc:
         # guarded block; an output failure is still a runtime failure, never
         # exit 1 (SKILL rule 7).
         typer.echo(f"Error: failed to render output for {flow!r}: {exc}", err=True)

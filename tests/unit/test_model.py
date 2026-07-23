@@ -17,7 +17,6 @@ from perf.domain.model import (
     Device,
     DriverCommand,
     DriverResult,
-    ExecutionPlan,
     Flow,
     LoopMode,
     Marker,

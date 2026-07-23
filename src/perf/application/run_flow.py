@@ -28,8 +28,8 @@ use-case dep").
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Mapping, Optional, Sequence
 
 from perf.domain.model import (
     ExecutionPlan,
@@ -48,11 +48,11 @@ from perf.domain.ports import (
 )
 
 __all__ = [
+    "RunFailedError",
     "RunFlowRequest",
     "RunFlowResult",
     "RunFlowUseCase",
     "UsageError",
-    "RunFailedError",
 ]
 
 
@@ -67,7 +67,7 @@ class RunFailedError(Exception):
     detail (already scrubbed by the adapter that produced it, e.g.
     `DriverResult.diagnostics`) for the CLI to surface to the user."""
 
-    def __init__(self, message: str, *, diagnostics: Optional[str] = None) -> None:
+    def __init__(self, message: str, *, diagnostics: str | None = None) -> None:
         super().__init__(message)
         self.diagnostics = diagnostics
 
@@ -82,8 +82,8 @@ class RunFlowRequest:
     flow_name: str
     iterations: int
     restart: bool  # True forces cold; warm is the default (spec "Flow Execution Loop")
-    env: Optional[Mapping[str, str]] = None  # secret forwarding (e.g. PASSWORD), never logged
-    results_dir: Optional[str] = None  # required only when a SystemSampler is active
+    env: Mapping[str, str] | None = None  # secret forwarding (e.g. PASSWORD), never logged
+    results_dir: str | None = None  # required only when a SystemSampler is active
 
     @property
     def mode(self) -> str:
@@ -101,14 +101,14 @@ class RunFlowResult:
     run_id: int
     flow_name: str
     device_key: str
-    git_commit: Optional[str]
-    is_dev_bundle: Optional[bool]
+    git_commit: str | None
+    is_dev_bundle: bool | None
     source: str  # 'ci' | 'local:<user>' (RunContext.source — same value persisted on `run.source`)
     mode: str
     iterations: int
     markers: Sequence[Marker]
     samples: Sequence[SystemSample]
-    raw_report_path: Optional[str]
+    raw_report_path: str | None
     partial_coverage: bool
 
 
@@ -122,8 +122,8 @@ class RunFlowUseCase:
         self,
         *,
         driver: FlowDriver,
-        sampler: Optional[SystemSampler],
-        marker_source: Optional[MarkerSource],
+        sampler: SystemSampler | None,
+        marker_source: MarkerSource | None,
         context_provider: RunContextProvider,
         store: Store,
         clock: Clock,
@@ -169,7 +169,7 @@ class RunFlowUseCase:
         # be `None` even with a sampler configured (e.g. manual driver +
         # Flashlight is a documented, unbuilt seam — `FlashlightSampler.
         # wrap()` returns `None` when `inner.argv is None`).
-        candidate_results_path: Optional[str] = None
+        candidate_results_path: str | None = None
         wrap = None
         if self._sampler is not None:
             candidate_results_path = self._build_results_path(request)
@@ -222,7 +222,7 @@ class RunFlowUseCase:
         if wrap is not None:
             try:
                 sample_result = self._sampler.parse(wrap.results_path)  # type: ignore[union-attr]
-            except Exception as exc:  # noqa: BLE001 — deliberately broad: RunFlowUseCase
+            except Exception as exc:
                 # imports no adapter (SKILL rule 1), so it cannot catch a
                 # specific adapter exception type (e.g. FlashlightParseError)
                 # by name; ANY parse failure of the sampler's own artifact is

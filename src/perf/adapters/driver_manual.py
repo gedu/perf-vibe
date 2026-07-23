@@ -14,7 +14,7 @@ before, stop after) — it just never spawns maestro/flashlight itself.
 
 from __future__ import annotations
 
-from typing import Callable, Mapping, Optional, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 from perf.adapters.process import SubprocessRunner, bounded_diagnostics
 from perf.domain.model import DriverCommand, DriverResult, ExecutionPlan
@@ -27,9 +27,9 @@ class ManualDriver:
         self,
         flow_prompts: Mapping[str, str],
         *,
-        runner: Optional[SubprocessRunner] = None,
-        input_fn: Optional[Callable[[str], str]] = None,
-        print_fn: Optional[Callable[[str], None]] = None,
+        runner: SubprocessRunner | None = None,
+        input_fn: Callable[[str], str] | None = None,
+        print_fn: Callable[[str], None] | None = None,
     ) -> None:
         self._flow_prompts = dict(flow_prompts)
         self._runner = runner if runner is not None else SubprocessRunner()
@@ -42,7 +42,7 @@ class ManualDriver:
         *,
         mode: str,
         restart: bool,
-        env: Optional[Mapping[str, str]] = None,
+        env: Mapping[str, str] | None = None,
     ) -> DriverCommand:
         del mode, restart, env  # no automated command depends on these
         prompt = self._flow_prompts.get(
@@ -57,7 +57,7 @@ class ManualDriver:
 
         logcat_lines: Sequence[str] = ()
         capture_failed = False
-        diagnostics: Optional[str] = None
+        diagnostics: str | None = None
         try:
             prompt = plan.inner.prompt or "Perform the flow manually, then press Enter."
             iteration_outcomes: list[str] = []

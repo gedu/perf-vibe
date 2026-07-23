@@ -16,9 +16,9 @@ pure data (design §1) — no composite adapter, no I/O here.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Sequence
 
 
 class LoopMode(str, Enum):
@@ -60,7 +60,7 @@ class Flow:
     """Dimension: a named Maestro flow (`flow` table, §9.2)."""
 
     name: str  # 'prestamos-warm'
-    description: Optional[str] = None
+    description: str | None = None
 
 
 @dataclass(frozen=True)
@@ -100,14 +100,14 @@ class SystemSample:
     an empty `measures[]` still yields `total_time_ms`/`start_time_ms`."""
 
     iteration_idx: int
-    total_time_ms: Optional[float]
-    start_time_ms: Optional[float]
-    fps_avg: Optional[float]
-    fps_min: Optional[float]
-    ram_avg_mb: Optional[float]
-    ram_peak_mb: Optional[float]
-    cpu_avg_pct: Optional[float]
-    cpu_peak_pct: Optional[float]
+    total_time_ms: float | None
+    start_time_ms: float | None
+    fps_avg: float | None
+    fps_min: float | None
+    ram_avg_mb: float | None
+    ram_peak_mb: float | None
+    cpu_avg_pct: float | None
+    cpu_peak_pct: float | None
 
 
 @dataclass(frozen=True)
@@ -121,12 +121,12 @@ class RunContext:
     os_version: str
     is_emulator: bool
     source: str  # 'ci' | 'local:<user>'
-    git_commit: Optional[str]
-    git_branch: Optional[str]
-    app_version: Optional[str]
-    is_dev_bundle: Optional[bool]
-    bundle_source: Optional[str]
-    build_variant: Optional[str]
+    git_commit: str | None
+    git_branch: str | None
+    app_version: str | None
+    is_dev_bundle: bool | None
+    bundle_source: str | None
+    build_variant: str | None
     tool_version: str
 
 
@@ -143,8 +143,8 @@ class Run:
     iterations: int
     mode: str  # 'warm' | 'cold'
     context: RunContext
-    raw_report_path: Optional[str] = None
-    run_id: Optional[int] = None
+    raw_report_path: str | None = None
+    run_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -156,7 +156,7 @@ class Measure:
 
     metric_name: str
     duration_ms: float
-    run_id: Optional[int] = None
+    run_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -181,8 +181,8 @@ class Verdict:
     delta_pct: float
     threshold_pct: float
     status: str  # 'improvement' | 'stable' | 'regression' | 'insufficient-data'
-    latest_value: Optional[float] = None
-    baseline_value: Optional[float] = None
+    latest_value: float | None = None
+    baseline_value: float | None = None
     unit: str = "ms"
     sample_n: int = 0
     baseline_commit_n: int = 0
@@ -204,7 +204,7 @@ class CompareResult:
     pure; `run` never builds or consumes this, so it stays additive."""
 
     verdicts: Sequence[Verdict]
-    calibration: "CalibrationReport"  # perf.domain.calibration.CalibrationReport
+    calibration: CalibrationReport  # perf.domain.calibration.CalibrationReport
 
 
 @dataclass(frozen=True)
@@ -232,9 +232,9 @@ class DriverCommand:
     manual and has no automated command — in which case `prompt` carries
     the instruction text shown to the user."""
 
-    argv: Optional[Sequence[str]]
+    argv: Sequence[str] | None
     automated: bool
-    prompt: Optional[str] = None
+    prompt: str | None = None
 
 
 @dataclass(frozen=True)
@@ -267,12 +267,12 @@ class ExecutionPlan:
     inner command, else the inner argv itself, or `None` for a manual,
     unwrapped driver)."""
 
-    command: Optional[Sequence[str]]
+    command: Sequence[str] | None
     inner: DriverCommand
     loop_mode: LoopMode
     iterations: int
-    capture: Optional[CaptureSpec]
-    results_path: Optional[str]
+    capture: CaptureSpec | None
+    results_path: str | None
 
 
 @dataclass(frozen=True)
@@ -293,7 +293,7 @@ class DriverResult:
     iteration_outcomes: Sequence[str]
     logcat_lines: Sequence[str]
     capture_failed: bool = False
-    diagnostics: Optional[str] = None
+    diagnostics: str | None = None
 
 
 @dataclass(frozen=True)
@@ -326,8 +326,8 @@ def compose_execution_plan(
     inner: DriverCommand,
     *,
     iterations: int,
-    wrap: Optional[SamplerCommand] = None,
-    capture: Optional[CaptureSpec] = None,
+    wrap: SamplerCommand | None = None,
+    capture: CaptureSpec | None = None,
 ) -> ExecutionPlan:
     """Pure compose-time assembly of an `ExecutionPlan` (design §1, steps
     5-7). Resolves the Flashlight-wraps-Maestro coupling as data: if `wrap`

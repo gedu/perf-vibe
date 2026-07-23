@@ -14,8 +14,8 @@ needed), so they are plain factory functions rather than name-keyed maps.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Callable, Mapping, Optional, Union
 
 from perf.adapters.analyzer_sql import SqlAnalyzer
 from perf.adapters.clock_system import SystemClock
@@ -35,6 +35,7 @@ from perf.domain.ports import (
     Store,
     SystemSampler,
 )
+
 
 def _build_maestro_driver(
     *,
@@ -100,9 +101,9 @@ MARKER_SOURCES: Mapping[str, Callable[..., MarkerSource]] = {
 def _build(
     registry: Mapping[str, Callable[..., object]],
     kind: str,
-    name: Optional[str],
+    name: str | None,
     **kwargs,
-) -> Optional[object]:
+) -> object | None:
     if name is None:
         return None
     try:
@@ -114,7 +115,7 @@ def _build(
     return factory(**kwargs)
 
 
-def build_driver(name: Optional[str], **kwargs) -> FlowDriver:
+def build_driver(name: str | None, **kwargs) -> FlowDriver:
     """Build the named `FlowDriver` from a COMMON set of build kwargs
     (`known_flows`, `device`, `flow_prompts`, `runner`); each driver's builder
     picks what it needs. A `FlowDriver` is always required (spec: a measurement
@@ -131,13 +132,13 @@ def build_driver(name: Optional[str], **kwargs) -> FlowDriver:
     return builder(**kwargs)
 
 
-def build_sampler(name: Optional[str], **kwargs) -> Optional[SystemSampler]:
+def build_sampler(name: str | None, **kwargs) -> SystemSampler | None:
     """`None` -> no `SystemSampler` selected (spec: independently optional)."""
 
     return _build(SAMPLERS, "sampler", name, **kwargs)
 
 
-def build_marker_source(name: Optional[str], **kwargs) -> Optional[MarkerSource]:
+def build_marker_source(name: str | None, **kwargs) -> MarkerSource | None:
     """`None` -> no `MarkerSource` selected (spec: independently optional)."""
 
     return _build(MARKER_SOURCES, "marker source", name, **kwargs)
@@ -150,7 +151,7 @@ def build_context_provider(**kwargs) -> RunContextProvider:
     return BashRunContextProvider(**kwargs)
 
 
-def build_store(db_path: Union[str, Path], **kwargs) -> Store:
+def build_store(db_path: str | Path, **kwargs) -> Store:
     """`Store` has exactly one implementation — a single factory, no
     name-keyed map needed. `db_path` opens a LOCAL SQLite file only."""
 

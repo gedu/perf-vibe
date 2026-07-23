@@ -5,10 +5,11 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping, Optional, TextIO
+from typing import TextIO
 
-__all__ = ["OutputContext", "resolve_output_context", "NON_TTY_NUDGE"]
+__all__ = ["NON_TTY_NUDGE", "OutputContext", "resolve_output_context"]
 
 NON_TTY_NUDGE = "note: non-terminal output detected — use --json for stable machine parsing"
 
@@ -37,7 +38,7 @@ def resolve_output_context(
     no_color_cli: bool,
     stdout: TextIO,
     no_color_config: bool = False,
-    env: Optional[Mapping[str, str]] = None,
+    env: Mapping[str, str] | None = None,
 ) -> OutputContext:
     # Precedence (SKILL rule 6): CLI flag > NO_COLOR env > project/global config
     # > TTY default. `no_color_config` carries the resolved project/global

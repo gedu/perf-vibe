@@ -30,9 +30,9 @@ directory).
 from __future__ import annotations
 
 import sys
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import Sequence
 
 _DEMO_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _DEMO_DIR.parents[1]
@@ -41,7 +41,6 @@ if str(_TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(_TESTS_DIR))
 
 from fakes import SequentialClock  # noqa: E402
-
 from perf.adapters.clock_system import SystemClock  # noqa: E402
 from perf.adapters.driver_replay import ReplayDriver  # noqa: E402
 from perf.adapters.markers_adb_logcat import AdbLogcatMarkerSource  # noqa: E402

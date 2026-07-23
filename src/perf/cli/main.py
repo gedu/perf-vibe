@@ -12,7 +12,6 @@ of a command's own output.
 from __future__ import annotations
 
 import sys
-from typing import Optional
 
 import typer
 
@@ -51,10 +50,10 @@ def main_callback(
     no_color: bool = typer.Option(
         False, "--no-color", help="Disable ANSI color output (also honors NO_COLOR env)."
     ),
-    db: Optional[str] = typer.Option(
+    db: str | None = typer.Option(
         None, "--db", help="Path to the local SQLite store (also honors PERF_DB env)."
     ),
-    config: Optional[str] = typer.Option(
+    config: str | None = typer.Option(
         None, "--config", help="Path to a project perf.toml config file."
     ),
 ) -> None:

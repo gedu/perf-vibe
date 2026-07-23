@@ -5,7 +5,7 @@ the caller-resolved `color` flag (golden tests force it off)."""
 from __future__ import annotations
 
 import statistics
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 from perf.application.run_flow import RunFlowResult
 from perf.domain.model import Marker, SystemSample

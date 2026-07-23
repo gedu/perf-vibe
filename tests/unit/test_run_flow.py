@@ -12,14 +12,13 @@ import pytest
 from fakes import (
     FakeDriver,
     FakeMarkerSource,
+    FakeRunContextProvider,
     FakeStore,
     FakeSystemSampler,
-    FakeRunContextProvider,
     FrozenClock,
     NoArgRunContextProvider,
     make_run_context,
 )
-
 from perf.application.run_flow import (
     RunFailedError,
     RunFlowRequest,

@@ -6,7 +6,6 @@ cases C1/C3/C4/C5) — hypothesis-hardened.
 
 from __future__ import annotations
 
-import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 

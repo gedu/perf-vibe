@@ -17,7 +17,6 @@ if str(_TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(_TESTS_DIR))
 
 from fakes import SequentialClock  # noqa: E402
-
 from perf.adapters import registry
 from perf.adapters.driver_maestro import MaestroDriver
 from perf.adapters.driver_manual import ManualDriver

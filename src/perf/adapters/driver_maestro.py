@@ -18,7 +18,7 @@ stop after) because only the driver knows flow timing.
 
 from __future__ import annotations
 
-from typing import Mapping, Optional, Sequence, Tuple
+from collections.abc import Mapping, Sequence
 
 from perf.adapters.process import SubprocessRunner, bounded_diagnostics, scrub_secrets
 from perf.domain.model import DriverCommand, DriverResult, ExecutionPlan, LoopMode
@@ -31,8 +31,8 @@ class MaestroDriver:
         self,
         known_flows: Mapping[str, str],
         *,
-        device: Optional[str] = None,
-        runner: Optional[SubprocessRunner] = None,
+        device: str | None = None,
+        runner: SubprocessRunner | None = None,
     ) -> None:
         self._known_flows = dict(known_flows)
         self._device = device
@@ -44,7 +44,7 @@ class MaestroDriver:
         *,
         mode: str,
         restart: bool,
-        env: Optional[Mapping[str, str]] = None,
+        env: Mapping[str, str] | None = None,
     ) -> DriverCommand:
         # Rejected BEFORE any subprocess spawn — flow_name is validated
         # against the config-known flow set, never trusted as-is
@@ -82,7 +82,7 @@ class MaestroDriver:
 
         logcat_lines: Sequence[str] = ()
         capture_failed = False
-        diagnostics: Optional[str] = None
+        diagnostics: str | None = None
         try:
             if plan.loop_mode == LoopMode.TOOL_MANAGED:
                 iteration_outcomes, diagnostics = self._drive_tool_managed(plan)
@@ -117,7 +117,7 @@ class MaestroDriver:
             diagnostics=diagnostics,
         )
 
-    def _drive_tool_managed(self, plan: ExecutionPlan) -> Tuple[list[str], Optional[str]]:
+    def _drive_tool_managed(self, plan: ExecutionPlan) -> tuple[list[str], str | None]:
         if plan.command is None:
             raise RuntimeError("TOOL_MANAGED plan requires a composed command")
         result = self._runner.run(list(plan.command))
@@ -127,11 +127,11 @@ class MaestroDriver:
         )
         return [outcome] * plan.iterations, diagnostics
 
-    def _drive_driver_managed(self, plan: ExecutionPlan) -> Tuple[list[str], Optional[str]]:
+    def _drive_driver_managed(self, plan: ExecutionPlan) -> tuple[list[str], str | None]:
         if plan.inner.argv is None:
             raise RuntimeError("DRIVER_MANAGED plan requires an automated inner command")
         outcomes: list[str] = []
-        diagnostics: Optional[str] = None
+        diagnostics: str | None = None
         for _ in range(plan.iterations):
             result = self._runner.run(list(plan.inner.argv))
             outcomes.append("ok" if result.returncode == 0 else "failed")

@@ -17,7 +17,8 @@ use-case never calls them.
 
 from __future__ import annotations
 
-from typing import Mapping, Optional, Protocol, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Protocol
 
 from perf.domain.model import (
     CaptureSpec,
@@ -46,7 +47,7 @@ class FlowDriver(Protocol):
         *,
         mode: str,
         restart: bool,
-        env: Optional[Mapping[str, str]] = None,
+        env: Mapping[str, str] | None = None,
     ) -> DriverCommand: ...
 
     def drive(self, plan: ExecutionPlan) -> DriverResult: ...
@@ -69,7 +70,7 @@ class SystemSampler(Protocol):
         iterations: int,
         restart: bool,
         results_path: str,
-    ) -> Optional[SamplerCommand]: ...
+    ) -> SamplerCommand | None: ...
 
     def parse(self, results_path: str) -> SystemSampleParseResult: ...
 
@@ -80,7 +81,7 @@ class MarkerSource(Protocol):
     driver returns (pure `parse()` — no I/O of its own; the driver already
     captured the lines)."""
 
-    def capture_spec(self) -> Optional[CaptureSpec]: ...
+    def capture_spec(self) -> CaptureSpec | None: ...
 
     def parse(self, lines: Sequence[str], *, iterations: int) -> MarkerParseResult: ...
 
@@ -103,12 +104,12 @@ class Store(Protocol):
         source: str,
         markers: Sequence[Marker],
         samples: Sequence[SystemSample],
-        raw_report_path: Optional[str],
+        raw_report_path: str | None,
     ) -> int: ...
 
     def history(
         self, flow_name: str, metric_name: str, device_key: str, limit: int
-    ) -> Sequence["RunPoint"]: ...
+    ) -> Sequence[RunPoint]: ...
     # ... show/history read models
 
 
@@ -124,13 +125,13 @@ class Analyzer(Protocol):
 
     def compare_latest(
         self, flow_name: str, device_key: str, mode: str = "warm"
-    ) -> Optional[CompareResult]: ...
+    ) -> CompareResult | None: ...
 
 
 class Reporter(Protocol):
     """Renders results. PrettyReporter for humans, JsonReporter for machines."""
 
-    def report(self, payload: "ReportPayload") -> None: ...
+    def report(self, payload: ReportPayload) -> None: ...
 
 
 class Clock(Protocol):

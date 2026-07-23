@@ -10,7 +10,7 @@ SKILL.md` rule 1.
 from __future__ import annotations
 
 import math
-from typing import Dict, Iterable, Sequence, Tuple
+from collections.abc import Iterable, Sequence
 
 
 def median(values: Sequence[float]) -> float:
@@ -54,14 +54,14 @@ def percentile(values: Sequence[float], p: float) -> float:
     return float(ordered[min(rank, n) - 1])
 
 
-def median_by_commit(points: Iterable[Tuple[str, float]]) -> Dict[str, float]:
+def median_by_commit(points: Iterable[tuple[str, float]]) -> dict[str, float]:
     """Collapses repeated same-commit runs to exactly ONE median value per
     commit (spec "Baseline Correctness" — commit C with 3 recorded runs
     contributes one point, not 3). `points` is `(git_commit, value)` pairs
     in any order; the caller (`regression`/`calibration`) takes the median
     ACROSS the returned per-commit medians to get the final baseline."""
 
-    by_commit: Dict[str, list] = {}
+    by_commit: dict[str, list] = {}
     for commit, value in points:
         by_commit.setdefault(commit, []).append(value)
     return {commit: median(values) for commit, values in by_commit.items()}
