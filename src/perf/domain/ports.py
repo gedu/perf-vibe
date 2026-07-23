@@ -21,6 +21,7 @@ from typing import Mapping, Optional, Protocol, Sequence
 
 from perf.domain.model import (
     CaptureSpec,
+    CompareResult,
     DriverCommand,
     DriverResult,
     ExecutionPlan,
@@ -30,7 +31,6 @@ from perf.domain.model import (
     SamplerCommand,
     SystemSample,
     SystemSampleParseResult,
-    Verdict,
 )
 
 
@@ -113,9 +113,18 @@ class Store(Protocol):
 
 
 class Analyzer(Protocol):
-    """Computes percentiles + the regression verdict from stored history."""
+    """Computes percentiles + the regression verdict from stored history.
 
-    def compare_latest(self, flow_name: str, device_key: str) -> Sequence[Verdict]: ...
+    Rev 3 (tasks #59): returns a single additive `CompareResult` carrier
+    (verdicts + a `CalibrationReport`) instead of a bare `Sequence[Verdict]`
+    — one method, kept additive since no other `Analyzer` implementer
+    exists yet. `None` when the flow/device/mode combination has no runs
+    at all (corner case C2/C7 — the CLI, PR-C, maps this to a usage
+    error)."""
+
+    def compare_latest(
+        self, flow_name: str, device_key: str, mode: str = "warm"
+    ) -> Optional[CompareResult]: ...
 
 
 class Reporter(Protocol):

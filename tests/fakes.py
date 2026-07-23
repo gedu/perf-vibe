@@ -5,6 +5,7 @@ NO real device, subprocess, or filesystem I/O.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Mapping, Optional, Sequence
 
 from perf.domain.model import (
@@ -22,6 +23,7 @@ from perf.domain.model import (
 
 __all__ = [
     "FrozenClock",
+    "SequentialClock",
     "FakeDriver",
     "FakeSystemSampler",
     "FakeMarkerSource",
@@ -40,6 +42,22 @@ class FrozenClock:
 
     def now_utc_iso(self) -> str:
         return self.fixed
+
+
+class SequentialClock:
+    """`Clock` fake that advances by one second on every call — used to
+    seed a deterministically ORDERED multi-run/multi-commit history (e.g.
+    `compare`'s baseline read-model tests need `started_at` to sort
+    chronologically across many seeded `save_run` calls)."""
+
+    def __init__(self, start: str = "2020-01-01T00:00:00+00:00") -> None:
+        self._t = datetime.fromisoformat(start)
+        if self._t.tzinfo is None:
+            self._t = self._t.replace(tzinfo=timezone.utc)
+
+    def now_utc_iso(self) -> str:
+        self._t += timedelta(seconds=1)
+        return self._t.isoformat()
 
 
 class FakeDriver:

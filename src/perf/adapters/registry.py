@@ -17,6 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Union
 
+from perf.adapters.analyzer_sql import SqlAnalyzer
 from perf.adapters.clock_system import SystemClock
 from perf.adapters.context_bash_perfmeta import BashRunContextProvider
 from perf.adapters.driver_maestro import MaestroDriver
@@ -25,7 +26,15 @@ from perf.adapters.driver_replay import ReplayDriver
 from perf.adapters.markers_adb_logcat import AdbLogcatMarkerSource
 from perf.adapters.sampler_flashlight import FlashlightSampler
 from perf.adapters.store_sqlite import SqliteStore
-from perf.domain.ports import Clock, FlowDriver, MarkerSource, RunContextProvider, Store, SystemSampler
+from perf.domain.ports import (
+    Analyzer,
+    Clock,
+    FlowDriver,
+    MarkerSource,
+    RunContextProvider,
+    Store,
+    SystemSampler,
+)
 
 def _build_maestro_driver(
     *,
@@ -146,6 +155,17 @@ def build_store(db_path: Union[str, Path], **kwargs) -> Store:
     name-keyed map needed. `db_path` opens a LOCAL SQLite file only."""
 
     return SqliteStore(db_path, **kwargs)
+
+
+def build_analyzer(store: Store, **params) -> Analyzer:
+    """`Analyzer` has exactly one implementation — a single factory, no
+    name-keyed map needed (design 'Analyzer factory' decision: rule of
+    three), mirroring `build_store`. `params` threads the tuning knobs
+    (`threshold_pct`, `floors`, `min_baseline_commits`, `warmup_k`,
+    `baseline_n` — `config/loader.py` `PerfConfig` fields, decision #58)
+    straight into `SqlAnalyzer`."""
+
+    return SqlAnalyzer(store, **params)
 
 
 def build_clock() -> Clock:

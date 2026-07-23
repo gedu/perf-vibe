@@ -185,6 +185,23 @@ class Verdict:
 
 
 @dataclass(frozen=True)
+class CompareResult:
+    """Single additive carrier `Analyzer.compare_latest` returns (design
+    "Verdict carrier" decision, resolved at tasks #59): every metric's
+    `Verdict` plus the config-sanity `CalibrationReport` (design "One
+    query, two consumers" — computed from the SAME windowed baseline rows
+    the verdicts use, never a second query). `calibration`'s annotation
+    stays a forward-reference STRING and is intentionally never imported
+    here: `domain/calibration.py` imports `domain/regression.py`, which
+    imports THIS module — importing `calibration` here would create an
+    import cycle (model -> calibration -> regression -> model). Frozen +
+    pure; `run` never builds or consumes this, so it stays additive."""
+
+    verdicts: Sequence[Verdict]
+    calibration: "CalibrationReport"  # perf.domain.calibration.CalibrationReport
+
+
+@dataclass(frozen=True)
 class RunPoint:
     """One per-run baseline observation (design Rev 3 "Bounded baseline
     query shape" — `baseline_points` returns rows batched across a whole
