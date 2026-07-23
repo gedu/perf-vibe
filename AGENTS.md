@@ -5,9 +5,12 @@ terminal view (sparklines, color, human confirmation text) is lossy and NOT a
 stable contract — it may change without notice. Never parse the pretty view;
 only the `--json` payload (`schema_version`-carrying) is machine-safe.
 
-`perfvibe run` is persist-only: it exits `0` on success, `2` on a usage error,
-and `3` on any runtime/tooling failure. It never exits `1` (that code is
-reserved for `compare`/`budget-check` regressions).
+`perfvibe run` is persist-only and `perfvibe compare` is show-only: both exit
+`0` on success, `2` on a usage error, and `3` on any runtime/tooling failure.
+**Neither ever exits `1`** — a `compare` regression still exits `0`, because
+`compare` reports and does not gate. Exit `1` is reserved for a future
+`budget-check` CI gate. Never treat a non-zero exit as "regression found";
+read the verdict out of the `--json` payload.
 
 ## Project skills
 
@@ -52,6 +55,20 @@ Generate your own with `gentle-ai skill-registry refresh`. If you do not have
 that tool, you do not need it: the four project skills above are the portable
 contract, they live in this repo, and the repo-relative paths in the
 **Project skills** section are the only ones an agent should be handed.
+
+## Persistent memory (optional)
+
+The SDD workflow in `openspec/` can mirror its artifacts into Engram, a
+persistent memory tool. `.engram/config.json` binds this repo to the project
+name `perf-vibe`; it is the only file the engram binary reads to resolve the
+project, which is why it is committed (it holds no machine-specific state).
+`openspec/config.yaml` repeats the same name under `engram_project` for human
+readers — keep both in sync if the project is ever renamed.
+
+**Engram memories do not travel with a clone.** A fresh checkout has no
+history for this project no matter what topic keys the docs mention. The
+committed `openspec/` and `docs/specs/` files are the portable source of
+truth; never block on a memory lookup that comes back empty.
 
 ## Testing
 
