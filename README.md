@@ -97,6 +97,10 @@ No `python3.11`? Any Python **3.11+** works — try `python3.12`/`python3.13`, o
 install one (`brew install python@3.11` on macOS). `install.sh` does this
 discovery automatically if you prefer the one-liner above.
 
+CI runs lint (`ruff`), format check, type check (`mypy`) and the suite with a
+93% coverage floor on every push and PR. Run the same locally before opening
+one — see [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+
 Conventions live in [`AGENTS.md`](./AGENTS.md) and the project skills under
 [`.claude/skills/`](./.claude/skills/). Spec-Driven Development records for the
 shipped capabilities are in [`docs/specs/`](./docs/specs/) (`perf-run`,

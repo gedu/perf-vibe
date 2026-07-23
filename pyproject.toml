@@ -35,6 +35,18 @@ perf = ["db/schema.sql", "db/migrations/*.sql"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.coverage.run]
+source = ["perf"]
+branch = true
+
+[tool.coverage.report]
+# Measured at 96% when the gate was introduced. The floor sits a few points
+# below so an honest local dip does not block a merge, while a real drop still
+# fails the build. Raise it when coverage genuinely improves; do not lower it
+# to make a red build green.
+fail_under = 93
+show_missing = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
