@@ -1,5 +1,7 @@
 # Specification: `compare` capability (New — Phase 2, compare-only slice)
 
+**Revision 3** — supersedes Rev 2. Adds three cross-cutting quality bars the user emphasized: a **bounded-performance NFR**, **pretty-output UX acceptance criteria**, and an explicit **corner-case matrix**. All Rev 2 content stands unchanged unless a Rev 3 requirement refines it. Rev 3 introduces ONE additive index migration (new index only, no table/data change) to keep compare's baseline access pattern indexed — see the Bounded Performance requirement and the design.
+
 **Revision 2** — supersedes the version without the config sanity label. Adds pinned tuning defaults and the config sanity label requirement.
 
 **Grounded in**: proposal `openspec/changes/compare/proposal.md`, decisions #53 (scope), #58 (calibration/defaults), and #39 (regression best practices), canonical spec `openspec/specs/perf-run.md`.
@@ -18,7 +20,11 @@
 | Per-metric threshold override, variance/reliability flag | — | Follow-up |
 | `perf compare --calibrate` sweep mode | — | Follow-up (planned, not implemented) |
 | Warm-up discard for marker/`measure` metrics | N/A by design (documented, not a gap) | — |
-| `run` schema/tables | Unchanged (compare only reads); any new SQL view/query is additive | — |
+| `run` schema/tables | Unchanged (compare only reads) | — |
+| Additive index migration (new index only, no table/data change) | YES (Rev 3 — for the bounded-performance NFR) | — |
+| Bounded, indexed baseline access (performance NFR) | YES (Rev 3) | — |
+| Pretty-output UX acceptance criteria | YES (Rev 3) | — |
+| Corner-case handling matrix | YES (Rev 3) | — |
 
 ## Requirements
 
@@ -185,3 +191,102 @@ Verdict math SHALL live in a pure domain module with no I/O; the store/analyzer 
 - GIVEN `domain/regression.py` and `domain/statistics.py`
 - WHEN static import analysis runs
 - THEN neither imports from `adapters/`
+
+### Requirement: Bounded Compare Performance (NFR)
+
+`perf compare <flow>` SHALL compute the full verdict AND the config sanity label using BOUNDED, INDEXED queries over ONLY the baseline window (the most recent `baseline_n` commits, default 10), and SHALL NEVER perform a full-history scan whose cost grows with total stored runs. Aggregation SHALL be pushed to SQL (reusing the `run_metric_summary` view for the `measure` family); Python median/percentile math SHALL run ONLY over the small windowed row set. The sanity label SHALL reuse the SAME windowed rows the baseline read returns (no second heavy pass over history). The number of SQL statements issued per invocation SHALL be a small constant that does NOT grow with the number of commits, runs, or metrics (NO N+1 — no per-commit and no per-metric query fan-out).
+
+#### Scenario: Verdict over bounded window, not full history
+- GIVEN a flow with a large stored history (hundreds of runs across dozens of commits, both warm and cold)
+- WHEN `perf compare <flow>` runs
+- THEN the baseline reads only the most recent `baseline_n` commits for the matching flow+metric+`device_key`+`mode`, via an indexed access path (not a full-table scan of `run`)
+
+#### Scenario: Sanity label adds no second heavy pass
+- GIVEN the baseline window rows have been read for a metric
+- WHEN the config sanity label is computed
+- THEN it is derived from those SAME already-read per-run rows, issuing no additional per-run/per-commit history query
+
+#### Scenario: SQL statement count is bounded and does not grow with history
+- GIVEN two flows, one with a small history and one with a large history and many metrics
+- WHEN `perf compare <flow>` runs against each
+- THEN the count of executed SQL statements is a small constant that is the same order of magnitude for both (no per-commit or per-metric query fan-out)
+
+#### Scenario: Wall-clock stays under budget at scale
+- GIVEN a seeded large history (≈800–1000 runs across 50+ distinct commits, multiple metrics, warm and cold)
+- WHEN `perf compare <flow>` runs
+- THEN it returns the correct verdict and completes well under a tight, named wall-clock budget constant (guarding against accidental O(history) work)
+
+### Requirement: Pretty-Output UX
+
+The pretty (human) output SHALL render, per metric, a line showing: the metric name, the latest value vs the baseline value, a delta arrow with the signed percentage, and the classification (`improvement | stable | regression | insufficient-data`) presented clearly, with `regression` VISUALLY EMPHASIZED. The config sanity label SHALL be placed sensibly (as a summary/footer line, not interleaved mid-metric). The renderer SHALL honor `--no-color`, the `NO_COLOR` environment variable, and a non-TTY stdout (no ANSI escapes emitted in any of those cases). The `--json` payload SHALL be unaffected by any pretty-output or color choice.
+
+#### Scenario: Per-metric line content
+- GIVEN a completed comparison for a metric
+- WHEN pretty output renders
+- THEN the metric's line shows the metric name, latest vs baseline, a delta arrow + signed %, and the classification word/glyph
+
+#### Scenario: Regression is visually emphasized
+- GIVEN a metric classifies as `regression`
+- WHEN pretty output renders (color on)
+- THEN that metric's line is visually emphasized relative to `stable`/`improvement` lines, and with color OFF the emphasis degrades to a plain-text marker (never relies on color alone)
+
+#### Scenario: Color disabled paths emit no ANSI
+- GIVEN `--no-color`, or `NO_COLOR` set, or a non-TTY stdout
+- WHEN pretty output renders
+- THEN no ANSI escape sequences are emitted
+
+#### Scenario: JSON unaffected by color/pretty choices
+- GIVEN any combination of color flags or TTY state
+- WHEN `--json` is requested
+- THEN the payload is byte-identical to the color-agnostic contract (color state changes nothing in `--json`)
+
+### Requirement: Corner-Case Handling
+
+`perf compare <flow>` SHALL handle every degenerate-history corner case gracefully: it SHALL NEVER crash and SHALL NEVER exit `1`. Each case SHALL classify or handle as specified below (insufficient-data where no valid baseline exists; `stable` for zero-variance history; skip-and-note for asymmetric metric sets).
+
+| # | Corner case | Expected behavior |
+|---|---|---|
+| C1 | No history / first-ever run of a KNOWN flow (no prior baseline) | `insufficient-data`; exit `0` (verdict shown); never `1` |
+| C2 | Unknown flow (no rows at all) | usage error, exit `2`; never `1` |
+| C3 | Single baseline commit (fewer than `min_baseline_commits`) | `insufficient-data`; never `stable` |
+| C4 | All-equal values (zero variance) | `stable`; no divide-by-zero (baseline==0 and zero-delta guarded) |
+| C5 | Metric in the LATEST run absent from the baseline (new metric) | `insufficient-data` for that metric; no crash |
+| C6 | Metric in the BASELINE absent from the latest run (dropped metric) | skipped / noted; no crash |
+| C7 | Device or mode never seen before | empty baseline ⇒ `insufficient-data` |
+| C8 | Warm-only vs cold-only history (mode split yields empty baseline for the evaluated mode) | `insufficient-data` |
+| C9 | Dev-bundle-only history (all baseline candidates excluded) | `insufficient-data` |
+
+#### Scenario: First-ever run classifies insufficient-data, not exit 1
+- GIVEN a known flow whose only run is the one being evaluated (no prior baseline)
+- WHEN `perf compare <flow>` runs
+- THEN every metric is `insufficient-data` and the exit code is `0` (never `1`)
+
+#### Scenario: Zero-variance history is stable with no divide-by-zero
+- GIVEN a baseline where every commit's value is identical (and possibly zero)
+- WHEN classified
+- THEN the verdict is `stable` and no divide-by-zero occurs
+
+#### Scenario: New metric with no baseline does not crash
+- GIVEN a metric present in the latest run but absent from all baseline commits
+- WHEN classified
+- THEN that metric is `insufficient-data` and the run does not crash
+
+#### Scenario: Dropped metric is skipped, not fatal
+- GIVEN a metric present in the baseline but absent from the latest run
+- WHEN comparing
+- THEN that metric is skipped/noted and the run does not crash
+
+#### Scenario: Mode-split empty baseline is insufficient-data
+- GIVEN history contains only cold runs but the latest run is warm (or vice-versa)
+- WHEN the baseline is computed for the evaluated mode
+- THEN the baseline is empty and the verdict is `insufficient-data`, not a crash or `stable`
+
+#### Scenario: Dev-bundle-only history yields insufficient-data
+- GIVEN every prior run for the flow is a dev-bundle run
+- WHEN the baseline is computed (dev bundles excluded)
+- THEN the baseline is empty and the verdict is `insufficient-data`
+
+#### Scenario: No corner case ever exits 1 or crashes
+- GIVEN any of the corner cases C1–C9
+- WHEN `perf compare <flow>` runs
+- THEN it terminates cleanly with exit `0` (or `2` for the unknown-flow usage error), never `1`, and never raises an uncaught exception
