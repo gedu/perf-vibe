@@ -18,7 +18,9 @@ dev = [
 ]
 
 [project.scripts]
-perf = "perf.cli:main"
+# Command name is `perfvibe` (not `perf`) to avoid colliding with the Linux
+# kernel profiler `perf`. The Python package stays `perf` internally.
+perfvibe = "perf.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
