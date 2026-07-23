@@ -1,0 +1,20 @@
+# Device-free demo config for `perf run` (see README.md in this directory).
+#
+# `driver = "replay"` replays the two recorded fixtures below through the
+# REAL production pipeline (marker parse -> Flashlight parse -> SqliteStore
+# -> confirmation output) — no Maestro, no adb, no attached device.
+
+driver = "replay"
+sampler = "flashlight"
+marker_source = "adb-logcat"
+
+default_iterations = 2
+db_path = "examples/demo-run/perf.db"
+results_dir = "examples/demo-run/.demo-results"
+
+# Paths are resolved relative to the CURRENT WORKING DIRECTORY the CLI is
+# invoked from — run `perf` commands from the repo root (see README.md).
+replay_logcat = "examples/demo-run/logcat.txt"
+replay_flashlight = "examples/demo-run/flashlight.json"
+
+[flows.demo]

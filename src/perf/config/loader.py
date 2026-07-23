@@ -60,6 +60,8 @@ class PerfConfig:
     results_dir: str = DEFAULT_RESULTS_DIR
     build_variant: Optional[str] = None
     tool_version: str = DEFAULT_TOOL_VERSION
+    replay_logcat: Optional[str] = None
+    replay_flashlight: Optional[str] = None
     flows: Mapping[str, FlowConfig] = field(default_factory=dict)
 
 
@@ -166,5 +168,7 @@ def load_config(
         results_dir=str(layers.get("results_dir", DEFAULT_RESULTS_DIR)),
         build_variant=layers.get("build_variant"),
         tool_version=str(layers.get("tool_version", DEFAULT_TOOL_VERSION)),
+        replay_logcat=layers.get("replay_logcat"),
+        replay_flashlight=layers.get("replay_flashlight"),
         flows=flows,
     )

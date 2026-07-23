@@ -1,0 +1,56 @@
+{
+  "name": "Results",
+  "status": "SUCCESS",
+  "iterations": [
+    {
+      "time": 812,
+      "startTime": 100,
+      "status": "SUCCESS",
+      "measures": [
+        {
+          "cpu": {
+            "perName": {"UI Thread": 11.9, "RenderThread": 29.8, "mqt_v_js": 5.0},
+            "perCore": {"0": 13.9, "1": 33.8}
+          },
+          "fps": 59.28,
+          "ram": 210.5,
+          "time": 400
+        },
+        {
+          "cpu": {
+            "perName": {"UI Thread": 8.0, "RenderThread": 20.0, "mqt_v_js": 4.0},
+            "perCore": {"0": 10.0, "1": 22.0}
+          },
+          "fps": 55.0,
+          "ram": 240.0,
+          "time": 812
+        }
+      ]
+    },
+    {
+      "time": 790,
+      "startTime": 100,
+      "status": "SUCCESS",
+      "measures": [
+        {
+          "cpu": {
+            "perName": {"UI Thread": 12.0, "RenderThread": 18.0},
+            "perCore": {"0": 15.0, "1": 15.0}
+          },
+          "fps": 58.0,
+          "ram": 200.0,
+          "time": 390
+        },
+        {
+          "cpu": {
+            "perName": {"UI Thread": 9.5, "RenderThread": 19.0},
+            "perCore": {"0": 14.0, "1": 14.5}
+          },
+          "fps": 57.5,
+          "ram": 205.0,
+          "time": 790
+        }
+      ]
+    }
+  ]
+}
