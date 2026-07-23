@@ -73,13 +73,12 @@ def test_seeded_multi_commit_history_yields_a_real_regression_verdict(monkeypatc
     ttfp = next(v for v in payload["verdicts"] if v["metric"] == "ttfp")
     assert ttfp["status"] == "stable"
 
-    # The sanity label is present in --json...
-    assert payload["calibration"]["status"] in {
-        "reasonable",
-        "too-loose",
-        "too-strict",
-        "insufficient-data",
-    }
+    # The sanity label is present in --json — and, with the corrected
+    # suppression-based `too-loose` definition (PR-C review fix), this
+    # seeded scenario's baseline (`c1`..`c4`) is a stable, low-noise
+    # history that never crosses `threshold_pct`, so it grades `reasonable`
+    # even though the excluded LATEST commit clearly regresses.
+    assert payload["calibration"]["status"] == "reasonable"
 
     # ...AND in pretty, and never changes the exit code.
     pretty_result = runner.invoke(main_module.app, ["compare", FLOW])

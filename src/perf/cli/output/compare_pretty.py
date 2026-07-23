@@ -93,7 +93,7 @@ def _sanity_label(report: CalibrationReport) -> str:
     if report.status == calibration.STATUS_REASONABLE:
         return f"✓ reasonable — {report.runs_flagged} of {report.runs_total} runs would flag"
     if report.status == calibration.STATUS_TOO_LOOSE:
-        return "⚠ too loose — config may miss real regressions (floor exceeds observed deltas)"
+        return "⚠ too loose — floor suppressed a change your threshold would flag"
     if report.status == calibration.STATUS_TOO_STRICT:
         return "⚠ too strict — normal noise may look like a regression"
     return "· insufficient data to grade config sanity"

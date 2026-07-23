@@ -31,6 +31,7 @@ from fakes import SequentialClock  # noqa: E402
 
 from perf.adapters.store_sqlite import SqliteStore  # noqa: E402
 from perf.domain import regression  # noqa: E402
+from perf.domain import calibration  # noqa: E402
 from perf.domain.calibration import CalibrationReport  # noqa: E402
 from perf.domain.model import CompareResult, Marker, RunContext, SystemSample  # noqa: E402
 
@@ -171,6 +172,11 @@ def test_compare_latest_direction_aware_verdicts_across_both_families(tmp_path):
         assert result is not None
         assert isinstance(result, CompareResult)
         assert isinstance(result.calibration, CalibrationReport)
+        # Baseline commits c1/c2/c3 give EVERY metric identical values (zero
+        # variance) — with the corrected suppression-based `too-loose`
+        # definition (PR-C review fix), a baseline that never crosses
+        # `threshold_pct` grades `reasonable`, not `too-loose`.
+        assert result.calibration.status == calibration.STATUS_REASONABLE
 
         checkout = _verdict_by_metric(result, "checkout")
         fps = _verdict_by_metric(result, "fps_avg")

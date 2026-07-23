@@ -204,12 +204,12 @@ def test_compare_sanity_label_present_in_pretty_and_json_never_changes_exit_code
     assert pretty_result.exit_code == 0
     assert json_result.exit_code == 0
     payload = json.loads(json_result.stdout)
-    assert payload["calibration"]["status"] in {
-        "reasonable",
-        "too-loose",
-        "too-strict",
-        "insufficient-data",
-    }
+    # `_seed_history` gives every baseline commit (c1..c4) the SAME
+    # `checkout_ms`/`fps_avg` values (zero variance) — with the corrected
+    # suppression-based `too-loose` definition (PR-C review fix), a
+    # baseline that never crosses `threshold_pct` grades `reasonable`,
+    # NOT `too-loose`, regardless of the excluded latest regression.
+    assert payload["calibration"]["status"] == "reasonable"
     assert any(marker in pretty_result.output.lower() for marker in _LABEL_MARKERS)
 
 
