@@ -94,6 +94,8 @@ def run(
             known_flows=known_flows,
             device=resolved_device,
             flow_prompts=flow_prompts,
+            replay_logcat=config.replay_logcat,
+            replay_flashlight=config.replay_flashlight,
         )
         sampler = build_sampler(config.sampler)
         marker_source = build_marker_source(config.marker_source, device=resolved_device)
