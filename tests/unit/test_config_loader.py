@@ -100,3 +100,53 @@ def test_missing_toml_files_fall_back_to_defaults(tmp_path):
     cfg = load_config(env={}, project_dir=tmp_path)
     assert cfg.driver == "maestro"
     assert cfg.flows == {}
+
+
+# ===== compare tuning defaults (design Rev 2 §"Tuning defaults", decision #58) =====
+
+
+def test_compare_tuning_defaults_when_nothing_configured(tmp_path):
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.threshold_pct == 5.0
+    assert cfg.floors == {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 2.0}
+    assert cfg.min_baseline_commits == 3
+    assert cfg.warmup_k == 1
+    assert cfg.baseline_n == 10
+
+
+def test_perf_toml_overrides_threshold_and_partial_floor(tmp_path):
+    _write(
+        tmp_path / "perf.toml",
+        """
+        threshold_pct = 8.0
+        min_baseline_commits = 5
+        warmup_k = 2
+        baseline_n = 20
+
+        [floors]
+        fps = 1.5
+        """,
+    )
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.threshold_pct == 8.0
+    assert cfg.min_baseline_commits == 5
+    assert cfg.warmup_k == 2
+    assert cfg.baseline_n == 20
+    # Partial floor override keeps the OTHER unit defaults intact — a
+    # single-unit override must never drop the rest of the floor map.
+    assert cfg.floors == {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 1.5}
+
+
+def test_full_floors_override_replaces_all_units(tmp_path):
+    _write(
+        tmp_path / "perf.toml",
+        """
+        [floors]
+        ms = 10.0
+        mb = 10.0
+        pct = 5.0
+        fps = 3.0
+        """,
+    )
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.floors == {"ms": 10.0, "mb": 10.0, "pct": 5.0, "fps": 3.0}

@@ -26,6 +26,7 @@ from perf.domain.model import (
     Metric,
     Run,
     RunContext,
+    RunPoint,
     SamplerCommand,
     SystemSample,
     Verdict,
@@ -98,6 +99,7 @@ def _system_sample(**overrides) -> SystemSample:
         lambda: CaptureSpec(argv=["adb", "logcat", "-s", "ReactNativeJS:V"]),
         lambda: DriverResult(ok=True, iteration_outcomes=["success"], logcat_lines=["[PERF] checkout: 900ms"]),
         lambda: MarkerParseResult(markers=(Marker(name="checkout", value=900.0, unit="ms"),), partial_coverage=False),
+        lambda: RunPoint(git_commit="abc123", metric_name="total_time_ms", value=1234.5, started_at="2026-07-22T00:00:00Z"),
     ],
 )
 def test_value_objects_are_frozen_dataclasses(factory):
@@ -307,3 +309,61 @@ def test_execution_plan_wrap_without_manages_iterations_is_driver_managed():
     assert plan.loop_mode is LoopMode.DRIVER_MANAGED
     assert plan.command == wrap.argv
     assert plan.results_path == wrap.results_path
+
+
+# ===== Verdict 4-state + additive fields (design Rev 3, tasks 1.3/1.4) =====
+
+
+@pytest.mark.parametrize("status", ["improvement", "stable", "regression", "insufficient-data"])
+def test_verdict_status_supports_four_states(status):
+    verdict = Verdict(metric_name="m", delta_pct=1.0, threshold_pct=5.0, status=status)
+    assert verdict.status == status
+
+
+def test_verdict_additive_fields_default_safely_for_existing_positional_shape():
+    """Existing construction (the shape `run`/pre-Rev3 tests use) must
+    keep working unchanged — every new field is additive with a default."""
+    verdict = Verdict(metric_name="/loans/details/:id", delta_pct=5.0, threshold_pct=10.0, status="stable")
+    assert verdict.latest_value is None
+    assert verdict.baseline_value is None
+    assert verdict.unit == "ms"
+    assert verdict.sample_n == 0
+    assert verdict.baseline_commit_n == 0
+    assert verdict.series == ()
+
+
+def test_verdict_carries_full_compare_shape():
+    verdict = Verdict(
+        metric_name="fps_avg",
+        delta_pct=-10.0,
+        threshold_pct=5.0,
+        status="regression",
+        latest_value=54.0,
+        baseline_value=60.0,
+        unit="fps",
+        sample_n=10,
+        baseline_commit_n=8,
+        series=(58.0, 59.0, 60.0, 54.0),
+    )
+    assert verdict.latest_value == 54.0
+    assert verdict.baseline_value == 60.0
+    assert verdict.unit == "fps"
+    assert verdict.sample_n == 10
+    assert verdict.baseline_commit_n == 8
+    assert verdict.series == (58.0, 59.0, 60.0, 54.0)
+
+
+# ===== RunPoint read-model (design "Modify domain/model.py: ... add
+# RunPoint read-model") =====
+
+
+def test_run_point_is_a_frozen_read_model_row():
+    point = RunPoint(
+        git_commit="abc123", metric_name="total_time_ms", value=1234.5, started_at="2026-07-22T00:00:00Z"
+    )
+    assert point.git_commit == "abc123"
+    assert point.metric_name == "total_time_ms"
+    assert point.value == 1234.5
+    assert point.started_at == "2026-07-22T00:00:00Z"
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        point.value = 1.0

@@ -161,14 +161,42 @@ class Measure:
 
 @dataclass(frozen=True)
 class Verdict:
-    """The regression/compare verdict (§10). `run` never produces or
-    consumes this — it exists here for the shared domain contract that
-    `compare` (a later capability) will use."""
+    """The regression/compare verdict (§10, design Rev 3 "Verdict
+    carrier"). `run` never produces or consumes this — it exists here for
+    the shared domain contract `compare` (`domain/regression.py`) builds.
+
+    Rev 3 extends `status` to the full 4-state classification and adds
+    additive pure data fields so ONE lossless carrier feeds both the
+    pretty renderer (sparkline, latest-vs-baseline line) and the `--json`
+    contract — all new fields default safely so existing positional/
+    keyword construction (e.g. `run`-era tests) keeps working unchanged.
+    """
 
     metric_name: str
     delta_pct: float
     threshold_pct: float
-    status: str  # 'improvement' | 'stable' | 'regression'
+    status: str  # 'improvement' | 'stable' | 'regression' | 'insufficient-data'
+    latest_value: Optional[float] = None
+    baseline_value: Optional[float] = None
+    unit: str = "ms"
+    sample_n: int = 0
+    baseline_commit_n: int = 0
+    series: Sequence[float] = ()
+
+
+@dataclass(frozen=True)
+class RunPoint:
+    """One per-run baseline observation (design Rev 3 "Bounded baseline
+    query shape" — `baseline_points` returns rows batched across a whole
+    metric-family). Pre-collapse: repeated same-commit runs are NOT yet
+    merged — `domain/statistics.median_by_commit` does that. `metric_name`
+    lets one query serve every metric of a family (measure/system_sample)
+    at once, per the Rev 3 query-count budget."""
+
+    git_commit: str
+    metric_name: str
+    value: float
+    started_at: str  # ISO-8601 UTC, for chronological ordering
 
 
 # ===== Rev 2 compose-time value objects (design §1) =====

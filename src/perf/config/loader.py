@@ -22,13 +22,33 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Optional
 
-__all__ = ["FlowConfig", "PerfConfig", "load_config", "GLOBAL_CONFIG_PATH"]
+__all__ = [
+    "FlowConfig",
+    "PerfConfig",
+    "load_config",
+    "GLOBAL_CONFIG_PATH",
+    "DEFAULT_ITERATIONS",
+    "DEFAULT_THRESHOLD_PCT",
+    "DEFAULT_FLOORS",
+    "DEFAULT_MIN_BASELINE_COMMITS",
+    "DEFAULT_WARMUP_K",
+    "DEFAULT_BASELINE_N",
+]
 
 DEFAULT_ITERATIONS = 10
 DEFAULT_DB_PATH = "perf.db"
 DEFAULT_RESULTS_DIR = "results"
 DEFAULT_MODE = "warm"
 DEFAULT_TOOL_VERSION = "0.1.0"
+
+# Compare tuning defaults (design Rev 2 "Tuning defaults", decision #58):
+# conservative/low-noise so the tool doesn't cry wolf — all overridable
+# via `perf.toml` / CLI flags.
+DEFAULT_THRESHOLD_PCT = 5.0
+DEFAULT_FLOORS: Mapping[str, float] = {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 2.0}
+DEFAULT_MIN_BASELINE_COMMITS = 3
+DEFAULT_WARMUP_K = 1
+DEFAULT_BASELINE_N = 10
 
 GLOBAL_CONFIG_PATH = Path.home() / ".config" / "perf" / "config.toml"
 PROJECT_CONFIG_FILENAMES: tuple[str, ...] = ("perf.toml", ".perf.toml")
@@ -63,6 +83,13 @@ class PerfConfig:
     replay_logcat: Optional[str] = None
     replay_flashlight: Optional[str] = None
     flows: Mapping[str, FlowConfig] = field(default_factory=dict)
+
+    # ===== compare tuning knobs (design Rev 2/3, decision #58) =====
+    threshold_pct: float = DEFAULT_THRESHOLD_PCT
+    floors: Mapping[str, float] = field(default_factory=lambda: dict(DEFAULT_FLOORS))
+    min_baseline_commits: int = DEFAULT_MIN_BASELINE_COMMITS
+    warmup_k: int = DEFAULT_WARMUP_K
+    baseline_n: int = DEFAULT_BASELINE_N
 
 
 def _read_toml(path: Path) -> dict:
@@ -155,6 +182,12 @@ def load_config(
     flows_raw = layers.pop("flows", {}) or {}
     flows = _build_flows(flows_raw)
 
+    # Partial `[floors]` overrides (e.g. only `fps = 1.5`) must merge ON
+    # TOP OF the defaults, never replace the whole per-unit map — a
+    # single-unit override must not silently drop the other units' floors.
+    floors_raw = _merge(dict(DEFAULT_FLOORS), layers.get("floors") or {})
+    floors = {unit: float(value) for unit, value in floors_raw.items()}
+
     return PerfConfig(
         db_path=str(layers.get("db_path", DEFAULT_DB_PATH)),
         no_color=bool(layers.get("no_color", False)),
@@ -171,4 +204,9 @@ def load_config(
         replay_logcat=layers.get("replay_logcat"),
         replay_flashlight=layers.get("replay_flashlight"),
         flows=flows,
+        threshold_pct=float(layers.get("threshold_pct", DEFAULT_THRESHOLD_PCT)),
+        floors=floors,
+        min_baseline_commits=int(layers.get("min_baseline_commits", DEFAULT_MIN_BASELINE_COMMITS)),
+        warmup_k=int(layers.get("warmup_k", DEFAULT_WARMUP_K)),
+        baseline_n=int(layers.get("baseline_n", DEFAULT_BASELINE_N)),
     )
