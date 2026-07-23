@@ -207,6 +207,30 @@ def test_baseline_measure_points_batches_whole_metric_family_in_one_query(tmp_pa
         store.close()
 
 
+def test_baseline_measure_points_excludes_null_p90_n1_runs(tmp_path):
+    """FIX 1 (BLOCKER, PR-B review): `run_metric_summary.p90_ms` is NULL
+    when a run has exactly 1 measure for a metric (`CAST(0.9*1 AS INT)`
+    truncates to 0, so nothing qualifies as p90) — reachable via
+    `perf run --iterations 1`. Such a run must contribute NO baseline
+    point at all (mirrors the `system_sample` path's
+    `s.{field} IS NOT NULL` filter) — never a `None` value that would
+    crash `statistics.median_by_commit` downstream."""
+    store = _store(tmp_path)
+    try:
+        ctx = _ctx(git_commit="c1-n1")
+        n1_marker = [Marker(name="checkout", value=999.0, unit="ms")]  # n=1 -> NULL p90_ms
+        store.save_run(ctx, FLOW, 1, "warm", "local:eduardo", n1_marker, [], None)
+        _seed_run(store, git_commit="c2", value_ms=100.0)
+
+        rows = store.baseline_measure_points(FLOW, DEVICE_A, "warm", None, 10)
+        commits = {row.git_commit for row in rows}
+
+        assert "c1-n1" not in commits  # NULL p90 excluded entirely, not passed through as None
+        assert commits == {"c2"}
+    finally:
+        store.close()
+
+
 def test_baseline_measure_points_limited_to_baseline_n_commits(tmp_path):
     store = _store(tmp_path)
     try:

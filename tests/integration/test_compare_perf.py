@@ -3,17 +3,27 @@
 3.10/3.11 pulled forward per apply instructions — validates the Rev 3
 migration + batched baseline read-model + `SqlAnalyzer` together at scale).
 
-Seeds a LARGE history (~900 runs across 55+ distinct commits, multiple
+Seeds a LARGE history (~5000 runs across 300+ distinct commits, multiple
 metrics, warm AND cold, plus a second "noise" device) into a temp SQLite
 DB, wraps the connection in a statement-COUNTING proxy, and asserts:
   (a) `SqlAnalyzer.compare_latest` returns the CORRECT verdict,
   (b) wall-clock stays under `COMPARE_PERF_BUDGET_MS`,
   (c) the executed SQL-statement count stays under
       `COMPARE_MAX_SQL_STATEMENTS` — a SMALL constant, independent of the
-      55+ commits / ~900 runs seeded (guards against O(history) scans and
-      per-commit/per-metric N+1 fan-out),
+      300+ commits / ~5000 runs seeded (guards against O(history) scans
+      and per-commit/per-metric N+1 fan-out),
   (d) `EXPLAIN QUERY PLAN` shows the baseline queries seek via
       `idx_run_baseline`, never a full `run` table scan.
+
+FIX 4 (WARNING, PR-B review, empirical): the `eligible` CTE in
+`baseline_measure_points`/`baseline_system_sample_points` scans every
+(flow, device, mode) row before the `recent` CTE limits by commit — the
+scanned set technically grows with history, not `baseline_n`. Rather
+than rewriting the query, this test was scaled up ~5x (from ~900 to
+~5000 seeded runs) to empirically prove it STAYS fast at this larger
+scale, backed by `idx_run_baseline`. If a future scale increase blows
+the budget, that is the signal to revisit the query shape — this test
+is the tripwire.
 """
 
 from __future__ import annotations
@@ -41,7 +51,7 @@ FLOW = "checkout"
 DEVICE_A = "Pixel 8 Pro|Android 14|physical"
 NOISE_DEVICE = "Pixel 6|Android 13|physical"
 
-N_COMMITS = 55
+N_COMMITS = 300  # FIX 4: scaled ~5x (from 55) to empirically stress-test the eligible-CTE scan cost
 RUNS_PER_COMMIT = 15  # + 2 noise runs (1 cold, 1 other-device) per commit
 BASELINE_VALUE_MS = 100.0
 BASELINE_FPS = 60.0
@@ -201,8 +211,8 @@ def test_compare_latest_correct_bounded_and_indexed_at_scale(tmp_path):
         distinct_commits = store._conn.execute(
             "SELECT COUNT(DISTINCT git_commit) FROM run"
         ).fetchone()[0]
-        assert 800 <= total_runs <= 1000, total_runs
-        assert distinct_commits >= 55, distinct_commits
+        assert 5000 <= total_runs <= 5300, total_runs
+        assert distinct_commits >= 300, distinct_commits
 
         analyzer = SqlAnalyzer(
             store,

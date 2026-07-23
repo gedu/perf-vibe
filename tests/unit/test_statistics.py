@@ -43,6 +43,17 @@ def test_median_is_within_min_max_bounds(values):
     assert min(values) <= result <= max(values)
 
 
+def test_median_none_value_raises_value_error_not_type_error():
+    """FIX 1 (BLOCKER, defensive domain guard, PR-B review): a `None`
+    slipping into the input (e.g. an unfiltered NULL `p90_ms` from an
+    n=1 run) must raise a clear `ValueError`, never a bare `TypeError`
+    from `sorted()` comparing `None` to `float` — callers (the analyzer)
+    are expected to filter `None`s before calling; this keeps the domain
+    function strict as a defensive backstop."""
+    with pytest.raises(ValueError):
+        median([1.0, None, 3.0])  # type: ignore[list-item]
+
+
 # ===== percentile (nearest-rank, matches `run_metric_summary`'s p90_ms) =====
 
 

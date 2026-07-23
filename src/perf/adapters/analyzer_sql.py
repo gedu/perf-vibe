@@ -130,7 +130,15 @@ class SqlAnalyzer:
 
         for point in latest_points:
             points = baseline_by_metric.get(point.metric_name, ())
-            commit_medians = statistics.median_by_commit((commit, value) for commit, value, _ in points)
+            # FIX 1 (BLOCKER, PR-B review) defensive filter: `value` should
+            # never be `None` here (the store's `p90_ms IS NOT NULL` filter
+            # already excludes n=1/NULL-p90 runs), but this explicit filter
+            # is the primary guard against ever feeding a `None` into
+            # `median_by_commit`/`median` — those stay strict and raise
+            # rather than silently accept it (see `domain/statistics`).
+            commit_medians = statistics.median_by_commit(
+                (commit, value) for commit, value, _ in points if value is not None
+            )
             baseline_value = statistics.median(list(commit_medians.values())) if commit_medians else None
 
             verdicts.append(

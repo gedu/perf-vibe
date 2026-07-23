@@ -569,7 +569,15 @@ class SqliteStore:
         `current_commit`; seeks via `idx_run_baseline`
         `(flow_id, device_id, mode, started_at)`. Pre-collapse: repeated
         same-commit runs are returned as separate rows — the caller
-        (`SqlAnalyzer`) applies `domain/statistics.median_by_commit`."""
+        (`SqlAnalyzer`) applies `domain/statistics.median_by_commit`.
+
+        FIX 1 (BLOCKER, PR-B review): `run_metric_summary.p90_ms` is NULL
+        for an n=1 run (`CAST(0.9*1 AS INT)` truncates to 0, nothing
+        qualifies) — reachable via `perf run --iterations 1`. Such a run
+        has no meaningful tail percentile, so it contributes NO baseline
+        point at all (`s.p90_ms IS NOT NULL`, mirroring
+        `baseline_system_sample_points`'s `s.{field} IS NOT NULL` filter)
+        rather than leaking a `None` into `median_by_commit`."""
 
         current_commit_clause = ""
         params: list = [flow_name, device_key, mode]
@@ -581,6 +589,12 @@ class SqliteStore:
         rows = self._conn.execute(
             f"""
             WITH eligible AS (
+              -- FIX 4 (PR-B review, empirical): `eligible` technically
+              -- scans every (flow, device, mode) row before `recent`
+              -- limits by commit — the SCAN cost is bounded by
+              -- `idx_run_baseline`, while `baseline_n` bounds the RESULT
+              -- set; `tests/integration/test_compare_perf.py` empirically
+              -- proves this stays fast at ~5000 seeded runs.
               SELECT r.run_id, r.git_commit, r.started_at
               FROM run r
               JOIN flow f ON f.flow_id = r.flow_id
@@ -602,6 +616,7 @@ class SqliteStore:
               JOIN recent rc ON rc.git_commit = e.git_commit
               JOIN run_metric_summary s ON s.run_id = e.run_id
               JOIN metric m ON m.metric_id = s.metric_id
+              WHERE s.p90_ms IS NOT NULL
             )
             SELECT git_commit, metric_name, value, started_at FROM per_run
             """,

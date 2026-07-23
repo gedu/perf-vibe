@@ -21,6 +21,14 @@ def median(values: Sequence[float]) -> float:
 
     if not values:
         raise ValueError("median() requires at least one value")
+    if any(value is None for value in values):
+        # Defensive backstop (FIX 1, PR-B review): a `None` slipping
+        # through (e.g. an unfiltered NULL `p90_ms` from an n=1 run) must
+        # raise a CLEAR error, never a bare `TypeError` from `sorted()`
+        # comparing `None` to `float`. Callers (the analyzer) are
+        # expected to filter `None`s before calling — this never fires
+        # in the normal path.
+        raise ValueError("median() does not accept None values — filter before calling")
     ordered = sorted(values)
     n = len(ordered)
     mid = n // 2

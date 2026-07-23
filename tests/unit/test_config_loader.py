@@ -137,6 +137,22 @@ def test_perf_toml_overrides_threshold_and_partial_floor(tmp_path):
     assert cfg.floors == {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 1.5}
 
 
+def test_baseline_n_zero_or_negative_clamps_to_one(tmp_path):
+    """FIX 3 (SUGGESTION->fix, PR-B review): `baseline_n` is loaded via
+    bare `int()`; a config value of 0 (or negative) would reach the
+    baseline query's `LIMIT ?`, where SQLite treats `LIMIT <= -1` as
+    UNBOUNDED — silently loading the ENTIRE history and defeating the
+    bounded-window guarantee (spec 'Bounded Compare Performance'). A
+    non-positive `baseline_n` must clamp to a minimum of 1."""
+    _write(tmp_path / "perf.toml", "baseline_n = 0\n")
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.baseline_n == 1
+
+    _write(tmp_path / "perf.toml", "baseline_n = -5\n")
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.baseline_n == 1
+
+
 def test_full_floors_override_replaces_all_units(tmp_path):
     _write(
         tmp_path / "perf.toml",

@@ -93,6 +93,18 @@ def _seed(
     return store.save_run(ctx, FLOW, 1, "warm", "local:eduardo", markers, samples, None)
 
 
+def _seed_n1(store, *, git_commit, checkout_ms, fps_values=(60.0,), ram_values=(200.0,)):
+    """Seeds a run with exactly ONE `checkout` marker (n=1) — triggers
+    `run_metric_summary.p90_ms IS NULL` (`CAST(0.9*1 AS INT)` truncates to
+    0, nothing qualifies) — the BLOCKER scenario (FIX 1, PR-B review:
+    n=1 runs, reachable via `perf run --iterations 1`, must never crash
+    `compare_latest`)."""
+    ctx = _ctx(git_commit=git_commit)
+    markers = [Marker(name="checkout", value=checkout_ms, unit="ms")]  # n=1 -> NULL p90
+    samples = _system_samples(fps_values, ram_values)
+    return store.save_run(ctx, FLOW, 1, "warm", "local:eduardo", markers, samples, None)
+
+
 class _CallCountingStore(SqliteStore):
     """Spy-via-subclass (not `mock.patch`): delegates to the REAL
     `SqliteStore` implementation, only adding a call-count tally so the
@@ -302,5 +314,142 @@ def test_compare_latest_returns_none_when_no_runs_at_all(tmp_path):
         analyzer = _make_analyzer(store)
         result = analyzer.compare_latest("no-such-flow", DEVICE_A, "warm")
         assert result is None
+    finally:
+        store.close()
+
+
+# ===== FIX 1 (BLOCKER, PR-B review): NULL p90 (n=1 run) must never crash
+# `compare_latest` — n=1 is reachable via `perf run --iterations 1`. =====
+
+
+def test_n1_run_in_baseline_window_excluded_from_median_not_crash(tmp_path):
+    """(a) A baseline window CONTAINING an n=1 run: that run's NULL p90
+    must be EXCLUDED from the median (not crash `median_by_commit`), and
+    the remaining median must be computed correctly from the other
+    (non-NULL) baseline commits."""
+    store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
+    try:
+        _seed(store, git_commit="c1", checkout_ms=100.0, fps_values=[60.0, 60.0], ram_values=[200.0, 200.0])
+        _seed_n1(store, git_commit="c2", checkout_ms=999.0)  # n=1 -> NULL p90, must be excluded
+        _seed(store, git_commit="c3", checkout_ms=100.0, fps_values=[60.0, 60.0], ram_values=[200.0, 200.0])
+        _seed(
+            store,
+            git_commit="HEAD",
+            checkout_ms=100.0,
+            fps_values=[60.0, 60.0],
+            ram_values=[200.0, 200.0],
+        )
+
+        analyzer = _make_analyzer(store, min_baseline_commits=2)
+        result = analyzer.compare_latest(FLOW, DEVICE_A, "warm")  # must NOT crash
+
+        assert result is not None
+        checkout = _verdict_by_metric(result, "checkout")
+        assert checkout is not None
+        # c2's NULL p90 contributes NOTHING — median(100, 100), NOT median(100, 100, 999)
+        assert checkout.baseline_value == 100.0
+        assert checkout.baseline_commit_n == 2  # only c1 and c3 count
+        assert checkout.status == regression.STATUS_STABLE
+    finally:
+        store.close()
+
+
+def test_latest_n1_run_is_insufficient_data_not_crash(tmp_path):
+    """(b) The LATEST run is n=1 for a metric: that metric's `Verdict`
+    MUST classify `insufficient-data` (no usable latest tail value) —
+    `compare_latest` must never crash. `min_baseline_commits=1` isolates
+    the `latest is None` branch from the (unrelated) `sample_n < min_n`
+    guard so this test proves the NULL-latest path specifically."""
+    store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
+    try:
+        for commit in ("c1", "c2"):
+            _seed(
+                store,
+                git_commit=commit,
+                checkout_ms=100.0,
+                fps_values=[60.0, 60.0],
+                ram_values=[200.0, 200.0],
+            )
+        _seed_n1(store, git_commit="HEAD", checkout_ms=999.0)  # n=1 latest -> NULL p90
+
+        analyzer = _make_analyzer(store, min_baseline_commits=1)
+        result = analyzer.compare_latest(FLOW, DEVICE_A, "warm")  # must NOT crash
+
+        assert result is not None
+        checkout = _verdict_by_metric(result, "checkout")
+        assert checkout is not None
+        assert checkout.status == regression.STATUS_INSUFFICIENT_DATA
+        assert checkout.latest_value is None
+    finally:
+        store.close()
+
+
+def test_all_baseline_runs_n1_yields_insufficient_data_not_crash(tmp_path):
+    """(c) EVERY baseline run is n=1: the baseline collapses to empty
+    (every candidate point excluded) — `insufficient-data`, never a
+    crash."""
+    store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
+    try:
+        _seed_n1(store, git_commit="c1", checkout_ms=100.0)
+        _seed_n1(store, git_commit="c2", checkout_ms=200.0)
+        _seed(
+            store,
+            git_commit="HEAD",
+            checkout_ms=100.0,
+            fps_values=[60.0, 60.0],
+            ram_values=[200.0, 200.0],
+        )
+
+        analyzer = _make_analyzer(store, min_baseline_commits=1)
+        result = analyzer.compare_latest(FLOW, DEVICE_A, "warm")  # must NOT crash
+
+        assert result is not None
+        checkout = _verdict_by_metric(result, "checkout")
+        assert checkout is not None
+        assert checkout.status == regression.STATUS_INSUFFICIENT_DATA
+        assert checkout.baseline_commit_n == 0  # both n=1 baseline runs excluded, none contributed
+    finally:
+        store.close()
+
+
+# ===== FIX 2 (WARNING, PR-B review): warm-up full-drop must still emit
+# `insufficient-data`, not silently vanish from `result.verdicts`. =====
+
+
+def test_full_warmup_drop_still_emits_insufficient_data_not_dropped_metric(tmp_path):
+    """WARNING fix (PR-B review): a `system_sample` metric that loses ALL
+    its samples to the warm-up drop (a single-iteration `idx=0` LATEST
+    run under `warmup_k=1`) must still be PRESENT in `result.verdicts`
+    with status `insufficient-data` — never silently vanish (which would
+    look identical to the metric never having existed, indistinguishable
+    from C6)."""
+    store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
+    try:
+        for commit in ("c1", "c2"):
+            _seed(
+                store,
+                git_commit=commit,
+                checkout_ms=100.0,
+                fps_values=[60.0, 60.0],
+                ram_values=[200.0, 200.0],
+            )
+        # LATEST run: single iteration (idx=0 only) -> fully dropped by warmup_k=1
+        _seed(store, git_commit="HEAD", checkout_ms=100.0, fps_values=[60.0], ram_values=[200.0])
+
+        analyzer = _make_analyzer(store)
+        result = analyzer.compare_latest(FLOW, DEVICE_A, "warm")
+
+        assert result is not None
+        fps = _verdict_by_metric(result, "fps_avg")
+        ram = _verdict_by_metric(result, "ram_avg_mb")
+
+        assert fps is not None  # present, not silently dropped
+        assert fps.status == regression.STATUS_INSUFFICIENT_DATA
+        assert fps.sample_n == 0
+        assert fps.latest_value is None
+        assert ram is not None  # present, not silently dropped
+        assert ram.status == regression.STATUS_INSUFFICIENT_DATA
+        assert ram.sample_n == 0
+        assert ram.latest_value is None
     finally:
         store.close()
