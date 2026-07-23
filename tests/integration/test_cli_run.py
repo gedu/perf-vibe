@@ -54,12 +54,12 @@ def _patch_registry(
     monkeypatch.setattr(
         run_module,
         "build_sampler",
-        lambda name, **kw: (sampler_factory() if (name and sampler_factory) else None),
+        lambda name, **kw: sampler_factory() if (name and sampler_factory) else None,
     )
     monkeypatch.setattr(
         run_module,
         "build_marker_source",
-        lambda name, **kw: (marker_factory() if (name and marker_factory) else None),
+        lambda name, **kw: marker_factory() if (name and marker_factory) else None,
     )
     monkeypatch.setattr(
         run_module,
@@ -71,9 +71,11 @@ def _patch_registry(
 def _happy_marker_factory():
     return FakeMarkerSource(
         parse_result=MarkerParseResult(
-            markers=(__import__("perf.domain.model", fromlist=["Marker"]).Marker(
-                name="checkout", value=900.0, unit="ms"
-            ),),
+            markers=(
+                __import__("perf.domain.model", fromlist=["Marker"]).Marker(
+                    name="checkout", value=900.0, unit="ms"
+                ),
+            ),
             partial_coverage=False,
         )
     )

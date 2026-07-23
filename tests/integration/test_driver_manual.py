@@ -35,7 +35,9 @@ class _FakeRunner:
 
     def stop_capture(self, handle):
         self.capture_stopped += 1
-        return CaptureResult(lines=["[PERF] onboarding: 300ms"], returncode=self._capture_returncode)
+        return CaptureResult(
+            lines=["[PERF] onboarding: 300ms"], returncode=self._capture_returncode
+        )
 
 
 def test_command_returns_no_argv_and_carries_a_prompt():
@@ -81,8 +83,12 @@ def test_drive_without_marker_capture_returns_empty_logcat_lines():
     driver = ManualDriver({}, input_fn=_FakeInput())
     inner_cmd = driver.command("onboarding", mode="warm", restart=False)
     plan = ExecutionPlan(
-        command=None, inner=inner_cmd, loop_mode=LoopMode.DRIVER_MANAGED, iterations=1,
-        capture=None, results_path=None,
+        command=None,
+        inner=inner_cmd,
+        loop_mode=LoopMode.DRIVER_MANAGED,
+        iterations=1,
+        capture=None,
+        results_path=None,
     )
     result = driver.drive(plan)
     assert result.logcat_lines == ()
@@ -98,7 +104,10 @@ def test_dead_logcat_capture_surfaces_as_capture_failed():
     driver = ManualDriver({}, runner=runner, input_fn=fake_input)
     inner_cmd = driver.command("onboarding", mode="warm", restart=False)
     plan = ExecutionPlan(
-        command=None, inner=inner_cmd, loop_mode=LoopMode.DRIVER_MANAGED, iterations=1,
+        command=None,
+        inner=inner_cmd,
+        loop_mode=LoopMode.DRIVER_MANAGED,
+        iterations=1,
         capture=CaptureSpec(argv=["adb", "logcat", "-s", "ReactNativeJS:V"]),
         results_path=None,
     )

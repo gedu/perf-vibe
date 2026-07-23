@@ -43,9 +43,7 @@ def run(
         min=1,
         help="Number of iterations (default: from config, else 10)",
     ),
-    restart: bool = typer.Option(
-        False, "--restart", help="Force a cold run (default: warm)"
-    ),
+    restart: bool = typer.Option(False, "--restart", help="Force a cold run (default: warm)"),
     device: str | None = typer.Option(
         None, "--device", help="Pin a device serial (overrides MAESTRO_DEVICE/config)"
     ),
@@ -75,9 +73,7 @@ def run(
 
     known_flows = {name: (fc.maestro_path or name) for name, fc in config.flows.items()}
     flow_prompts = {
-        name: prompt
-        for name, fc in config.flows.items()
-        if (prompt := getattr(fc, "prompt", None))
+        name: prompt for name, fc in config.flows.items() if (prompt := getattr(fc, "prompt", None))
     }
 
     # The secret is read ONLY from the environment — never a CLI flag — so it

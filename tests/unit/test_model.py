@@ -72,7 +72,11 @@ def _system_sample(**overrides) -> SystemSample:
 @pytest.mark.parametrize(
     "factory",
     [
-        lambda: Device(device_key="Pixel 8 Pro|Android 14|physical", model="Pixel 8 Pro", os_version="Android 14"),
+        lambda: Device(
+            device_key="Pixel 8 Pro|Android 14|physical",
+            model="Pixel 8 Pro",
+            os_version="Android 14",
+        ),
         lambda: Flow(name="prestamos-warm"),
         lambda: Metric(name="fps_avg"),
         lambda: Marker(name="checkout", value=900.0, unit="ms"),
@@ -87,18 +91,31 @@ def _system_sample(**overrides) -> SystemSample:
             context=_run_context(),
         ),
         lambda: Measure(metric_name="/loans/details/:id", duration_ms=900.0),
-        lambda: Verdict(metric_name="/loans/details/:id", delta_pct=5.0, threshold_pct=10.0, status="stable"),
+        lambda: Verdict(
+            metric_name="/loans/details/:id", delta_pct=5.0, threshold_pct=10.0, status="stable"
+        ),
         lambda: DriverCommand(argv=["maestro", "test", "prestamos-warm"], automated=True),
-        lambda: DriverCommand(argv=None, automated=False, prompt="Run the flow manually, then confirm."),
+        lambda: DriverCommand(
+            argv=None, automated=False, prompt="Run the flow manually, then confirm."
+        ),
         lambda: SamplerCommand(
             argv=["flashlight", "test", "--testCommand", "maestro test prestamos-warm"],
             results_path="/tmp/results/prestamos-warm.json",
             manages_iterations=True,
         ),
         lambda: CaptureSpec(argv=["adb", "logcat", "-s", "ReactNativeJS:V"]),
-        lambda: DriverResult(ok=True, iteration_outcomes=["success"], logcat_lines=["[PERF] checkout: 900ms"]),
-        lambda: MarkerParseResult(markers=(Marker(name="checkout", value=900.0, unit="ms"),), partial_coverage=False),
-        lambda: RunPoint(git_commit="abc123", metric_name="total_time_ms", value=1234.5, started_at="2026-07-22T00:00:00Z"),
+        lambda: DriverResult(
+            ok=True, iteration_outcomes=["success"], logcat_lines=["[PERF] checkout: 900ms"]
+        ),
+        lambda: MarkerParseResult(
+            markers=(Marker(name="checkout", value=900.0, unit="ms"),), partial_coverage=False
+        ),
+        lambda: RunPoint(
+            git_commit="abc123",
+            metric_name="total_time_ms",
+            value=1234.5,
+            started_at="2026-07-22T00:00:00Z",
+        ),
     ],
 )
 def test_value_objects_are_frozen_dataclasses(factory):
@@ -238,7 +255,14 @@ def test_execution_plan_maestro_flashlight_markers_is_tool_managed():
     `--iterationCount` -> TOOL_MANAGED, command is the wrap argv."""
     inner = DriverCommand(argv=["maestro", "test", "prestamos-warm"], automated=True)
     wrap = SamplerCommand(
-        argv=["flashlight", "test", "--testCommand", "maestro test prestamos-warm", "--iterationCount", "10"],
+        argv=[
+            "flashlight",
+            "test",
+            "--testCommand",
+            "maestro test prestamos-warm",
+            "--iterationCount",
+            "10",
+        ],
         results_path="/tmp/results/prestamos-warm.json",
         manages_iterations=True,
     )
@@ -322,7 +346,9 @@ def test_verdict_status_supports_four_states(status):
 def test_verdict_additive_fields_default_safely_for_existing_positional_shape():
     """Existing construction (the shape `run`/pre-Rev3 tests use) must
     keep working unchanged — every new field is additive with a default."""
-    verdict = Verdict(metric_name="/loans/details/:id", delta_pct=5.0, threshold_pct=10.0, status="stable")
+    verdict = Verdict(
+        metric_name="/loans/details/:id", delta_pct=5.0, threshold_pct=10.0, status="stable"
+    )
     assert verdict.latest_value is None
     assert verdict.baseline_value is None
     assert verdict.unit == "ms"
@@ -358,7 +384,10 @@ def test_verdict_carries_full_compare_shape():
 
 def test_run_point_is_a_frozen_read_model_row():
     point = RunPoint(
-        git_commit="abc123", metric_name="total_time_ms", value=1234.5, started_at="2026-07-22T00:00:00Z"
+        git_commit="abc123",
+        metric_name="total_time_ms",
+        value=1234.5,
+        started_at="2026-07-22T00:00:00Z",
     )
     assert point.git_commit == "abc123"
     assert point.metric_name == "total_time_ms"

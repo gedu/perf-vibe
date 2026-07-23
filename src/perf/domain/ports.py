@@ -110,6 +110,7 @@ class Store(Protocol):
     def history(
         self, flow_name: str, metric_name: str, device_key: str, limit: int
     ) -> Sequence[RunPoint]: ...
+
     # ... show/history read models
 
 

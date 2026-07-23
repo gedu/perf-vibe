@@ -47,9 +47,7 @@ def resolve_output_context(
     env = env if env is not None else os.environ
     stdout_is_tty = bool(getattr(stdout, "isatty", lambda: False)())
     no_color_env = "NO_COLOR" in env
-    color_enabled = (
-        stdout_is_tty and not no_color_cli and not no_color_env and not no_color_config
-    )
+    color_enabled = stdout_is_tty and not no_color_cli and not no_color_env and not no_color_config
     return OutputContext(
         json_mode=json_mode,
         color_enabled=color_enabled,

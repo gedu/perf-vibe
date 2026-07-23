@@ -238,7 +238,9 @@ def test_new_metric_in_latest_absent_from_baseline_is_insufficient_data(tmp_path
     store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
     try:
         for commit in ("c1", "c2"):
-            _seed(store, git_commit=commit, checkout_ms=100.0, fps_values=[60.0], ram_values=[200.0])
+            _seed(
+                store, git_commit=commit, checkout_ms=100.0, fps_values=[60.0], ram_values=[200.0]
+            )
         _seed(
             store,
             git_commit="HEAD",
@@ -323,7 +325,9 @@ def test_verdict_series_is_chronological_baseline_medians_plus_latest(tmp_path):
     store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
     try:
         for commit, value in (("c1", 100.0), ("c2", 110.0), ("c3", 105.0)):
-            _seed(store, git_commit=commit, checkout_ms=value, fps_values=[60.0], ram_values=[200.0])
+            _seed(
+                store, git_commit=commit, checkout_ms=value, fps_values=[60.0], ram_values=[200.0]
+            )
         _seed(store, git_commit="HEAD", checkout_ms=120.0, fps_values=[60.0], ram_values=[200.0])
 
         analyzer = _make_analyzer(store, min_baseline_commits=2)
@@ -361,9 +365,21 @@ def test_n1_run_in_baseline_window_excluded_from_median_not_crash(tmp_path):
     (non-NULL) baseline commits."""
     store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
     try:
-        _seed(store, git_commit="c1", checkout_ms=100.0, fps_values=[60.0, 60.0], ram_values=[200.0, 200.0])
+        _seed(
+            store,
+            git_commit="c1",
+            checkout_ms=100.0,
+            fps_values=[60.0, 60.0],
+            ram_values=[200.0, 200.0],
+        )
         _seed_n1(store, git_commit="c2", checkout_ms=999.0)  # n=1 -> NULL p90, must be excluded
-        _seed(store, git_commit="c3", checkout_ms=100.0, fps_values=[60.0, 60.0], ram_values=[200.0, 200.0])
+        _seed(
+            store,
+            git_commit="c3",
+            checkout_ms=100.0,
+            fps_values=[60.0, 60.0],
+            ram_values=[200.0, 200.0],
+        )
         _seed(
             store,
             git_commit="HEAD",

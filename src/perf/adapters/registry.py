@@ -109,9 +109,7 @@ def _build(
     try:
         factory = registry[name]
     except KeyError:
-        raise ValueError(
-            f"Unknown {kind} {name!r}; available: {sorted(registry)!r}"
-        ) from None
+        raise ValueError(f"Unknown {kind} {name!r}; available: {sorted(registry)!r}") from None
     return factory(**kwargs)
 
 
@@ -126,9 +124,7 @@ def build_driver(name: str | None, **kwargs) -> FlowDriver:
     try:
         builder = DRIVERS[name]
     except KeyError:
-        raise ValueError(
-            f"Unknown driver {name!r}; available: {sorted(DRIVERS)!r}"
-        ) from None
+        raise ValueError(f"Unknown driver {name!r}; available: {sorted(DRIVERS)!r}") from None
     return builder(**kwargs)
 
 

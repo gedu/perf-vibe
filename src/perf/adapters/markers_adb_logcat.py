@@ -51,9 +51,7 @@ _MARK_START_RE = re.compile(r"^markStart\b", re.IGNORECASE)
 # app-domain route hardcoded); value MUST be numeric, so a non-numeric
 # payload (e.g. a stray markStart line) simply fails to match and is
 # skipped rather than crashing.
-_TEXT_MARKER_RE = re.compile(
-    r"^(?P<name>[^:]+):\s*(?P<value>\d+(?:\.\d+)?)(?P<unit>[a-zA-Z]*)\s*$"
-)
+_TEXT_MARKER_RE = re.compile(r"^(?P<name>[^:]+):\s*(?P<value>\d+(?:\.\d+)?)(?P<unit>[a-zA-Z]*)\s*$")
 
 
 class AdbLogcatMarkerSource:
@@ -84,7 +82,7 @@ class AdbLogcatMarkerSource:
             if tag_index == -1:
                 continue
 
-            payload = line[tag_index + len(_PERF_TAG):].strip()
+            payload = line[tag_index + len(_PERF_TAG) :].strip()
             if not payload:
                 continue
 

@@ -138,9 +138,7 @@ def test_marker_unit_is_persisted_not_defaulted_to_ms(store):
 
     store.save_run(ctx, "prestamos-warm", 1, "warm", "local:eduardo", markers, [], None)
 
-    unit = store._conn.execute(
-        "SELECT unit FROM metric WHERE name = 'startup'"
-    ).fetchone()[0]
+    unit = store._conn.execute("SELECT unit FROM metric WHERE name = 'startup'").fetchone()[0]
     assert unit == "s"
 
 
@@ -165,9 +163,7 @@ def test_save_run_raising_partway_leaves_zero_rows_full_rollback(store):
     assert all(count == 0 for count in counts.values()), counts
 
     # the store must remain usable after a rolled-back transaction
-    run_id = store.save_run(
-        ctx, "prestamos-warm", 1, "warm", "local:eduardo", [], [], None
-    )
+    run_id = store.save_run(ctx, "prestamos-warm", 1, "warm", "local:eduardo", [], [], None)
     assert run_id == 1
 
 
@@ -188,8 +184,17 @@ def test_dimension_upserts_are_idempotent_across_successful_runs(store):
     assert counts["device"] == 1
     assert counts["flow"] == 1
     assert counts["metric"] == len(
-        {"checkout", "total_time_ms", "start_time_ms", "fps_avg", "fps_min",
-         "ram_avg_mb", "ram_peak_mb", "cpu_avg_pct", "cpu_peak_pct"}
+        {
+            "checkout",
+            "total_time_ms",
+            "start_time_ms",
+            "fps_avg",
+            "fps_min",
+            "ram_avg_mb",
+            "ram_peak_mb",
+            "cpu_avg_pct",
+            "cpu_peak_pct",
+        }
     )
     assert counts["run"] == 2  # facts DO grow — only dimensions are deduped
 
@@ -217,9 +222,7 @@ def test_sql_metacharacter_names_round_trip_safely_as_bound_values(store):
     ctx = _run_context(device_key=malicious_name)
     markers = [Marker(name=malicious_name, value=1.0, unit="ms")]
 
-    run_id = store.save_run(
-        ctx, malicious_name, 0, "warm", "local:eduardo", markers, [], None
-    )
+    run_id = store.save_run(ctx, malicious_name, 0, "warm", "local:eduardo", markers, [], None)
 
     tables = {
         row[0] for row in store._conn.execute("SELECT name FROM sqlite_master WHERE type='table'")

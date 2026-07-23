@@ -153,7 +153,9 @@ def _introspect_full_schema(conn: sqlite3.Connection) -> dict:
     for table in tables:
         # PRAGMA table_info row: (cid, name, type, notnull, dflt_value, pk) — drop cid (ordinal).
         columns = [tuple(row[1:]) for row in conn.execute(f"PRAGMA table_info({table})")]
-        foreign_keys = sorted(tuple(row) for row in conn.execute(f"PRAGMA foreign_key_list({table})"))
+        foreign_keys = sorted(
+            tuple(row) for row in conn.execute(f"PRAGMA foreign_key_list({table})")
+        )
         schema[table] = {"columns": columns, "foreign_keys": foreign_keys}
     schema["__indexes_and_views__"] = sorted(
         (row[0], row[1], row[2])
@@ -250,9 +252,7 @@ def test_run_has_raw_report_path_column_nullable(fresh_connection, ddl_path):
     )
     fresh_connection.commit()
 
-    row = fresh_connection.execute(
-        "SELECT raw_report_path FROM run WHERE run_id = 1"
-    ).fetchone()
+    row = fresh_connection.execute("SELECT raw_report_path FROM run WHERE run_id = 1").fetchone()
     assert row[0] is None
 
 
@@ -332,9 +332,7 @@ def test_system_sample_still_keyed_by_iteration_pk_fk(fresh_connection, ddl_path
         VALUES (1, 1, '2026-07-22T00:00:00Z', 1, 'warm', 'local:eduardo')
         """
     )
-    fresh_connection.execute(
-        "INSERT INTO iteration (run_id, idx) VALUES (1, 0)"
-    )
+    fresh_connection.execute("INSERT INTO iteration (run_id, idx) VALUES (1, 0)")
     fresh_connection.execute(
         """
         INSERT INTO system_sample (

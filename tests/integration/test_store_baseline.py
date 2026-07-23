@@ -357,7 +357,10 @@ def test_latest_system_sample_points_returns_raw_iteration_rows(tmp_path):
         raw = store.latest_system_sample_points(run_id)
         fps_rows = [row for row in raw if row.metric_name == "fps_avg"]
 
-        assert {row.iteration_idx for row in fps_rows} == {0, 1}  # idx 0 present: no warm-up drop here
+        assert {row.iteration_idx for row in fps_rows} == {
+            0,
+            1,
+        }  # idx 0 present: no warm-up drop here
         assert all(row.value == 58.0 for row in fps_rows)
     finally:
         store.close()

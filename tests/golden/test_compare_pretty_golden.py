@@ -185,7 +185,9 @@ def _insufficient_data_result() -> CompareResult:
     )
     return CompareResult(
         verdicts=verdicts,
-        calibration=CalibrationReport(metrics=(), status="insufficient-data", runs_flagged=0, runs_total=0),
+        calibration=CalibrationReport(
+            metrics=(), status="insufficient-data", runs_flagged=0, runs_total=0
+        ),
     )
 
 

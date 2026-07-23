@@ -118,9 +118,7 @@ def test_shape_maestro_without_flashlight_persists_markers_only():
     )
     store = FakeStore()
 
-    use_case = _use_case(
-        driver=driver, sampler=None, marker_source=marker_source, store=store
-    )
+    use_case = _use_case(driver=driver, sampler=None, marker_source=marker_source, store=store)
     result = use_case.execute(_request(results_dir=None))
 
     assert len(store.saved_runs) == 1
@@ -137,9 +135,7 @@ def test_shape_manual_driver_with_markers_persists_markers_only():
     )
     store = FakeStore()
 
-    use_case = _use_case(
-        driver=driver, sampler=None, marker_source=marker_source, store=store
-    )
+    use_case = _use_case(driver=driver, sampler=None, marker_source=marker_source, store=store)
     result = use_case.execute(_request(results_dir=None))
 
     assert driver.drive_calls[0].inner.argv is None
@@ -221,7 +217,9 @@ def test_device_offline_raises_run_failed_and_persists_nothing():
 
 def test_driver_reports_failed_iterations_raises_run_failed():
     driver = FakeDriver(
-        drive_result=DriverResult(ok=False, iteration_outcomes=("failed", "failed"), logcat_lines=())
+        drive_result=DriverResult(
+            ok=False, iteration_outcomes=("failed", "failed"), logcat_lines=()
+        )
     )
     store = FakeStore()
     use_case = _use_case(driver=driver, store=store)
@@ -324,9 +322,7 @@ def test_every_failure_path_raises_only_usage_or_run_failed_errors():
 def test_restart_flag_derives_cold_mode_and_threads_ctx_source():
     ctx = make_run_context(source="ci")
     store = FakeStore()
-    use_case = _use_case(
-        context_provider=FakeRunContextProvider(ctx), store=store
-    )
+    use_case = _use_case(context_provider=FakeRunContextProvider(ctx), store=store)
 
     result = use_case.execute(_request(restart=True))
 

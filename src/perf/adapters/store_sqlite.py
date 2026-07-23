@@ -187,8 +187,7 @@ class SqliteStore:
 
     def _pending_migrations(self, current_version: int) -> list[tuple[int, Path]]:
         pending = [
-            (_parse_migration_version(path.name), path)
-            for path in _MIGRATIONS_DIR.glob("*.sql")
+            (_parse_migration_version(path.name), path) for path in _MIGRATIONS_DIR.glob("*.sql")
         ]
         pending = [(version, path) for version, path in pending if version > current_version]
         pending.sort(key=lambda vp: vp[0])

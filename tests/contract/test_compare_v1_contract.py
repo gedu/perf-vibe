@@ -117,7 +117,12 @@ def test_sanity_label_present_in_json_never_changes_shape():
     sanity label surfaces in `--json` alongside the verdicts, unaffected
     by them."""
     payload = build_compare_payload(_sample_result())
-    assert payload["calibration"]["status"] in {"reasonable", "too-loose", "too-strict", "insufficient-data"}
+    assert payload["calibration"]["status"] in {
+        "reasonable",
+        "too-loose",
+        "too-strict",
+        "insufficient-data",
+    }
     # Presence of the label never mutates a per-metric verdict's status.
     statuses = {v["status"] for v in payload["verdicts"]}
     assert statuses == {"regression", "insufficient-data"}

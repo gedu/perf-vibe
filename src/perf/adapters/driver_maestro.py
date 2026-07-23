@@ -122,9 +122,7 @@ class MaestroDriver:
             raise RuntimeError("TOOL_MANAGED plan requires a composed command")
         result = self._runner.run(list(plan.command))
         outcome = "ok" if result.returncode == 0 else "failed"
-        diagnostics = (
-            bounded_diagnostics(result.stderr) if result.returncode != 0 else None
-        )
+        diagnostics = bounded_diagnostics(result.stderr) if result.returncode != 0 else None
         return [outcome] * plan.iterations, diagnostics
 
     def _drive_driver_managed(self, plan: ExecutionPlan) -> tuple[list[str], str | None]:

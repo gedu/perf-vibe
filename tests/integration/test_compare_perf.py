@@ -95,7 +95,9 @@ def _upsert_device(conn, device_key: str) -> int:
         "ON CONFLICT(device_key) DO NOTHING",
         (device_key, "Model", "OS"),
     )
-    return conn.execute("SELECT device_id FROM device WHERE device_key = ?", (device_key,)).fetchone()[0]
+    return conn.execute(
+        "SELECT device_id FROM device WHERE device_key = ?", (device_key,)
+    ).fetchone()[0]
 
 
 def _upsert_flow(conn, name: str) -> int:
@@ -161,31 +163,47 @@ def _seed_large_history(store: SqliteStore) -> None:
             for _ in range(RUNS_PER_COMMIT):
                 started_at = clock.now_utc_iso()
                 run_id = _insert_run(
-                    conn, flow_id=flow_id, device_id=device_id, started_at=started_at,
-                    mode="warm", git_commit=commit,
+                    conn,
+                    flow_id=flow_id,
+                    device_id=device_id,
+                    started_at=started_at,
+                    mode="warm",
+                    git_commit=commit,
                 )
                 _insert_measures(conn, run_id, metric_id, BASELINE_VALUE_MS)
                 _insert_system_samples(conn, run_id, BASELINE_FPS)
             # noise: a cold run on the SAME device (must be excluded by `mode`)
             started_at = clock.now_utc_iso()
             cold_run_id = _insert_run(
-                conn, flow_id=flow_id, device_id=device_id, started_at=started_at,
-                mode="cold", git_commit=commit,
+                conn,
+                flow_id=flow_id,
+                device_id=device_id,
+                started_at=started_at,
+                mode="cold",
+                git_commit=commit,
             )
             _insert_measures(conn, cold_run_id, metric_id, 9999.0)
             # noise: a warm run on a DIFFERENT device (must be excluded by `device_id`)
             started_at = clock.now_utc_iso()
             other_device_run_id = _insert_run(
-                conn, flow_id=flow_id, device_id=noise_device_id, started_at=started_at,
-                mode="warm", git_commit=commit,
+                conn,
+                flow_id=flow_id,
+                device_id=noise_device_id,
+                started_at=started_at,
+                mode="warm",
+                git_commit=commit,
             )
             _insert_measures(conn, other_device_run_id, metric_id, 9999.0)
 
         # the CURRENT/HEAD run being evaluated — regresses on both metrics
         started_at = clock.now_utc_iso()
         head_run_id = _insert_run(
-            conn, flow_id=flow_id, device_id=device_id, started_at=started_at,
-            mode="warm", git_commit="HEAD",
+            conn,
+            flow_id=flow_id,
+            device_id=device_id,
+            started_at=started_at,
+            mode="warm",
+            git_commit="HEAD",
         )
         _insert_measures(conn, head_run_id, metric_id, HEAD_VALUE_MS)
         _insert_system_samples(conn, head_run_id, HEAD_FPS)

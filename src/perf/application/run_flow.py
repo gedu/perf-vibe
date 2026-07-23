@@ -229,8 +229,7 @@ class RunFlowUseCase:
                 # a runtime/tooling failure (spec: "FlashlightParseError...
                 # runtime/tooling error (exit 3)").
                 raise RunFailedError(
-                    f"Failed to parse system sampler results for "
-                    f"{request.flow_name!r}: {exc}",
+                    f"Failed to parse system sampler results for {request.flow_name!r}: {exc}",
                     diagnostics=str(exc),
                 ) from exc
             samples = sample_result.samples
@@ -322,6 +321,4 @@ def _filename_slug(iso_timestamp: str) -> str:
     """Turns an ISO-8601 timestamp into a filesystem-safe slug (no `:`,
     `.`, `+` — all invalid or awkward in filenames on common filesystems)."""
 
-    return (
-        iso_timestamp.replace(":", "").replace(".", "").replace("+", "-")
-    )
+    return iso_timestamp.replace(":", "").replace(".", "").replace("+", "-")

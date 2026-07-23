@@ -117,9 +117,7 @@ def test_median_by_commit_empty_returns_empty_mapping():
     )
 )
 def test_median_by_commit_yields_exactly_one_point_per_commit(commit_values):
-    points = [
-        (commit, value) for commit, values in commit_values.items() for value in values
-    ]
+    points = [(commit, value) for commit, values in commit_values.items() for value in values]
     result = median_by_commit(points)
     assert set(result) == set(commit_values)
     for commit, values in commit_values.items():

@@ -91,10 +91,24 @@ class SqlAnalyzer:
         higher_is_better: dict[str, bool] = {}
 
         self._compare_measure_family(
-            flow_name, device_key, mode, latest, verdicts, per_metric_points, units, higher_is_better
+            flow_name,
+            device_key,
+            mode,
+            latest,
+            verdicts,
+            per_metric_points,
+            units,
+            higher_is_better,
         )
         self._compare_system_sample_family(
-            flow_name, device_key, mode, latest, verdicts, per_metric_points, units, higher_is_better
+            flow_name,
+            device_key,
+            mode,
+            latest,
+            verdicts,
+            per_metric_points,
+            units,
+            higher_is_better,
         )
 
         report = calibration.grade_all(
@@ -136,11 +150,17 @@ class SqlAnalyzer:
             # is the primary guard against ever feeding a `None` into
             # `median_by_commit`/`median` — those stay strict and raise
             # rather than silently accept it (see `domain/statistics`).
-            non_null_points = [(commit, value, started_at) for commit, value, started_at in points if value is not None]
+            non_null_points = [
+                (commit, value, started_at)
+                for commit, value, started_at in points
+                if value is not None
+            ]
             commit_medians = statistics.median_by_commit(
                 (commit, value) for commit, value, _ in non_null_points
             )
-            baseline_value = statistics.median(list(commit_medians.values())) if commit_medians else None
+            baseline_value = (
+                statistics.median(list(commit_medians.values())) if commit_medians else None
+            )
 
             verdicts.append(
                 regression.classify(
@@ -191,8 +211,12 @@ class SqlAnalyzer:
             better_when_higher = default_higher_is_better(metric_name)
 
             points = baseline_by_metric.get(metric_name, ())
-            commit_medians = statistics.median_by_commit((commit, value) for commit, value, _ in points)
-            baseline_value = statistics.median(list(commit_medians.values())) if commit_medians else None
+            commit_medians = statistics.median_by_commit(
+                (commit, value) for commit, value, _ in points
+            )
+            baseline_value = (
+                statistics.median(list(commit_medians.values())) if commit_medians else None
+            )
 
             verdicts.append(
                 regression.classify(
@@ -245,7 +269,9 @@ def _sparkline_series(
     return tuple(series)
 
 
-def _group_run_points_by_metric(rows: Sequence[RunPoint]) -> dict[str, list[tuple[str, float, str]]]:
+def _group_run_points_by_metric(
+    rows: Sequence[RunPoint],
+) -> dict[str, list[tuple[str, float, str]]]:
     grouped: dict[str, list[tuple[str, float, str]]] = {}
     for row in rows:
         grouped.setdefault(row.metric_name, []).append((row.git_commit, row.value, row.started_at))

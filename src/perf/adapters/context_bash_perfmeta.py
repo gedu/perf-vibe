@@ -126,7 +126,7 @@ class BashRunContextProvider:
             if tag_index == -1:
                 continue
 
-            payload = stripped[tag_index + len(_PERF_META_TAG):].strip()
+            payload = stripped[tag_index + len(_PERF_META_TAG) :].strip()
             try:
                 data = json.loads(payload)  # json.loads ONLY, never eval (SKILL rule 5)
             except (json.JSONDecodeError, ValueError):

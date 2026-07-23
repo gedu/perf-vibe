@@ -91,7 +91,9 @@ def test_context_with_no_logcat_lines_argument_still_works_protocol_compatible()
 def test_context_missing_git_repo_yields_none_fields_not_a_crash():
     responses = _responses()
     responses[("git", "rev-parse", "HEAD")] = CommandResult(128, "", "not a git repository")
-    responses[("git", "rev-parse", "--abbrev-ref", "HEAD")] = CommandResult(128, "", "not a git repository")
+    responses[("git", "rev-parse", "--abbrev-ref", "HEAD")] = CommandResult(
+        128, "", "not a git repository"
+    )
     runner = _FakeRunner(responses)
     provider = BashRunContextProvider(runner=runner, build_variant="release", tool_version="0.1.0")
 
