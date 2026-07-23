@@ -18,21 +18,21 @@ from __future__ import annotations
 
 import os
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Optional
 
 __all__ = [
+    "DEFAULT_BASELINE_N",
+    "DEFAULT_FLOORS",
+    "DEFAULT_ITERATIONS",
+    "DEFAULT_MIN_BASELINE_COMMITS",
+    "DEFAULT_THRESHOLD_PCT",
+    "DEFAULT_WARMUP_K",
+    "GLOBAL_CONFIG_PATH",
     "FlowConfig",
     "PerfConfig",
     "load_config",
-    "GLOBAL_CONFIG_PATH",
-    "DEFAULT_ITERATIONS",
-    "DEFAULT_THRESHOLD_PCT",
-    "DEFAULT_FLOORS",
-    "DEFAULT_MIN_BASELINE_COMMITS",
-    "DEFAULT_WARMUP_K",
-    "DEFAULT_BASELINE_N",
 ]
 
 DEFAULT_ITERATIONS = 10
@@ -60,8 +60,8 @@ class FlowConfig:
     this set BEFORE any driver invocation)."""
 
     name: str
-    maestro_path: Optional[str] = None
-    prompt: Optional[str] = None
+    maestro_path: str | None = None
+    prompt: str | None = None
 
 
 @dataclass(frozen=True)
@@ -71,17 +71,17 @@ class PerfConfig:
     db_path: str = DEFAULT_DB_PATH
     no_color: bool = False
     driver: str = "maestro"
-    sampler: Optional[str] = "flashlight"
-    marker_source: Optional[str] = "adb-logcat"
-    bundle_id: Optional[str] = None
+    sampler: str | None = "flashlight"
+    marker_source: str | None = "adb-logcat"
+    bundle_id: str | None = None
     default_iterations: int = DEFAULT_ITERATIONS
     default_mode: str = DEFAULT_MODE
-    device: Optional[str] = None
+    device: str | None = None
     results_dir: str = DEFAULT_RESULTS_DIR
-    build_variant: Optional[str] = None
+    build_variant: str | None = None
     tool_version: str = DEFAULT_TOOL_VERSION
-    replay_logcat: Optional[str] = None
-    replay_flashlight: Optional[str] = None
+    replay_logcat: str | None = None
+    replay_flashlight: str | None = None
     flows: Mapping[str, FlowConfig] = field(default_factory=dict)
 
     # ===== compare tuning knobs (design Rev 2/3, decision #58) =====
@@ -113,7 +113,7 @@ def _merge(base: dict, override: dict) -> dict:
     return merged
 
 
-def _find_project_config(start_dir: Path) -> Optional[Path]:
+def _find_project_config(start_dir: Path) -> Path | None:
     for filename in PROJECT_CONFIG_FILENAMES:
         candidate = start_dir / filename
         if candidate.is_file():
@@ -138,12 +138,12 @@ def _build_flows(raw: Mapping[str, object]) -> Mapping[str, FlowConfig]:
 
 def load_config(
     *,
-    cli_db: Optional[str] = None,
-    cli_config_path: Optional[str] = None,
-    cli_no_color: Optional[bool] = None,
-    cli_device: Optional[str] = None,
-    env: Optional[Mapping[str, str]] = None,
-    project_dir: Optional[Path] = None,
+    cli_db: str | None = None,
+    cli_config_path: str | None = None,
+    cli_no_color: bool | None = None,
+    cli_device: str | None = None,
+    env: Mapping[str, str] | None = None,
+    project_dir: Path | None = None,
 ) -> PerfConfig:
     """Resolve the layered config (design §14). `env` and `project_dir` are
     injectable for tests — production callers omit both and get

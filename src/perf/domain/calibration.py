@@ -11,8 +11,8 @@ SKILL.md` rule 1.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Mapping, Sequence, Tuple
 
 from perf.domain import regression
 from perf.domain.statistics import median, median_by_commit
@@ -24,7 +24,7 @@ STATUS_INSUFFICIENT_DATA = "insufficient-data"
 
 _MIN_COMMITS_FOR_GRADE = 2
 
-RunPointRow = Tuple[str, float, str]  # (git_commit, value, started_at)
+RunPointRow = tuple[str, float, str]  # (git_commit, value, started_at)
 
 
 @dataclass(frozen=True)
@@ -87,8 +87,8 @@ def grade(
     `baseline_points` returns — pre-collapse, any order.
     """
 
-    by_commit: Dict[str, List[float]] = {}
-    earliest_seen: Dict[str, str] = {}
+    by_commit: dict[str, list[float]] = {}
+    earliest_seen: dict[str, str] = {}
     for commit, value, started_at in per_run_points:
         by_commit.setdefault(commit, []).append(value)
         if commit not in earliest_seen or started_at < earliest_seen[commit]:
@@ -109,9 +109,9 @@ def grade(
 
     ordered_values = [commit_medians[commit] for commit in ordered_commits]
 
-    deltas_abs: List[float] = []
-    deltas_pct: List[float] = []
-    flagged_commits: List[str] = []
+    deltas_abs: list[float] = []
+    deltas_pct: list[float] = []
+    flagged_commits: list[str] = []
     for i in range(1, len(ordered_values)):
         base = median(ordered_values[:i])
         latest = ordered_values[i]
@@ -152,7 +152,7 @@ def grade(
 
     floor_suppressed_a_significant_step = any(
         abs(delta_pct) >= threshold_pct and abs(delta_abs) < floor
-        for delta_abs, delta_pct in zip(deltas_abs, deltas_pct)
+        for delta_abs, delta_pct in zip(deltas_abs, deltas_pct, strict=False)
     )
 
     if floor_suppressed_a_significant_step:
@@ -194,7 +194,7 @@ def grade_all(
     the count of DISTINCT historical commits where ANY metric would flag, out
     of every distinct commit observed across all metrics."""
 
-    metrics: List[MetricCalibration] = []
+    metrics: list[MetricCalibration] = []
     all_commits: set = set()
     flagged_union: set = set()
 

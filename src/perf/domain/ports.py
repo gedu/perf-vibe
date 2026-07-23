@@ -9,15 +9,23 @@ Rev 2 (design `perf-cli/design/perf-run` #31, §"Key ports") rewrites the
 six core Protocols so FlowDriver/SystemSampler/MarkerSource each expose a
 pure compose-time method plus an I/O (or pure-parse) method, resolving the
 Flashlight-wraps-Maestro coupling via a compose-time `ExecutionPlan`
-(design §1) rather than a composite adapter. `Analyzer`/`Reporter` are kept
-verbatim as the stable shared seam `compare`/`show`/`history` (later
-capabilities) will depend on without editing this file again — `run`'s
-use-case never calls them.
+(design §1) rather than a composite adapter. `Analyzer` is the stable shared
+seam later capabilities depend on — `compare` implements it in
+`adapters/analyzer_sql.py`; `run`'s use-case never calls it.
+
+A speculative `Reporter` Protocol was also kept here for `compare`/`show`/
+`history` to depend on. `compare` shipped without it — rendering lives in
+`cli/output/` (`compare_pretty.py`, `json_reporter.py`), the presentation
+layer, which is the right home for it — and the Protocol's payload type was
+never defined, so it could not have been implemented as written. It was
+removed rather than left as broken scaffolding. If `show`/`history` ever
+need a rendering seam, design it against those real requirements.
 """
 
 from __future__ import annotations
 
-from typing import Mapping, Optional, Protocol, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Protocol
 
 from perf.domain.model import (
     CaptureSpec,
@@ -28,6 +36,7 @@ from perf.domain.model import (
     Marker,
     MarkerParseResult,
     RunContext,
+    RunPoint,
     SamplerCommand,
     SystemSample,
     SystemSampleParseResult,
@@ -46,7 +55,7 @@ class FlowDriver(Protocol):
         *,
         mode: str,
         restart: bool,
-        env: Optional[Mapping[str, str]] = None,
+        env: Mapping[str, str] | None = None,
     ) -> DriverCommand: ...
 
     def drive(self, plan: ExecutionPlan) -> DriverResult: ...
@@ -69,7 +78,7 @@ class SystemSampler(Protocol):
         iterations: int,
         restart: bool,
         results_path: str,
-    ) -> Optional[SamplerCommand]: ...
+    ) -> SamplerCommand | None: ...
 
     def parse(self, results_path: str) -> SystemSampleParseResult: ...
 
@@ -80,7 +89,7 @@ class MarkerSource(Protocol):
     driver returns (pure `parse()` — no I/O of its own; the driver already
     captured the lines)."""
 
-    def capture_spec(self) -> Optional[CaptureSpec]: ...
+    def capture_spec(self) -> CaptureSpec | None: ...
 
     def parse(self, lines: Sequence[str], *, iterations: int) -> MarkerParseResult: ...
 
@@ -103,12 +112,13 @@ class Store(Protocol):
         source: str,
         markers: Sequence[Marker],
         samples: Sequence[SystemSample],
-        raw_report_path: Optional[str],
+        raw_report_path: str | None,
     ) -> int: ...
 
     def history(
         self, flow_name: str, metric_name: str, device_key: str, limit: int
-    ) -> Sequence["RunPoint"]: ...
+    ) -> Sequence[RunPoint]: ...
+
     # ... show/history read models
 
 
@@ -124,13 +134,7 @@ class Analyzer(Protocol):
 
     def compare_latest(
         self, flow_name: str, device_key: str, mode: str = "warm"
-    ) -> Optional[CompareResult]: ...
-
-
-class Reporter(Protocol):
-    """Renders results. PrettyReporter for humans, JsonReporter for machines."""
-
-    def report(self, payload: "ReportPayload") -> None: ...
+    ) -> CompareResult | None: ...
 
 
 class Clock(Protocol):

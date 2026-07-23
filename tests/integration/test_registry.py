@@ -7,17 +7,9 @@ RED-before-GREEN: written before `src/perf/adapters/registry.py` existed.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
 
-_TESTS_DIR = Path(__file__).resolve().parents[1]
-if str(_TESTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_TESTS_DIR))
-
-from fakes import SequentialClock  # noqa: E402
-
+from fakes import SequentialClock
 from perf.adapters import registry
 from perf.adapters.driver_maestro import MaestroDriver
 from perf.adapters.driver_manual import ManualDriver
@@ -43,7 +35,11 @@ def test_build_driver_accepts_uniform_cli_kwargs_for_every_driver():
     `TypeError` because ManualDriver's ctor takes neither — so `driver =
     "manual"` was completely broken end-to-end while every test called the
     registry with per-driver kwargs and missed it."""
-    common = {"known_flows": {"checkout": "checkout.yaml"}, "device": "emulator-5554", "flow_prompts": {}}
+    common = {
+        "known_flows": {"checkout": "checkout.yaml"},
+        "device": "emulator-5554",
+        "flow_prompts": {},
+    }
     assert isinstance(registry.build_driver("maestro", **common), MaestroDriver)
     assert isinstance(registry.build_driver("manual", **common), ManualDriver)
 
@@ -72,7 +68,12 @@ def test_build_marker_source_threads_device_for_pinning():
     marker_source = registry.build_marker_source("adb-logcat", device="emulator-5554")
     assert isinstance(marker_source, AdbLogcatMarkerSource)
     assert marker_source.capture_spec().argv == [
-        "adb", "-s", "emulator-5554", "logcat", "-s", "ReactNativeJS:V",
+        "adb",
+        "-s",
+        "emulator-5554",
+        "logcat",
+        "-s",
+        "ReactNativeJS:V",
     ]
 
 

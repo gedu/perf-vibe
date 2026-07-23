@@ -68,9 +68,7 @@ def test_parse_empty_measures_still_records_iteration_time(tmp_path):
     report = {
         "name": "Results",
         "status": "SUCCESS",
-        "iterations": [
-            {"time": 1000.0, "startTime": 200.0, "status": "SUCCESS", "measures": []}
-        ],
+        "iterations": [{"time": 1000.0, "startTime": 200.0, "status": "SUCCESS", "measures": []}],
     }
     path = tmp_path / "empty.json"
     path.write_text(json.dumps(report))
@@ -124,7 +122,9 @@ def test_wrap_returns_none_for_manual_driver_with_no_automated_command(tmp_path)
     seam (design §3/§7) — `wrap()` returns `None` when `inner.argv is None`."""
     sampler = FlashlightSampler()
     inner = DriverCommand(argv=None, automated=False, prompt="do the thing")
-    wrapped = sampler.wrap(inner, iterations=1, restart=False, results_path=str(tmp_path / "r.json"))
+    wrapped = sampler.wrap(
+        inner, iterations=1, restart=False, results_path=str(tmp_path / "r.json")
+    )
     assert wrapped is None
 
 
@@ -153,7 +153,9 @@ def test_top_level_failure_status_is_never_silently_aggregated(tmp_path):
         sampler.parse(str(path))
 
 
-def test_one_failed_iteration_among_successes_yields_only_success_sample_and_partial_coverage(tmp_path):
+def test_one_failed_iteration_among_successes_yields_only_success_sample_and_partial_coverage(
+    tmp_path,
+):
     """Fix (CRITICAL resilience review): a FAILURE iteration must be
     excluded from aggregation (never blended into a normal SystemSample)
     and surfaced via partial coverage rather than silently vanishing."""

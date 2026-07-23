@@ -99,8 +99,15 @@ def test_drive_tool_managed_spawns_the_composed_command_once():
     driver = MaestroDriver(_KNOWN_FLOWS, runner=runner)
     inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
     wrapped_command = [
-        "flashlight", "test", "--testCommand", "maestro test flows/checkout.yaml",
-        "--iterationCount", "3", "--resultsFilePath", "r.json", "--skipRestart",
+        "flashlight",
+        "test",
+        "--testCommand",
+        "maestro test flows/checkout.yaml",
+        "--iterationCount",
+        "3",
+        "--resultsFilePath",
+        "r.json",
+        "--skipRestart",
     ]
     plan = ExecutionPlan(
         command=wrapped_command,
@@ -123,8 +130,12 @@ def test_drive_failure_is_reported_not_swallowed():
     driver = MaestroDriver(_KNOWN_FLOWS, runner=runner)
     inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
     plan = ExecutionPlan(
-        command=None, inner=inner, loop_mode=LoopMode.DRIVER_MANAGED, iterations=2,
-        capture=None, results_path=None,
+        command=None,
+        inner=inner,
+        loop_mode=LoopMode.DRIVER_MANAGED,
+        iterations=2,
+        capture=None,
+        results_path=None,
     )
     result = driver.drive(plan)
     assert result.ok is False
@@ -140,7 +151,10 @@ def test_dead_logcat_capture_surfaces_as_capture_failed_not_empty_markers():
     driver = MaestroDriver(_KNOWN_FLOWS, runner=runner)
     inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
     plan = ExecutionPlan(
-        command=None, inner=inner, loop_mode=LoopMode.DRIVER_MANAGED, iterations=1,
+        command=None,
+        inner=inner,
+        loop_mode=LoopMode.DRIVER_MANAGED,
+        iterations=1,
         capture=CaptureSpec(argv=["adb", "logcat", "-s", "ReactNativeJS:V"]),
         results_path=None,
     )
@@ -155,7 +169,10 @@ def test_healthy_capture_with_zero_markers_does_not_flag_capture_failed():
     driver = MaestroDriver(_KNOWN_FLOWS, runner=runner)
     inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
     plan = ExecutionPlan(
-        command=None, inner=inner, loop_mode=LoopMode.DRIVER_MANAGED, iterations=1,
+        command=None,
+        inner=inner,
+        loop_mode=LoopMode.DRIVER_MANAGED,
+        iterations=1,
         capture=CaptureSpec(argv=["adb", "logcat", "-s", "ReactNativeJS:V"]),
         results_path=None,
     )
@@ -172,8 +189,12 @@ def test_failed_drive_populates_diagnostics_with_tool_stderr():
     driver = MaestroDriver(_KNOWN_FLOWS, runner=runner)
     inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
     plan = ExecutionPlan(
-        command=None, inner=inner, loop_mode=LoopMode.DRIVER_MANAGED, iterations=1,
-        capture=None, results_path=None,
+        command=None,
+        inner=inner,
+        loop_mode=LoopMode.DRIVER_MANAGED,
+        iterations=1,
+        capture=None,
+        results_path=None,
     )
 
     result = driver.drive(plan)
@@ -188,8 +209,12 @@ def test_successful_drive_leaves_diagnostics_none():
     driver = MaestroDriver(_KNOWN_FLOWS, runner=runner)
     inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
     plan = ExecutionPlan(
-        command=None, inner=inner, loop_mode=LoopMode.DRIVER_MANAGED, iterations=1,
-        capture=None, results_path=None,
+        command=None,
+        inner=inner,
+        loop_mode=LoopMode.DRIVER_MANAGED,
+        iterations=1,
+        capture=None,
+        results_path=None,
     )
 
     result = driver.drive(plan)
@@ -206,8 +231,12 @@ def test_password_secret_never_appears_in_diagnostics():
     driver = MaestroDriver(_KNOWN_FLOWS, runner=runner)
     cmd = driver.command("checkout", mode="warm", restart=False, env={"PASSWORD": "s3cr3t"})
     plan = ExecutionPlan(
-        command=None, inner=cmd, loop_mode=LoopMode.DRIVER_MANAGED, iterations=1,
-        capture=None, results_path=None,
+        command=None,
+        inner=cmd,
+        loop_mode=LoopMode.DRIVER_MANAGED,
+        iterations=1,
+        capture=None,
+        results_path=None,
     )
 
     result = driver.drive(plan)

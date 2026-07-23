@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 from perf.adapters.process import SubprocessRunner
 from perf.domain.model import RunContext
@@ -45,11 +45,11 @@ class BashRunContextProvider:
     def __init__(
         self,
         *,
-        build_variant: Optional[str] = None,
+        build_variant: str | None = None,
         tool_version: str = "0.0.0",
-        device: Optional[str] = None,
-        repo_path: Optional[str] = None,
-        runner: Optional[SubprocessRunner] = None,
+        device: str | None = None,
+        repo_path: str | None = None,
+        runner: SubprocessRunner | None = None,
     ) -> None:
         self._build_variant = build_variant
         self._tool_version = tool_version
@@ -92,7 +92,7 @@ class BashRunContextProvider:
         argv += list(args)
         return argv
 
-    def _adb_getprop(self, prop: str) -> Optional[str]:
+    def _adb_getprop(self, prop: str) -> str | None:
         try:
             result = self._runner.run(self._adb_argv("shell", "getprop", prop))
         except OSError:
@@ -104,7 +104,7 @@ class BashRunContextProvider:
         value = result.stdout.strip()
         return value or None
 
-    def _git_field(self, args: Sequence[str]) -> Optional[str]:
+    def _git_field(self, args: Sequence[str]) -> str | None:
         try:
             result = self._runner.run(["git", *args], cwd=self._repo_path)
         except OSError:
@@ -119,14 +119,14 @@ class BashRunContextProvider:
     @staticmethod
     def _parse_perf_meta(
         lines: Sequence[str],
-    ) -> Tuple[Optional[str], Optional[bool], Optional[str]]:
+    ) -> tuple[str | None, bool | None, str | None]:
         for raw_line in lines:
             stripped = raw_line.strip()
             tag_index = stripped.find(_PERF_META_TAG)
             if tag_index == -1:
                 continue
 
-            payload = stripped[tag_index + len(_PERF_META_TAG):].strip()
+            payload = stripped[tag_index + len(_PERF_META_TAG) :].strip()
             try:
                 data = json.loads(payload)  # json.loads ONLY, never eval (SKILL rule 5)
             except (json.JSONDecodeError, ValueError):

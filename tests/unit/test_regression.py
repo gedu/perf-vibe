@@ -6,7 +6,6 @@ cases C1/C3/C4/C5) — hypothesis-hardened.
 
 from __future__ import annotations
 
-import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -78,7 +77,9 @@ def test_direction_invariant_worse_side_is_always_regression(baseline, delta_pct
     threshold are cleared — symmetric across BOTH directions."""
     sign = -1 if higher_is_better else 1
     latest = baseline * (1 + sign * delta_pct / 100)
-    verdict = _classify(latest, baseline, higher_is_better=higher_is_better, floor=1.0, threshold_pct=5.0)
+    verdict = _classify(
+        latest, baseline, higher_is_better=higher_is_better, floor=1.0, threshold_pct=5.0
+    )
     if abs(latest - baseline) >= 1.0:
         assert verdict.status == "regression"
 
@@ -88,10 +89,14 @@ def test_direction_invariant_worse_side_is_always_regression(baseline, delta_pct
     delta_pct=st.floats(min_value=10, max_value=100, allow_nan=False),
     higher_is_better=st.booleans(),
 )
-def test_direction_invariant_better_side_is_always_improvement(baseline, delta_pct, higher_is_better):
+def test_direction_invariant_better_side_is_always_improvement(
+    baseline, delta_pct, higher_is_better
+):
     sign = 1 if higher_is_better else -1
     latest = baseline * (1 + sign * delta_pct / 100)
-    verdict = _classify(latest, baseline, higher_is_better=higher_is_better, floor=1.0, threshold_pct=5.0)
+    verdict = _classify(
+        latest, baseline, higher_is_better=higher_is_better, floor=1.0, threshold_pct=5.0
+    )
     if abs(latest - baseline) >= 1.0:
         assert verdict.status == "improvement"
 

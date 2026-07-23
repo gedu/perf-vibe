@@ -11,7 +11,7 @@ Public, versioned record of the SDD cycle that produced the `perf run` capabilit
 
 **Status:** implemented, verified, and merged to `main` across PRs #1–#3.
 
-> **Frozen record.** This directory is a snapshot of the Phase 1 cycle, kept as written. Figures quoted here (suite of 197 tests, ~96% coverage) were accurate when `perf run` shipped and are **not** current — the suite has grown since, notably with `compare`. Run `pytest` for the live count; the canonical, maintained spec is [`openspec/specs/perf-run.md`](../../../openspec/specs/perf-run.md). Coverage is not reproducible from the repo as-is: `pytest-cov` is not a dev dependency.
+> **Frozen record.** This directory is a snapshot of the Phase 1 cycle, kept as written. The suite size quoted here (197 tests) was accurate when `perf run` shipped and is **not** current — it has grown since, notably with `compare`. Run `pytest` for the live count; the canonical, maintained spec is [`openspec/specs/perf-run.md`](../../../openspec/specs/perf-run.md). The ~96% coverage figure still holds: `pytest --cov=perf` reports 96%, and CI now enforces a floor.
 
 **Flow of the cycle:** explore → propose (PRD) → spec → design (RFC) → tasks → apply → verify → archive.
 

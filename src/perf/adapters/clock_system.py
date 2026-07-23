@@ -6,11 +6,11 @@ notion of "now" without either importing the other)."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 class SystemClock:
     """`Clock` (`domain/ports.py`) implementation — real UTC wall clock."""
 
     def now_utc_iso(self) -> str:
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()

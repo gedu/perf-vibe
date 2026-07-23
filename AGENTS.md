@@ -12,10 +12,35 @@ only the `--json` payload (`schema_version`-carrying) is machine-safe.
 `budget-check` CI gate. Never treat a non-zero exit as "regression found";
 read the verdict out of the `--json` payload.
 
+## Commands
+
+Everything CI runs, and nothing is on `PATH` — go through the venv:
+
+```bash
+./.venv/bin/pip install -e '.[dev]'   # setup
+./.venv/bin/ruff check .              # lint
+./.venv/bin/ruff format .             # format (--check to verify only)
+./.venv/bin/mypy src/perf             # type-check
+./.venv/bin/pytest -q --cov=perf      # tests, 93% coverage floor
+```
+
+If only the wall-clock assertion in `tests/integration/test_compare_perf.py`
+fails, that is host load, not a regression — re-run idle or set
+`PERF_COMPARE_BUDGET_MS=0`. A statement-count failure in that same test IS real.
+
 ## Project skills
 
-Load these before working on the matching concern (they are complementary, not
-overlapping — one contract plus three craft guides):
+**Load the matching skill BEFORE writing code.**
+
+| You are about to… | Load |
+|---|---|
+| Edit anything under `src/perf/` or `tests/` | `perf-cli-standards` (always) |
+| Add a class, abstraction or pattern; decide where code goes | `+ python-architecture` |
+| Write or change tests | `+ python-testing` |
+| Format, type, or touch lint/tooling config | `+ python-style` |
+
+All four live in `.claude/skills/<name>/SKILL.md`. They are complementary, not
+overlapping — one contract plus three craft guides:
 
 - `.claude/skills/perf-cli-standards/SKILL.md` — **the hard-rule contract**
   (hexagonal layering, frozen dataclasses + `Protocol` ports, SQLite

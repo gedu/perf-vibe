@@ -5,7 +5,7 @@ the caller-resolved `color` flag (golden tests force it off)."""
 from __future__ import annotations
 
 import statistics
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 from perf.application.run_flow import RunFlowResult
 from perf.domain.model import Marker, SystemSample
@@ -81,6 +81,8 @@ def _append_aggregate_line(
     label: str,
     fmt: str,
 ) -> None:
-    values = [getattr(sample, field_name) for sample in samples if getattr(sample, field_name) is not None]
+    values = [
+        getattr(sample, field_name) for sample in samples if getattr(sample, field_name) is not None
+    ]
     if values:
         lines.append(f"    {label}: {fmt.format(statistics.fmean(values))}")

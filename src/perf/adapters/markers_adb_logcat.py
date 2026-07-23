@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 from perf.domain.model import CaptureSpec, Marker, MarkerParseResult
 
@@ -51,18 +51,16 @@ _MARK_START_RE = re.compile(r"^markStart\b", re.IGNORECASE)
 # app-domain route hardcoded); value MUST be numeric, so a non-numeric
 # payload (e.g. a stray markStart line) simply fails to match and is
 # skipped rather than crashing.
-_TEXT_MARKER_RE = re.compile(
-    r"^(?P<name>[^:]+):\s*(?P<value>\d+(?:\.\d+)?)(?P<unit>[a-zA-Z]*)\s*$"
-)
+_TEXT_MARKER_RE = re.compile(r"^(?P<name>[^:]+):\s*(?P<value>\d+(?:\.\d+)?)(?P<unit>[a-zA-Z]*)\s*$")
 
 
 class AdbLogcatMarkerSource:
     """`MarkerSource` (`domain/ports.py`) implementation."""
 
-    def __init__(self, device: Optional[str] = None) -> None:
+    def __init__(self, device: str | None = None) -> None:
         self._device = device
 
-    def capture_spec(self) -> Optional[CaptureSpec]:
+    def capture_spec(self) -> CaptureSpec | None:
         argv = ["adb"]
         if self._device is not None:
             argv += ["-s", self._device]
@@ -84,7 +82,7 @@ class AdbLogcatMarkerSource:
             if tag_index == -1:
                 continue
 
-            payload = line[tag_index + len(_PERF_TAG):].strip()
+            payload = line[tag_index + len(_PERF_TAG) :].strip()
             if not payload:
                 continue
 
@@ -104,7 +102,7 @@ class AdbLogcatMarkerSource:
         return MarkerParseResult(markers=tuple(markers), partial_coverage=partial_coverage)
 
     @staticmethod
-    def _parse_text_payload(payload: str) -> Optional[Marker]:
+    def _parse_text_payload(payload: str) -> Marker | None:
         match = _TEXT_MARKER_RE.match(payload)
         if match is None:
             return None  # malformed — skip, never raise
@@ -114,7 +112,7 @@ class AdbLogcatMarkerSource:
         return Marker(name=name, value=value, unit=unit)
 
     @staticmethod
-    def _parse_json_payload(payload: str) -> Optional[Marker]:
+    def _parse_json_payload(payload: str) -> Marker | None:
         try:
             data = json.loads(payload)  # json.loads ONLY — never eval/exec (SKILL rule 5)
         except (json.JSONDecodeError, ValueError):

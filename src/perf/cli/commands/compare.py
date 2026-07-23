@@ -14,8 +14,6 @@ exception escape as Python's default exit code `1`.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from perf.adapters.registry import build_analyzer, build_context_provider, build_store
@@ -34,7 +32,7 @@ def compare(
     restart: bool = typer.Option(
         False, "--restart", help="Compare the cold series (default: warm — matches `perf run`)"
     ),
-    device: Optional[str] = typer.Option(
+    device: str | None = typer.Option(
         None, "--device", help="Pin a device serial (overrides MAESTRO_DEVICE/config)"
     ),
 ) -> None:
@@ -86,7 +84,7 @@ def compare(
         )
 
         result = analyzer.compare_latest(flow, device_key, mode)
-    except Exception as exc:  # noqa: BLE001 — last-resort guard: `compare`
+    except Exception as exc:
         # must NEVER exit 1 (SKILL rule 7 / decision #53 — exit 1 is
         # DEFERRED to `budget-check`). Any unexpected exception is a
         # runtime/tooling failure, never a usage error.
@@ -96,7 +94,7 @@ def compare(
         if store is not None and hasattr(store, "close"):
             try:
                 store.close()
-            except Exception as close_exc:  # noqa: BLE001 — a close()
+            except Exception as close_exc:
                 # failure must NEVER override the computed exit code
                 # (SKILL rule 7: never exit 1).
                 typer.echo(f"warning: failed to close store: {close_exc}", err=True)
@@ -119,7 +117,7 @@ def compare(
             if output.should_nudge_stderr:
                 typer.echo(NON_TTY_NUDGE, err=True)
             typer.echo(render_compare(result, color=output.color_enabled))
-    except Exception as exc:  # noqa: BLE001 — rendering runs outside the
+    except Exception as exc:
         # main guarded block; an output failure is still a runtime
         # failure, never exit 1 (SKILL rule 7).
         typer.echo(f"Error: failed to render output for {flow!r}: {exc}", err=True)

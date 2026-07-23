@@ -34,9 +34,7 @@ def _imported_module_names(source: str) -> set[str]:
             if node.module:
                 names.add(node.module)
             for alias in node.names:
-                names.add(
-                    f"{node.module}.{alias.name}" if node.module else alias.name
-                )
+                names.add(f"{node.module}.{alias.name}" if node.module else alias.name)
     return names
 
 

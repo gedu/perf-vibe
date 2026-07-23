@@ -36,7 +36,12 @@ def test_too_loose_when_floor_suppresses_a_pct_significant_step():
     percentage threshold would otherwise have flagged."""
     points = _points([("c0", [1.00]), ("c1", [1.06])])
     result = calibration.grade(
-        points, metric_name="total_time_ms", unit="ms", higher_is_better=False, floor=5.0, threshold_pct=5.0
+        points,
+        metric_name="total_time_ms",
+        unit="ms",
+        higher_is_better=False,
+        floor=5.0,
+        threshold_pct=5.0,
     )
     assert result.status == calibration.STATUS_TOO_LOOSE
     assert result.flagged_count == 0  # the floor suppressed it, so it never actually flagged
@@ -95,7 +100,12 @@ def test_zero_flagged_is_reasonable_not_too_loose_when_floor_below_max_abs():
     regression of that magnitude."""
     points = _points([("c0", [100.0]), ("c1", [100.0]), ("c2", [100.0]), ("c3", [70.0])])
     result = calibration.grade(
-        points, metric_name="total_time_ms", unit="ms", higher_is_better=False, floor=5.0, threshold_pct=5.0
+        points,
+        metric_name="total_time_ms",
+        unit="ms",
+        higher_is_better=False,
+        floor=5.0,
+        threshold_pct=5.0,
     )
     assert result.flagged_count == 0
     assert result.max_abs == 30.0
@@ -116,17 +126,19 @@ def test_calibration_never_alters_an_independently_computed_verdict():
     code) — grading the label must not mutate or influence a separately
     computed verdict for the same data."""
     points = _points([("c0", [100.0]), ("c1", [101.0]), ("c2", [140.0])])
-    kwargs = dict(
-        unit="ms",
-        higher_is_better=False,
-        threshold_pct=5.0,
-        floor=5.0,
-        baseline_commit_n=3,
-        sample_n=3,
-        min_n=3,
-    )
+    kwargs = {
+        "unit": "ms",
+        "higher_is_better": False,
+        "threshold_pct": 5.0,
+        "floor": 5.0,
+        "baseline_commit_n": 3,
+        "sample_n": 3,
+        "min_n": 3,
+    }
     verdict_before = regression.classify("m", 140.0, 100.5, **kwargs)
-    calibration.grade(points, metric_name="m", unit="ms", higher_is_better=False, floor=5.0, threshold_pct=5.0)
+    calibration.grade(
+        points, metric_name="m", unit="ms", higher_is_better=False, floor=5.0, threshold_pct=5.0
+    )
     verdict_after = regression.classify("m", 140.0, 100.5, **kwargs)
     assert verdict_before == verdict_after
 
@@ -182,11 +194,18 @@ def test_grade_all_too_strict_outranks_too_loose_deterministically():
     # suppressed under the new definition -> too-loose.
     loose = _points([(f"c{i}", [100.0 + i * 0.6]) for i in range(6)])
     strict = _points(
-        [("c0", [100.0, 100.0]), ("c1", [100.0, 130.0]), ("c2", [102.0, 128.0]), ("c3", [101.0, 129.0])]
+        [
+            ("c0", [100.0, 100.0]),
+            ("c1", [100.0, 130.0]),
+            ("c2", [102.0, 128.0]),
+            ("c3", [101.0, 129.0]),
+        ]
     )
     report = calibration.grade_all(
         {"dur_ms": loose, "fps_avg": strict},
-        floors={"ms": 1000.0},  # huge floor for ms -> dur_ms's small steps get suppressed (too-loose); fps floor defaults 0
+        floors={
+            "ms": 1000.0
+        },  # huge floor for ms -> dur_ms's small steps get suppressed (too-loose); fps floor defaults 0
         threshold_pct=0.5,  # below fps_avg's run-to-run noise -> too-strict
         units={"dur_ms": "ms", "fps_avg": "fps"},
         higher_is_better={"dur_ms": False, "fps_avg": True},

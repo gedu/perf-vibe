@@ -5,8 +5,8 @@ NO real device, subprocess, or filesystem I/O.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Callable, Mapping, Optional, Sequence
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime, timedelta
 
 from perf.domain.model import (
     CaptureSpec,
@@ -22,14 +22,14 @@ from perf.domain.model import (
 )
 
 __all__ = [
-    "FrozenClock",
-    "SequentialClock",
     "FakeDriver",
-    "FakeSystemSampler",
     "FakeMarkerSource",
     "FakeRunContextProvider",
-    "NoArgRunContextProvider",
     "FakeStore",
+    "FakeSystemSampler",
+    "FrozenClock",
+    "NoArgRunContextProvider",
+    "SequentialClock",
     "make_run_context",
 ]
 
@@ -53,7 +53,7 @@ class SequentialClock:
     def __init__(self, start: str = "2020-01-01T00:00:00+00:00") -> None:
         self._t = datetime.fromisoformat(start)
         if self._t.tzinfo is None:
-            self._t = self._t.replace(tzinfo=timezone.utc)
+            self._t = self._t.replace(tzinfo=UTC)
 
     def now_utc_iso(self) -> str:
         self._t += timedelta(seconds=1)
@@ -69,9 +69,9 @@ class FakeDriver:
     def __init__(
         self,
         *,
-        drive_result: Optional[DriverResult] = None,
-        command_error: Optional[Exception] = None,
-        drive_error: Optional[Exception] = None,
+        drive_result: DriverResult | None = None,
+        command_error: Exception | None = None,
+        drive_error: Exception | None = None,
         automated: bool = True,
         prompt: str = "Perform the flow manually, then confirm.",
     ) -> None:
@@ -91,7 +91,7 @@ class FakeDriver:
         *,
         mode: str,
         restart: bool,
-        env: Optional[Mapping[str, str]] = None,
+        env: Mapping[str, str] | None = None,
     ) -> DriverCommand:
         self.commands_requested.append((flow_name, mode, restart, env))
         if self._command_error is not None:
@@ -120,8 +120,8 @@ class FakeSystemSampler:
         self,
         *,
         wrap_returns_none: bool = False,
-        parse_result: Optional[SystemSampleParseResult] = None,
-        parse_error: Optional[Exception] = None,
+        parse_result: SystemSampleParseResult | None = None,
+        parse_error: Exception | None = None,
     ) -> None:
         self._wrap_returns_none = wrap_returns_none
         self._parse_result = parse_result or SystemSampleParseResult(
@@ -138,7 +138,7 @@ class FakeSystemSampler:
         iterations: int,
         restart: bool,
         results_path: str,
-    ) -> Optional[SamplerCommand]:
+    ) -> SamplerCommand | None:
         self.wrap_calls.append((inner, iterations, restart, results_path))
         if self._wrap_returns_none:
             return None
@@ -161,14 +161,14 @@ class FakeMarkerSource:
     def __init__(
         self,
         *,
-        capture: Optional[CaptureSpec] = None,
-        parse_result: Optional[MarkerParseResult] = None,
+        capture: CaptureSpec | None = None,
+        parse_result: MarkerParseResult | None = None,
     ) -> None:
         self._capture = capture or CaptureSpec(argv=["fake-logcat"])
         self._parse_result = parse_result or MarkerParseResult(markers=(), partial_coverage=False)
         self.parse_calls: list = []
 
-    def capture_spec(self) -> Optional[CaptureSpec]:
+    def capture_spec(self) -> CaptureSpec | None:
         return self._capture
 
     def parse(self, lines: Sequence[str], *, iterations: int) -> MarkerParseResult:
@@ -177,20 +177,20 @@ class FakeMarkerSource:
 
 
 def make_run_context(**overrides) -> RunContext:
-    defaults = dict(
-        device_key="Pixel-Fake|14|physical",
-        model="Pixel-Fake",
-        os_version="14",
-        is_emulator=False,
-        source="local:test",
-        git_commit="abc123",
-        git_branch="main",
-        app_version=None,
-        is_dev_bundle=None,
-        bundle_source=None,
-        build_variant=None,
-        tool_version="0.0.0-test",
-    )
+    defaults = {
+        "device_key": "Pixel-Fake|14|physical",
+        "model": "Pixel-Fake",
+        "os_version": "14",
+        "is_emulator": False,
+        "source": "local:test",
+        "git_commit": "abc123",
+        "git_branch": "main",
+        "app_version": None,
+        "is_dev_bundle": None,
+        "bundle_source": None,
+        "build_variant": None,
+        "tool_version": "0.0.0-test",
+    }
     defaults.update(overrides)
     return RunContext(**defaults)
 
@@ -200,7 +200,7 @@ class FakeRunContextProvider:
     documented OPTIONAL `logcat_lines` extension (still Protocol-compatible
     — a bare `context()` call also works)."""
 
-    def __init__(self, ctx: Optional[RunContext] = None) -> None:
+    def __init__(self, ctx: RunContext | None = None) -> None:
         self._ctx = ctx or make_run_context()
         self.calls: list = []
 
@@ -215,7 +215,7 @@ class NoArgRunContextProvider:
     `RunFlowUseCase._get_context` falls back correctly instead of crashing
     on a `TypeError`."""
 
-    def __init__(self, ctx: Optional[RunContext] = None) -> None:
+    def __init__(self, ctx: RunContext | None = None) -> None:
         self._ctx = ctx or make_run_context()
         self.calls = 0
 
@@ -228,7 +228,7 @@ class FakeStore:
     """`Store` fake. `save_error` simulates a store-level failure (e.g. a
     disk error mid-transaction) to prove the use-case does not swallow it."""
 
-    def __init__(self, *, save_error: Optional[Exception] = None) -> None:
+    def __init__(self, *, save_error: Exception | None = None) -> None:
         self._save_error = save_error
         self._next_id = 1
         self.saved_runs: list[dict] = []
@@ -242,7 +242,7 @@ class FakeStore:
         source: str,
         markers: Sequence[Marker],
         samples: Sequence[SystemSample],
-        raw_report_path: Optional[str],
+        raw_report_path: str | None,
     ) -> int:
         if self._save_error is not None:
             raise self._save_error
@@ -263,7 +263,5 @@ class FakeStore:
         )
         return run_id
 
-    def history(
-        self, flow_name: str, metric_name: str, device_key: str, limit: int
-    ) -> Sequence:
+    def history(self, flow_name: str, metric_name: str, device_key: str, limit: int) -> Sequence:
         return ()

@@ -19,21 +19,16 @@ the store under test. Proves:
 
 from __future__ import annotations
 
-import sys
 from collections import defaultdict
-from pathlib import Path
 
-_TESTS_DIR = Path(__file__).resolve().parents[1]
-if str(_TESTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_TESTS_DIR))
-
-from fakes import SequentialClock  # noqa: E402
-
-from perf.adapters.store_sqlite import SqliteStore  # noqa: E402
-from perf.domain import regression  # noqa: E402
-from perf.domain import calibration  # noqa: E402
-from perf.domain.calibration import CalibrationReport  # noqa: E402
-from perf.domain.model import CompareResult, Marker, RunContext, SystemSample  # noqa: E402
+from fakes import SequentialClock
+from perf.adapters.store_sqlite import SqliteStore
+from perf.domain import (
+    calibration,
+    regression,
+)
+from perf.domain.calibration import CalibrationReport
+from perf.domain.model import CompareResult, Marker, RunContext, SystemSample
 
 FLOW = "checkout"
 DEVICE_A = "Pixel 8 Pro|Android 14|physical"
@@ -42,20 +37,20 @@ _FLOORS = {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 2.0}
 
 
 def _ctx(**overrides) -> RunContext:
-    defaults = dict(
-        device_key=DEVICE_A,
-        model="Pixel 8 Pro",
-        os_version="Android 14",
-        is_emulator=False,
-        source="local:eduardo",
-        git_commit="c0",
-        git_branch="main",
-        app_version="1.0.0",
-        is_dev_bundle=False,
-        bundle_source="embedded",
-        build_variant="release",
-        tool_version="0.1.0",
-    )
+    defaults = {
+        "device_key": DEVICE_A,
+        "model": "Pixel 8 Pro",
+        "os_version": "Android 14",
+        "is_emulator": False,
+        "source": "local:eduardo",
+        "git_commit": "c0",
+        "git_branch": "main",
+        "app_version": "1.0.0",
+        "is_dev_bundle": False,
+        "bundle_source": "embedded",
+        "build_variant": "release",
+        "tool_version": "0.1.0",
+    }
     defaults.update(overrides)
     return RunContext(**defaults)
 
@@ -73,7 +68,7 @@ def _system_samples(fps_values, ram_values):
             cpu_avg_pct=None,
             cpu_peak_pct=None,
         )
-        for idx, (fps, ram) in enumerate(zip(fps_values, ram_values))
+        for idx, (fps, ram) in enumerate(zip(fps_values, ram_values, strict=False))
     ]
 
 
@@ -129,13 +124,13 @@ class _CallCountingStore(SqliteStore):
 def _make_analyzer(store, **overrides):
     from perf.adapters.analyzer_sql import SqlAnalyzer
 
-    params = dict(
-        threshold_pct=5.0,
-        floors=_FLOORS,
-        min_baseline_commits=2,
-        warmup_k=1,
-        baseline_n=10,
-    )
+    params = {
+        "threshold_pct": 5.0,
+        "floors": _FLOORS,
+        "min_baseline_commits": 2,
+        "warmup_k": 1,
+        "baseline_n": 10,
+    }
     params.update(overrides)
     return SqlAnalyzer(store, **params)
 
@@ -237,7 +232,9 @@ def test_new_metric_in_latest_absent_from_baseline_is_insufficient_data(tmp_path
     store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
     try:
         for commit in ("c1", "c2"):
-            _seed(store, git_commit=commit, checkout_ms=100.0, fps_values=[60.0], ram_values=[200.0])
+            _seed(
+                store, git_commit=commit, checkout_ms=100.0, fps_values=[60.0], ram_values=[200.0]
+            )
         _seed(
             store,
             git_commit="HEAD",
@@ -322,7 +319,9 @@ def test_verdict_series_is_chronological_baseline_medians_plus_latest(tmp_path):
     store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
     try:
         for commit, value in (("c1", 100.0), ("c2", 110.0), ("c3", 105.0)):
-            _seed(store, git_commit=commit, checkout_ms=value, fps_values=[60.0], ram_values=[200.0])
+            _seed(
+                store, git_commit=commit, checkout_ms=value, fps_values=[60.0], ram_values=[200.0]
+            )
         _seed(store, git_commit="HEAD", checkout_ms=120.0, fps_values=[60.0], ram_values=[200.0])
 
         analyzer = _make_analyzer(store, min_baseline_commits=2)
@@ -360,9 +359,21 @@ def test_n1_run_in_baseline_window_excluded_from_median_not_crash(tmp_path):
     (non-NULL) baseline commits."""
     store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
     try:
-        _seed(store, git_commit="c1", checkout_ms=100.0, fps_values=[60.0, 60.0], ram_values=[200.0, 200.0])
+        _seed(
+            store,
+            git_commit="c1",
+            checkout_ms=100.0,
+            fps_values=[60.0, 60.0],
+            ram_values=[200.0, 200.0],
+        )
         _seed_n1(store, git_commit="c2", checkout_ms=999.0)  # n=1 -> NULL p90, must be excluded
-        _seed(store, git_commit="c3", checkout_ms=100.0, fps_values=[60.0, 60.0], ram_values=[200.0, 200.0])
+        _seed(
+            store,
+            git_commit="c3",
+            checkout_ms=100.0,
+            fps_values=[60.0, 60.0],
+            ram_values=[200.0, 200.0],
+        )
         _seed(
             store,
             git_commit="HEAD",

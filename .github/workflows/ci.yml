@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same branch cancels the first — no point burning
+# runners on a commit that has already been superseded.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      # The compare scale test's wall-clock budget is calibrated for an idle
+      # machine and swings ~35x under load, so it is meaningless on a shared
+      # runner. 0 disables that one assertion; the deterministic O(1)
+      # statement-count guarantee in the same test still runs, as does
+      # everything else. See tests/integration/test_compare_perf.py.
+      PERF_COMPARE_BUDGET_MS: 0
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Single version on purpose: this is a local-first CLI, not a library
+          # with a public API to keep compatible across interpreters. Match the
+          # floor declared in pyproject.toml (requires-python = ">=3.11").
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install
+        run: pip install -e '.[dev]'
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Format check (ruff)
+        run: ruff format --check .
+
+      - name: Type check (mypy)
+        run: mypy src/perf
+
+      - name: Tests
+        run: pytest -q --cov=perf --cov-report=term-missing
+
+      # Proof the packaged CLI actually runs from a clean install, and that the
+      # exit-code contract holds: compare is show-only, so a seeded regression
+      # must still exit 0. This is the contract AGENTS.md tells agents to rely
+      # on, so it is worth failing the build over.
+      - name: Smoke — demos run end to end
+        run: |
+          set -euo pipefail
+          perfvibe --json --config examples/demo-run/perf.toml run demo > /dev/null
+          python examples/demo-compare/seed.py > /dev/null
+          perfvibe --json --config examples/demo-compare/perf.toml compare demo > /dev/null
+          echo "compare exited $? on a seeded regression (expected 0)"

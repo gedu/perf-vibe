@@ -8,7 +8,7 @@ sparkline (design "UX", Rev 3), plus a single config-sanity footer line
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from perf.domain import calibration, regression
 from perf.domain.calibration import CalibrationReport

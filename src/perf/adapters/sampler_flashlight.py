@@ -28,7 +28,6 @@ import json
 import shlex
 import statistics
 from pathlib import Path
-from typing import Optional, Union
 
 from perf.domain.model import (
     DriverCommand,
@@ -53,8 +52,8 @@ class FlashlightSampler:
         *,
         iterations: int,
         restart: bool,
-        results_path: Union[str, Path],
-    ) -> Optional[SamplerCommand]:
+        results_path: str | Path,
+    ) -> SamplerCommand | None:
         if inner.argv is None:
             # Manual driver, no automated inner command — Flashlight's
             # `measure` seam for manual+Flashlight is documented but not
@@ -90,7 +89,7 @@ class FlashlightSampler:
             manages_iterations=True,
         )
 
-    def parse(self, results_path: Union[str, Path]) -> SystemSampleParseResult:
+    def parse(self, results_path: str | Path) -> SystemSampleParseResult:
         raw = json.loads(Path(results_path).read_text())
 
         top_status = raw.get("status")

@@ -25,8 +25,8 @@ _ANSI_ESCAPE = "\x1b["
 
 
 def _reasonable_calibration(**overrides) -> CalibrationReport:
-    defaults = dict(
-        metrics=(
+    defaults = {
+        "metrics": (
             MetricCalibration(
                 metric_name="checkout",
                 status="reasonable",
@@ -36,10 +36,10 @@ def _reasonable_calibration(**overrides) -> CalibrationReport:
                 noise_pct=1.2,
             ),
         ),
-        status="reasonable",
-        runs_flagged=2,
-        runs_total=12,
-    )
+        "status": "reasonable",
+        "runs_flagged": 2,
+        "runs_total": 12,
+    }
     defaults.update(overrides)
     return CalibrationReport(**defaults)
 
@@ -185,7 +185,9 @@ def _insufficient_data_result() -> CompareResult:
     )
     return CompareResult(
         verdicts=verdicts,
-        calibration=CalibrationReport(metrics=(), status="insufficient-data", runs_flagged=0, runs_total=0),
+        calibration=CalibrationReport(
+            metrics=(), status="insufficient-data", runs_flagged=0, runs_total=0
+        ),
     )
 
 

@@ -10,7 +10,7 @@ SKILL.md` rule 1.
 from __future__ import annotations
 
 import math
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 from perf.domain.model import Verdict
 
@@ -22,8 +22,8 @@ STATUS_INSUFFICIENT_DATA = "insufficient-data"
 
 def classify(
     metric_name: str,
-    latest: Optional[float],
-    baseline: Optional[float],
+    latest: float | None,
+    baseline: float | None,
     *,
     unit: str,
     higher_is_better: bool,
