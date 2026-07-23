@@ -1,0 +1,4 @@
+  checkout                  102.0 vs 100.0      ms   ↑    +2.0%  STABLE           ▁▅▆█
+  fps_avg                    64.8 vs 60.0       fps  ↑    +8.0%  IMPROVEMENT      ▁▂▃█
+
+✓ reasonable — 2 of 12 runs would flag

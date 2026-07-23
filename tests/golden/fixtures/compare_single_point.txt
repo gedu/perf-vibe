@@ -1,0 +1,3 @@
+  checkout                  100.0 vs 100.0      ms   →    +0.0%  STABLE           ▁
+
+✓ reasonable — 2 of 12 runs would flag

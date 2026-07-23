@@ -1,0 +1,3 @@
+  checkout                  100.0 vs -          ms   -        -  INSUFFICIENT-DATA ▁
+
+· insufficient data to grade config sanity
