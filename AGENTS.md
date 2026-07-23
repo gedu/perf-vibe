@@ -1,11 +1,11 @@
 # perf CLI — agent instructions
 
-**Always run `perf` with `--json` and parse that output.** The pretty
+**Always run `perfvibe` with `--json` and parse that output.** The pretty
 terminal view (sparklines, color, human confirmation text) is lossy and NOT a
 stable contract — it may change without notice. Never parse the pretty view;
 only the `--json` payload (`schema_version`-carrying) is machine-safe.
 
-`perf run` is persist-only: it exits `0` on success, `2` on a usage error,
+`perfvibe run` is persist-only: it exits `0` on success, `2` on a usage error,
 and `3` on any runtime/tooling failure. It never exits `1` (that code is
 reserved for `compare`/`budget-check` regressions).
 
@@ -33,8 +33,10 @@ overlapping — one contract plus three craft guides):
 ## Dev environment
 
 - Python **3.11+**, `src/` layout, single installable package `perf`.
-- Setup: create a venv, `pip install -e '.[dev]'`, run the CLI via the `perf`
-  console script (entry point `perf.cli:main`).
+- Setup: create a venv, `pip install -e '.[dev]'`, run the CLI via the
+  `perfvibe` console script (entry point `perf.cli:main`; command renamed from
+  `perf` to avoid colliding with the Linux kernel profiler). Public install is
+  a `pipx`-based `curl | bash` one-liner (see `install.sh` / README).
 - The local store (`*.db`) and CodeGraph index (`.codegraph/`) are
   gitignored — never commit them.
 
