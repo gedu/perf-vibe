@@ -16,7 +16,7 @@
 | Flashlight per-iteration aggregation, `raw_report_path` | RUN | SHIPPED ✓ |
 | Marker parsing (text + JSON), `markStart`/`markEnd` guard | RUN | SHIPPED ✓ |
 | Direction metadata per metric; git/device/mode/bundle/n/source metadata; storing ALL iterations | RUN | SHIPPED ✓ |
-| Median-by-commit baseline, dev-bundle exclusion, warm-up discard, min-n gating, threshold+floor, classification | COMPARE | PLANNED (Phase 2+) |
+| Median-by-commit baseline, dev-bundle exclusion, warm-up discard, min-n gating, threshold+floor, classification | COMPARE | SHIPPED ✓ — see `openspec/specs/compare.md` |
 
 ## Requirements
 
