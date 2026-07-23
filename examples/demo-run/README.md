@@ -14,15 +14,19 @@ other driver uses:
 ## Run it
 
 From the repo root (paths in `perf.toml` are relative to the current
-working directory):
+working directory). Note the global flags (`--config`, `--json`, `--db`) go
+**before** the `run` subcommand:
 
 ```sh
 # Pretty (human) output
-./.venv/bin/perf run demo --config examples/demo-run/perf.toml
+perfvibe --config examples/demo-run/perf.toml run demo
 
 # Machine --json contract
-./.venv/bin/perf run demo --config examples/demo-run/perf.toml --json
+perfvibe --json --config examples/demo-run/perf.toml run demo
 ```
+
+(Not installed yet? Use `python perfvibe-cli.py --config examples/demo-run/perf.toml run demo`
+from the repo root, or `./.venv/bin/perfvibe ...` from the dev venv.)
 
 Both commands exit `0` and persist exactly one run into
 `examples/demo-run/perf.db` (the config's `db_path`, unless overridden with
@@ -31,7 +35,6 @@ Both commands exit `0` and persist exactly one run into
 ## Inspect the persisted run
 
 ```sh
-./.venv/bin/perf run demo --config examples/demo-run/perf.toml --db examples/demo-run/perf.db
 sqlite3 examples/demo-run/perf.db "SELECT * FROM run;"
 sqlite3 examples/demo-run/perf.db "SELECT * FROM measure;"
 ```
