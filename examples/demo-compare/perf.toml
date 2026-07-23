@@ -1,0 +1,8 @@
+# Device-free demo config for `perf compare` (see README.md in this
+# directory). `compare` never touches `driver`/`sampler`/`marker_source` —
+# it only reads the local store — so this config only needs `db_path` and
+# a config-known `[flows.demo]` entry (matching what `seed.py` persisted).
+
+db_path = "examples/demo-compare/perf.db"
+
+[flows.demo]

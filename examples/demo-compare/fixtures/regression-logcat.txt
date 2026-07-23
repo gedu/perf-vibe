@@ -1,0 +1,15 @@
+11-02 09:20:11.001  1234  1234 I ActivityManager: Displayed com.perulab.bcp/.MainActivity
+11-02 09:20:11.412  1234  1234 D ReactNativeJS: Running "PerfLabDemo" with {"rootTag":1}
+11-02 09:20:11.480  1234  1234 I ReactNativeJS: [PERF-META] {"app_version": "4.13.0", "is_dev_bundle": false, "bundle_source": "release"}
+11-02 09:20:12.100  1234  1234 I ReactNativeJS: [PERF] markStart:checkout
+11-02 09:20:13.360  1234  1234 I ReactNativeJS: [PERF] checkout: 1260ms
+11-02 09:20:13.380  1234  1234 I ReactNativeJS: [PERF] {"name": "ttfp", "value": 418, "unit": "ms"}
+11-02 09:20:13.450  1234  1234 D ReactNativeJS: navigation state changed
+11-02 09:20:14.900  1234  1234 I ReactNativeJS: [PERF] markStart:checkout
+11-02 09:20:16.210  1234  1234 I ReactNativeJS: [PERF] checkout: 1310ms
+11-02 09:20:16.230  1234  1234 I ReactNativeJS: [PERF] {"name": "ttfp", "value": 412, "unit": "ms"}
+11-02 09:20:16.300  1234  1234 D ReactNativeJS: idle
+11-02 09:20:17.900  1234  1234 I ReactNativeJS: [PERF] markStart:checkout
+11-02 09:20:19.185  1234  1234 I ReactNativeJS: [PERF] checkout: 1285ms
+11-02 09:20:19.205  1234  1234 I ReactNativeJS: [PERF] {"name": "ttfp", "value": 421, "unit": "ms"}
+11-02 09:20:19.300  1234  1234 D ReactNativeJS: idle
