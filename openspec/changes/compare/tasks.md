@@ -34,18 +34,18 @@ Chain strategy: pending
 
 ## Phase 1: Domain pure math + config (PR-A)
 
-- [ ] 1.1 RED: `tests/unit/test_statistics.py` — hypothesis: `median`, `median_by_commit` (collapses repeat-commit rows), nearest-rank percentile edges (n=1, all-equal, even/odd n; `min≤p50≤p90≤max`)
-- [ ] 1.2 GREEN: `domain/statistics.py` — pure `median`, `median_by_commit`, percentile helper
-- [ ] 1.3 RED: `tests/unit/test_model.py` — `Verdict` 4-state fields (`latest_value`, `baseline_value`, `unit`, `sample_n`, `baseline_commit_n`, `series`) + `RunPoint` read-model dataclass
-- [ ] 1.4 GREEN: `domain/model.py` — extend `Verdict` to `improvement|stable|regression|insufficient-data` + data fields; add `RunPoint`
-- [ ] 1.5 RED (highest blast radius): `tests/unit/test_regression.py` — hypothesis direction-aware invariants: FPS drop ⇒ regression, duration/RAM/CPU rise ⇒ regression, floor+threshold-both-required gating, `insufficient-data` on `baseline is None`/low `baseline_commit_n`/low `sample_n` (never silent `stable`)
-- [ ] 1.6 GREEN: `domain/regression.py` — `classify(latest, baseline, *, higher_is_better, threshold_pct, floor, baseline_commit_n, sample_n, min_n) -> Verdict`
-- [ ] 1.7 RED: `tests/unit/test_config_loader.py` additions — new `PerfConfig` fields `threshold_pct=5.0`, `floors={ms:5,mb:5,pct:3,fps:2}`, `min_baseline_commits=3`, `warmup_k=1`, `baseline_n=10`; `perf.toml` override layering
-- [ ] 1.8 GREEN: `config/loader.py` — add the 5 fields through the existing layered `_merge`
-- [ ] 1.9 RED (highest blast radius): `tests/unit/test_calibration.py` — table cases: too-loose (`floor>=max_abs`), too-strict (`threshold_pct<noise_pct`), reasonable + exact flag count, **stable-history-flags-0-is-reasonable-NOT-too-loose** (anti-lying-label), `<2` commits ⇒ `insufficient-data`; invariant test: calibration never alters `Verdict.status` or exit code
-- [ ] 1.10 GREEN: `domain/calibration.py` — `grade(per_run_points, *, unit, higher_is_better, floor, threshold_pct) -> MetricCalibration`; `grade_all(...) -> CalibrationReport`; honest-degenerate labels only
-- [ ] 1.11 RED `[Rev 3 corner cases]`: `tests/unit/test_regression.py` (extend) — pure-domain corner cases: **C1/C5** `baseline is None` (first-ever run / new metric) ⇒ `insufficient-data` never `1`; **C3** single baseline commit (`baseline_commit_n=1 < min_n`) ⇒ `insufficient-data`; **C4** all-equal / zero-variance baseline INCLUDING `baseline==0` ⇒ `stable` with NO `ZeroDivisionError`; assert no path raises for these inputs
-- [ ] 1.12 GREEN: fold C1/C3/C4/C5 handling into `domain/regression.py` `classify` (baseline-None + min-n guards already planned in 1.6; add explicit `baseline==0` divide guard so zero-variance is `stable`, not a crash)
+- [x] 1.1 RED: `tests/unit/test_statistics.py` — hypothesis: `median`, `median_by_commit` (collapses repeat-commit rows), nearest-rank percentile edges (n=1, all-equal, even/odd n; `min≤p50≤p90≤max`)
+- [x] 1.2 GREEN: `domain/statistics.py` — pure `median`, `median_by_commit`, percentile helper
+- [x] 1.3 RED: `tests/unit/test_model.py` — `Verdict` 4-state fields (`latest_value`, `baseline_value`, `unit`, `sample_n`, `baseline_commit_n`, `series`) + `RunPoint` read-model dataclass
+- [x] 1.4 GREEN: `domain/model.py` — extend `Verdict` to `improvement|stable|regression|insufficient-data` + data fields; add `RunPoint`
+- [x] 1.5 RED (highest blast radius): `tests/unit/test_regression.py` — hypothesis direction-aware invariants: FPS drop ⇒ regression, duration/RAM/CPU rise ⇒ regression, floor+threshold-both-required gating, `insufficient-data` on `baseline is None`/low `baseline_commit_n`/low `sample_n` (never silent `stable`)
+- [x] 1.6 GREEN: `domain/regression.py` — `classify(latest, baseline, *, higher_is_better, threshold_pct, floor, baseline_commit_n, sample_n, min_n) -> Verdict`
+- [x] 1.7 RED: `tests/unit/test_config_loader.py` additions — new `PerfConfig` fields `threshold_pct=5.0`, `floors={ms:5,mb:5,pct:3,fps:2}`, `min_baseline_commits=3`, `warmup_k=1`, `baseline_n=10`; `perf.toml` override layering
+- [x] 1.8 GREEN: `config/loader.py` — add the 5 fields through the existing layered `_merge`
+- [x] 1.9 RED (highest blast radius): `tests/unit/test_calibration.py` — table cases: too-loose (`floor>=max_abs`), too-strict (`threshold_pct<noise_pct`), reasonable + exact flag count, **stable-history-flags-0-is-reasonable-NOT-too-loose** (anti-lying-label), `<2` commits ⇒ `insufficient-data`; invariant test: calibration never alters `Verdict.status` or exit code
+- [x] 1.10 GREEN: `domain/calibration.py` — `grade(per_run_points, *, unit, higher_is_better, floor, threshold_pct) -> MetricCalibration`; `grade_all(...) -> CalibrationReport`; honest-degenerate labels only
+- [x] 1.11 RED `[Rev 3 corner cases]`: `tests/unit/test_regression.py` (extend) — pure-domain corner cases: **C1/C5** `baseline is None` (first-ever run / new metric) ⇒ `insufficient-data` never `1`; **C3** single baseline commit (`baseline_commit_n=1 < min_n`) ⇒ `insufficient-data`; **C4** all-equal / zero-variance baseline INCLUDING `baseline==0` ⇒ `stable` with NO `ZeroDivisionError`; assert no path raises for these inputs
+- [x] 1.12 GREEN: fold C1/C3/C4/C5 handling into `domain/regression.py` `classify` (baseline-None + min-n guards already planned in 1.6; add explicit `baseline==0` divide guard so zero-variance is `stable`, not a crash)
 
 ## Phase 2: Baseline read-model + `SqlAnalyzer` + registry (PR-B)
 
