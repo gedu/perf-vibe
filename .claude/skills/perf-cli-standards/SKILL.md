@@ -41,4 +41,7 @@ Load when writing or editing Python in the `perf-vibe` repo (the `perf-lab-cli` 
 
 ## References
 
-- Design source (do not copy wholesale; distilled here): `/Users/eduardo.graciano/Documents/CK/Clients/PeruBank/perf-lab-cli-master-design.md` (§5 seams, §9 schema/transaction, §10 ports, §11 adapters, §13 --json contract, §16 testing).
+- Design source (private, not in this repo; distilled here — do not copy
+  wholesale): the perf-lab-cli master design doc, §5 seams, §9
+  schema/transaction, §10 ports, §11 adapters, §13 --json contract, §16
+  testing. This skill is self-contained; you do not need the source to apply it.
