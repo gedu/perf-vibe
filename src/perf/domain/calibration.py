@@ -168,11 +168,18 @@ def grade_all(
     units: Mapping[str, str],
     higher_is_better: Mapping[str, bool],
 ) -> CalibrationReport:
-    """Aggregates `grade()` across every metric (design "grade_all"):
-    overall `status` is the worst per-metric status (`too-loose`/
-    `too-strict` outrank `reasonable`/`insufficient-data`); `runs_flagged`
-    is the count of DISTINCT historical commits where ANY metric would
-    flag, out of every distinct commit observed across all metrics."""
+    """Aggregates `grade()` across every metric (design "grade_all").
+
+    Overall `status` precedence (honest — never a reassuring label without
+    evidence): `too-strict` > `too-loose` > `reasonable` > `insufficient-data`.
+    A degenerate config outranks all; `reasonable` is reported ONLY when at
+    least one metric had enough history to grade; if NOTHING could be graded
+    (every metric `insufficient-data`), the aggregate is `insufficient-data`,
+    NOT `reasonable`. Between the two degenerate states, `too-strict` (cries
+    wolf) is reported first, deterministically; each metric's own status is
+    always available in `metrics` for per-metric rendering. `runs_flagged` is
+    the count of DISTINCT historical commits where ANY metric would flag, out
+    of every distinct commit observed across all metrics."""
 
     metrics: List[MetricCalibration] = []
     all_commits: set = set()
@@ -193,11 +200,17 @@ def grade_all(
         flagged_union.update(metric_grade.flagged_commits)
         all_commits.update(commit for commit, _, _ in points)
 
-    worst_status = STATUS_REASONABLE
-    for metric_grade in metrics:
-        if metric_grade.status in (STATUS_TOO_LOOSE, STATUS_TOO_STRICT):
-            worst_status = metric_grade.status
-            break
+    statuses = {metric_grade.status for metric_grade in metrics}
+    if STATUS_TOO_STRICT in statuses:
+        worst_status = STATUS_TOO_STRICT
+    elif STATUS_TOO_LOOSE in statuses:
+        worst_status = STATUS_TOO_LOOSE
+    elif STATUS_REASONABLE in statuses:
+        worst_status = STATUS_REASONABLE
+    else:
+        # No metric had enough history to grade — surface that honestly
+        # instead of a reassuring "reasonable" with zero evidence.
+        worst_status = STATUS_INSUFFICIENT_DATA
 
     return CalibrationReport(
         metrics=tuple(metrics),

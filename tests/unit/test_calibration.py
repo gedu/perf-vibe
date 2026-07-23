@@ -126,3 +126,59 @@ def test_grade_all_aggregates_worst_status_and_flagged_union():
     flagged_commits = {commit for metric in report.metrics for commit in metric.flagged_commits}
     assert flagged_commits == {"c4"}
     assert report.status == calibration.STATUS_TOO_LOOSE  # fps_avg's degenerate floor dominates
+
+
+def test_grade_all_all_insufficient_data_is_insufficient_not_reasonable():
+    """Review finding (PR-A): when EVERY metric grades insufficient-data
+    (e.g. a brand-new flow with a single commit), the aggregate MUST surface
+    insufficient-data — never a reassuring 'reasonable — 0 of 1 would flag'
+    with no evidence to stand on (decision #58 anti-lying-label, aggregate
+    level)."""
+    report = calibration.grade_all(
+        {"total_time_ms": _points([("c0", [100.0])])},
+        floors={"ms": 5.0},
+        threshold_pct=5.0,
+        units={"total_time_ms": "ms"},
+        higher_is_better={"total_time_ms": False},
+    )
+    assert report.metrics[0].status == calibration.STATUS_INSUFFICIENT_DATA
+    assert report.status == calibration.STATUS_INSUFFICIENT_DATA
+
+
+def test_grade_all_too_strict_outranks_too_loose_deterministically():
+    """Review finding (PR-A): a mix of degenerate statuses must resolve
+    deterministically (too-strict > too-loose), and neither per-metric status
+    is lost — both remain in report.metrics for per-metric rendering."""
+    loose = _points([(f"c{i}", [100.0 + i * 0.1]) for i in range(6)])  # tiny deltas
+    strict = _points(
+        [("c0", [100.0, 100.0]), ("c1", [100.0, 130.0]), ("c2", [102.0, 128.0]), ("c3", [101.0, 129.0])]
+    )
+    report = calibration.grade_all(
+        {"dur_ms": loose, "fps_avg": strict},
+        floors={"ms": 1000.0},  # huge floor for ms -> dur_ms can never flag (too-loose); fps floor defaults 0
+        threshold_pct=0.5,  # below fps_avg's run-to-run noise -> too-strict
+        units={"dur_ms": "ms", "fps_avg": "fps"},
+        higher_is_better={"dur_ms": False, "fps_avg": True},
+    )
+    per_metric_statuses = {m.status for m in report.metrics}
+    assert calibration.STATUS_TOO_LOOSE in per_metric_statuses
+    assert calibration.STATUS_TOO_STRICT in per_metric_statuses
+    assert report.status == calibration.STATUS_TOO_STRICT  # deterministic precedence
+
+
+def test_grade_all_reasonable_when_some_evidence_even_if_another_metric_insufficient():
+    """A metric with real evidence (reasonable) outranks a metric that could
+    not be graded (insufficient-data) — 'reasonable' is honest here because at
+    least one metric HAD enough history."""
+    reasonable = _points(
+        [("c0", [100.0]), ("c1", [101.0]), ("c2", [99.0]), ("c3", [100.0]), ("c4", [140.0])]
+    )
+    insufficient = _points([("c0", [200.0])])  # single commit -> insufficient
+    report = calibration.grade_all(
+        {"graded_ms": reasonable, "new_ms": insufficient},
+        floors={"ms": 5.0},
+        threshold_pct=5.0,
+        units={"graded_ms": "ms", "new_ms": "ms"},
+        higher_is_better={"graded_ms": False, "new_ms": False},
+    )
+    assert report.status == calibration.STATUS_REASONABLE
