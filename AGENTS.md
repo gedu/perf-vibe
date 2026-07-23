@@ -37,8 +37,21 @@ overlapping — one contract plus three craft guides):
   `perfvibe` console script (entry point `perf.cli:main`; command renamed from
   `perf` to avoid colliding with the Linux kernel profiler). Public install is
   a `pipx`-based `curl | bash` one-liner (see `install.sh` / README).
-- The local store (`*.db`) and CodeGraph index (`.codegraph/`) are
-  gitignored — never commit them.
+- The local store (`*.db`), CodeGraph index (`.codegraph/`) and AI runtime
+  state (`.atl/`) are gitignored — never commit them.
+
+## Skill registry (local, optional)
+
+`.atl/skill-registry.md` is a generated index of every skill visible on the
+current machine, used by orchestrators to pick which skills to hand to a
+sub-agent. It records **absolute paths into the current user's home
+directory**, so it is per-checkout state and is deliberately not committed —
+a registry generated on one machine is broken on every other one.
+
+Generate your own with `gentle-ai skill-registry refresh`. If you do not have
+that tool, you do not need it: the four project skills above are the portable
+contract, they live in this repo, and the repo-relative paths in the
+**Project skills** section are the only ones an agent should be handed.
 
 ## Testing
 
