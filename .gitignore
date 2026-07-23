@@ -21,5 +21,10 @@ venv/
 # CodeGraph index — per-checkout, never commit
 .codegraph/
 
+# Local AI runtime state — the skill registry indexes THIS machine's skill
+# directories with absolute paths, so it is per-checkout by nature.
+# Regenerate with: gentle-ai skill-registry refresh
+.atl/
+
 # Editors / OS
 .DS_Store

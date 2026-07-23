@@ -42,4 +42,6 @@ Load before making a STRUCTURAL choice in the `perf-vibe` repo: adding a module/
 ## References
 
 - `.claude/skills/perf-cli-standards/SKILL.md` — the hard-rule contract (hexagonal layering, ports, boundaries) this skill deepens.
-- Design source (context): `/Users/eduardo.graciano/Documents/CK/Clients/PeruBank/perf-lab-cli-master-design.md` (§4 principles, §5 seams, §15 extensibility).
+- Design source (private, not in this repo; context only): the perf-lab-cli
+  master design doc, §4 principles, §5 seams, §15 extensibility. This skill is
+  self-contained; you do not need the source to apply it.
