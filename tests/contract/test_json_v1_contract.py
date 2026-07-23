@@ -29,20 +29,20 @@ _REQUIRED_KEYS_AND_TYPES = {
 
 
 def _sample_result(**overrides) -> RunFlowResult:
-    defaults = dict(
-        run_id=42,
-        flow_name="checkout",
-        device_key="Pixel-Fake|14|physical",
-        git_commit="abc123",
-        is_dev_bundle=False,
-        source="local:eduardo",
-        mode="warm",
-        iterations=2,
-        markers=(
+    defaults = {
+        "run_id": 42,
+        "flow_name": "checkout",
+        "device_key": "Pixel-Fake|14|physical",
+        "git_commit": "abc123",
+        "is_dev_bundle": False,
+        "source": "local:eduardo",
+        "mode": "warm",
+        "iterations": 2,
+        "markers": (
             Marker(name="checkout", value=900.0, unit="ms"),
             Marker(name="checkout", value=950.0, unit="ms"),
         ),
-        samples=(
+        "samples": (
             SystemSample(
                 iteration_idx=0,
                 total_time_ms=1200.0,
@@ -55,9 +55,9 @@ def _sample_result(**overrides) -> RunFlowResult:
                 cpu_peak_pct=50.0,
             ),
         ),
-        raw_report_path="results/checkout-warm.json",
-        partial_coverage=False,
-    )
+        "raw_report_path": "results/checkout-warm.json",
+        "partial_coverage": False,
+    }
     defaults.update(overrides)
     return RunFlowResult(**defaults)
 

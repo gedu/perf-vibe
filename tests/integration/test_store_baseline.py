@@ -20,17 +20,10 @@ MULTI-COMMIT temp SQLite history:
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-_TESTS_DIR = Path(__file__).resolve().parents[1]
-if str(_TESTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_TESTS_DIR))
-
-from fakes import SequentialClock  # noqa: E402
-from perf.adapters.store_sqlite import SqliteStore  # noqa: E402
-from perf.domain import statistics  # noqa: E402
-from perf.domain.model import Marker, RunContext, SystemSample  # noqa: E402
+from fakes import SequentialClock
+from perf.adapters.store_sqlite import SqliteStore
+from perf.domain import statistics
+from perf.domain.model import Marker, RunContext, SystemSample
 
 FLOW = "checkout"
 DEVICE_A = "Pixel 8 Pro|Android 14|physical"
@@ -38,20 +31,20 @@ DEVICE_B = "Pixel 6|Android 13|physical"
 
 
 def _ctx(**overrides) -> RunContext:
-    defaults = dict(
-        device_key=DEVICE_A,
-        model="Pixel 8 Pro",
-        os_version="Android 14",
-        is_emulator=False,
-        source="local:eduardo",
-        git_commit="c0",
-        git_branch="main",
-        app_version="1.0.0",
-        is_dev_bundle=False,
-        bundle_source="embedded",
-        build_variant="release",
-        tool_version="0.1.0",
-    )
+    defaults = {
+        "device_key": DEVICE_A,
+        "model": "Pixel 8 Pro",
+        "os_version": "Android 14",
+        "is_emulator": False,
+        "source": "local:eduardo",
+        "git_commit": "c0",
+        "git_branch": "main",
+        "app_version": "1.0.0",
+        "is_dev_bundle": False,
+        "bundle_source": "embedded",
+        "build_variant": "release",
+        "tool_version": "0.1.0",
+    }
     defaults.update(overrides)
     return RunContext(**defaults)
 

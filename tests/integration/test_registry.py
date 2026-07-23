@@ -7,16 +7,9 @@ RED-before-GREEN: written before `src/perf/adapters/registry.py` existed.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
 
-_TESTS_DIR = Path(__file__).resolve().parents[1]
-if str(_TESTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_TESTS_DIR))
-
-from fakes import SequentialClock  # noqa: E402
+from fakes import SequentialClock
 from perf.adapters import registry
 from perf.adapters.driver_maestro import MaestroDriver
 from perf.adapters.driver_manual import ManualDriver

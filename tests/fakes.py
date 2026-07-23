@@ -177,20 +177,20 @@ class FakeMarkerSource:
 
 
 def make_run_context(**overrides) -> RunContext:
-    defaults = dict(
-        device_key="Pixel-Fake|14|physical",
-        model="Pixel-Fake",
-        os_version="14",
-        is_emulator=False,
-        source="local:test",
-        git_commit="abc123",
-        git_branch="main",
-        app_version=None,
-        is_dev_bundle=None,
-        bundle_source=None,
-        build_variant=None,
-        tool_version="0.0.0-test",
-    )
+    defaults = {
+        "device_key": "Pixel-Fake|14|physical",
+        "model": "Pixel-Fake",
+        "os_version": "14",
+        "is_emulator": False,
+        "source": "local:test",
+        "git_commit": "abc123",
+        "git_branch": "main",
+        "app_version": None,
+        "is_dev_bundle": None,
+        "bundle_source": None,
+        "build_variant": None,
+        "tool_version": "0.0.0-test",
+    }
     defaults.update(overrides)
     return RunContext(**defaults)
 

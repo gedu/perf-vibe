@@ -47,25 +47,25 @@ def _default_marker_source() -> FakeMarkerSource:
 
 
 def _use_case(**overrides) -> RunFlowUseCase:
-    defaults = dict(
-        driver=FakeDriver(),
-        sampler=FakeSystemSampler(),
-        marker_source=_default_marker_source(),
-        context_provider=FakeRunContextProvider(),
-        store=FakeStore(),
-        clock=FrozenClock(),
-    )
+    defaults = {
+        "driver": FakeDriver(),
+        "sampler": FakeSystemSampler(),
+        "marker_source": _default_marker_source(),
+        "context_provider": FakeRunContextProvider(),
+        "store": FakeStore(),
+        "clock": FrozenClock(),
+    }
     defaults.update(overrides)
     return RunFlowUseCase(**defaults)
 
 
 def _request(**overrides) -> RunFlowRequest:
-    defaults = dict(
-        flow_name="checkout",
-        iterations=3,
-        restart=False,
-        results_dir="results",
-    )
+    defaults = {
+        "flow_name": "checkout",
+        "iterations": 3,
+        "restart": False,
+        "results_dir": "results",
+    }
     defaults.update(overrides)
     return RunFlowRequest(**defaults)
 

@@ -24,8 +24,11 @@ from perf.config.loader import FlowConfig, PerfConfig
 # name-collision gotcha). `import_module` bypasses attribute-chain
 # resolution and always returns the real submodule from `sys.modules`.
 main_module = import_module("perf.cli.main")
-from fakes import FakeDriver, FakeMarkerSource, FakeRunContextProvider
-from perf.domain.model import DriverResult, MarkerParseResult
+
+# These must follow the import_module() call above, which has to run before
+# anything else touches perf.cli.main — hence the suppressions.
+from fakes import FakeDriver, FakeMarkerSource, FakeRunContextProvider  # noqa: E402
+from perf.domain.model import DriverResult, MarkerParseResult  # noqa: E402
 
 runner = CliRunner()
 

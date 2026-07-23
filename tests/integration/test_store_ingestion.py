@@ -31,20 +31,20 @@ class _FrozenClock:
 
 
 def _run_context(**overrides) -> RunContext:
-    defaults = dict(
-        device_key="Pixel 8 Pro|Android 14|physical",
-        model="Pixel 8 Pro",
-        os_version="Android 14",
-        is_emulator=False,
-        source="local:eduardo",
-        git_commit="abc123",
-        git_branch="main",
-        app_version="1.2.3",
-        is_dev_bundle=False,
-        bundle_source="embedded",
-        build_variant="release",
-        tool_version="0.1.0",
-    )
+    defaults = {
+        "device_key": "Pixel 8 Pro|Android 14|physical",
+        "model": "Pixel 8 Pro",
+        "os_version": "Android 14",
+        "is_emulator": False,
+        "source": "local:eduardo",
+        "git_commit": "abc123",
+        "git_branch": "main",
+        "app_version": "1.2.3",
+        "is_dev_bundle": False,
+        "bundle_source": "embedded",
+        "build_variant": "release",
+        "tool_version": "0.1.0",
+    }
     defaults.update(overrides)
     return RunContext(**defaults)
 

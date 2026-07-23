@@ -28,19 +28,13 @@ is the tripwire.
 
 from __future__ import annotations
 
-import sys
 import time
-from pathlib import Path
 
-_TESTS_DIR = Path(__file__).resolve().parents[1]
-if str(_TESTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_TESTS_DIR))
-
-from fakes import SequentialClock  # noqa: E402
-from perf.adapters.analyzer_sql import SqlAnalyzer  # noqa: E402
-from perf.adapters.store_sqlite import SqliteStore  # noqa: E402
-from perf.domain import regression  # noqa: E402
-from perf.domain.model import CompareResult  # noqa: E402
+from fakes import SequentialClock
+from perf.adapters.analyzer_sql import SqlAnalyzer
+from perf.adapters.store_sqlite import SqliteStore
+from perf.domain import regression
+from perf.domain.model import CompareResult
 
 # Named, tunable budgets (spec "make budgets named constants at module top").
 COMPARE_PERF_BUDGET_MS = 150

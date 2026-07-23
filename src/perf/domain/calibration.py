@@ -152,7 +152,7 @@ def grade(
 
     floor_suppressed_a_significant_step = any(
         abs(delta_pct) >= threshold_pct and abs(delta_abs) < floor
-        for delta_abs, delta_pct in zip(deltas_abs, deltas_pct)
+        for delta_abs, delta_pct in zip(deltas_abs, deltas_pct, strict=False)
     )
 
     if floor_suppressed_a_significant_step:

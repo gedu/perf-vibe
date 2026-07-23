@@ -126,15 +126,15 @@ def test_calibration_never_alters_an_independently_computed_verdict():
     code) — grading the label must not mutate or influence a separately
     computed verdict for the same data."""
     points = _points([("c0", [100.0]), ("c1", [101.0]), ("c2", [140.0])])
-    kwargs = dict(
-        unit="ms",
-        higher_is_better=False,
-        threshold_pct=5.0,
-        floor=5.0,
-        baseline_commit_n=3,
-        sample_n=3,
-        min_n=3,
-    )
+    kwargs = {
+        "unit": "ms",
+        "higher_is_better": False,
+        "threshold_pct": 5.0,
+        "floor": 5.0,
+        "baseline_commit_n": 3,
+        "sample_n": 3,
+        "min_n": 3,
+    }
     verdict_before = regression.classify("m", 140.0, 100.5, **kwargs)
     calibration.grade(
         points, metric_name="m", unit="ms", higher_is_better=False, floor=5.0, threshold_pct=5.0

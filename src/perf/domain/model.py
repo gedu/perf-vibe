@@ -18,10 +18,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class LoopMode(str, Enum):
+class LoopMode(StrEnum):
     """Who owns the iteration loop for an assembled `ExecutionPlan`
     (design §1). `TOOL_MANAGED` when a `SystemSampler.wrap()` result
     declares `manages_iterations=True` (e.g. Flashlight `--iterationCount`);
@@ -204,7 +204,11 @@ class CompareResult:
     pure; `run` never builds or consumes this, so it stays additive."""
 
     verdicts: Sequence[Verdict]
-    calibration: CalibrationReport  # perf.domain.calibration.CalibrationReport
+    # Deliberate forward-reference string (see the docstring above). Importing
+    # perf.domain.calibration here would create the cycle
+    # model -> calibration -> regression -> model, so the name is intentionally
+    # never bound in this module — hence the suppression below.
+    calibration: CalibrationReport  # noqa: F821
 
 
 @dataclass(frozen=True)

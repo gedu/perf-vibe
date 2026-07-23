@@ -85,7 +85,7 @@ def test_run_metric_summary_view_is_queryable_and_computes_percentiles(fresh_con
     ).fetchone()
 
     assert row is not None
-    n, min_ms, max_ms, avg_ms, p50_ms, p90_ms = row
+    n, min_ms, max_ms, avg_ms, p50_ms, _p90_ms = row
     assert n == 3
     assert min_ms == 900.0
     assert max_ms == 1000.0

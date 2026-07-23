@@ -35,36 +35,36 @@ from perf.domain.model import (
 
 
 def _run_context(**overrides) -> RunContext:
-    defaults = dict(
-        device_key="Pixel 8 Pro|Android 14|physical",
-        model="Pixel 8 Pro",
-        os_version="Android 14",
-        is_emulator=False,
-        source="local:eduardo",
-        git_commit="abc123",
-        git_branch="main",
-        app_version="1.2.3",
-        is_dev_bundle=False,
-        bundle_source="embedded",
-        build_variant="release",
-        tool_version="0.1.0",
-    )
+    defaults = {
+        "device_key": "Pixel 8 Pro|Android 14|physical",
+        "model": "Pixel 8 Pro",
+        "os_version": "Android 14",
+        "is_emulator": False,
+        "source": "local:eduardo",
+        "git_commit": "abc123",
+        "git_branch": "main",
+        "app_version": "1.2.3",
+        "is_dev_bundle": False,
+        "bundle_source": "embedded",
+        "build_variant": "release",
+        "tool_version": "0.1.0",
+    }
     defaults.update(overrides)
     return RunContext(**defaults)
 
 
 def _system_sample(**overrides) -> SystemSample:
-    defaults = dict(
-        iteration_idx=0,
-        total_time_ms=46712.0,
-        start_time_ms=1342.0,
-        fps_avg=59.28,
-        fps_min=55.0,
-        ram_avg_mb=210.5,
-        ram_peak_mb=240.0,
-        cpu_avg_pct=12.4,
-        cpu_peak_pct=30.0,
-    )
+    defaults = {
+        "iteration_idx": 0,
+        "total_time_ms": 46712.0,
+        "start_time_ms": 1342.0,
+        "fps_avg": 59.28,
+        "fps_min": 55.0,
+        "ram_avg_mb": 210.5,
+        "ram_peak_mb": 240.0,
+        "cpu_avg_pct": 12.4,
+        "cpu_peak_pct": 30.0,
+    }
     defaults.update(overrides)
     return SystemSample(**defaults)
 
