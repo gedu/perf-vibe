@@ -1,0 +1,3 @@
+! checkout                  120.0 vs 100.0      ms   ↑   +20.0%  REGRESSION       ▁▂▂█
+
+✓ reasonable — 1 of 10 runs would flag

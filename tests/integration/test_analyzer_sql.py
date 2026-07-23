@@ -31,6 +31,7 @@ from fakes import SequentialClock  # noqa: E402
 
 from perf.adapters.store_sqlite import SqliteStore  # noqa: E402
 from perf.domain import regression  # noqa: E402
+from perf.domain import calibration  # noqa: E402
 from perf.domain.calibration import CalibrationReport  # noqa: E402
 from perf.domain.model import CompareResult, Marker, RunContext, SystemSample  # noqa: E402
 
@@ -171,6 +172,11 @@ def test_compare_latest_direction_aware_verdicts_across_both_families(tmp_path):
         assert result is not None
         assert isinstance(result, CompareResult)
         assert isinstance(result.calibration, CalibrationReport)
+        # Baseline commits c1/c2/c3 give EVERY metric identical values (zero
+        # variance) — with the corrected suppression-based `too-loose`
+        # definition (PR-C review fix), a baseline that never crosses
+        # `threshold_pct` grades `reasonable`, not `too-loose`.
+        assert result.calibration.status == calibration.STATUS_REASONABLE
 
         checkout = _verdict_by_metric(result, "checkout")
         fps = _verdict_by_metric(result, "fps_avg")
@@ -302,6 +308,31 @@ def test_dev_bundle_only_baseline_history_is_insufficient_data_not_stable(tmp_pa
 
         assert checkout.status == regression.STATUS_INSUFFICIENT_DATA
         assert fps.status == regression.STATUS_INSUFFICIENT_DATA
+    finally:
+        store.close()
+
+
+def test_verdict_series_is_chronological_baseline_medians_plus_latest(tmp_path):
+    """PR-C (CLI sparkline, task 3.4) needs `Verdict.series` populated —
+    chronological per-commit baseline medians (oldest first), with the
+    LATEST run's value appended last, so `compare_pretty.render_compare`
+    can draw a trend sparkline ending at "now". Reuses the SAME per-run
+    rows the baseline query already returned (no second query — design
+    'One query, two consumers')."""
+    store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
+    try:
+        for commit, value in (("c1", 100.0), ("c2", 110.0), ("c3", 105.0)):
+            _seed(store, git_commit=commit, checkout_ms=value, fps_values=[60.0], ram_values=[200.0])
+        _seed(store, git_commit="HEAD", checkout_ms=120.0, fps_values=[60.0], ram_values=[200.0])
+
+        analyzer = _make_analyzer(store, min_baseline_commits=2)
+        result = analyzer.compare_latest(FLOW, DEVICE_A, "warm")
+
+        checkout = _verdict_by_metric(result, "checkout")
+        assert checkout is not None
+        # c1, c2, c3 baseline medians in chronological (seed) order, then
+        # the latest run's own value appended last.
+        assert checkout.series == (100.0, 110.0, 105.0, 120.0)
     finally:
         store.close()
 

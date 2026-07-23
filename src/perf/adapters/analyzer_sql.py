@@ -136,8 +136,9 @@ class SqlAnalyzer:
             # is the primary guard against ever feeding a `None` into
             # `median_by_commit`/`median` — those stay strict and raise
             # rather than silently accept it (see `domain/statistics`).
+            non_null_points = [(commit, value, started_at) for commit, value, started_at in points if value is not None]
             commit_medians = statistics.median_by_commit(
-                (commit, value) for commit, value, _ in points if value is not None
+                (commit, value) for commit, value, _ in non_null_points
             )
             baseline_value = statistics.median(list(commit_medians.values())) if commit_medians else None
 
@@ -153,6 +154,7 @@ class SqlAnalyzer:
                     baseline_commit_n=len(commit_medians),
                     sample_n=point.sample_n,
                     min_n=self._min_baseline_commits,
+                    series=_sparkline_series(non_null_points, point.p90_ms),
                 )
             )
 
@@ -204,12 +206,43 @@ class SqlAnalyzer:
                     baseline_commit_n=len(commit_medians),
                     sample_n=sample_n,
                     min_n=self._min_baseline_commits,
+                    series=_sparkline_series(points, latest_value),
                 )
             )
 
             per_metric_points[metric_name] = points
             units[metric_name] = unit
             higher_is_better[metric_name] = better_when_higher
+
+
+def _sparkline_series(
+    points: Sequence[Tuple[str, float, str]], latest_value: Optional[float]
+) -> Tuple[float, ...]:
+    """Chronological per-commit baseline medians (oldest first) + the
+    LATEST run's own value appended last — feeds `Verdict.series`, which
+    `cli/output/compare_pretty.py`'s sparkline renders (PR-C, design
+    "UX"). Reuses the SAME `points` rows already read for the baseline
+    and calibration (design "One query, two consumers") — no new query.
+    `latest_value=None` (e.g. a fully warm-up-dropped metric) contributes
+    nothing extra; an empty/absent baseline yields an empty or
+    single-point series, which the renderer's sparkline handles without
+    crashing (spec 'Pretty-Output UX' sparkline edges)."""
+
+    if not points:
+        return (latest_value,) if latest_value is not None else ()
+
+    earliest_seen: Dict[str, str] = {}
+    values_by_commit: Dict[str, List[float]] = {}
+    for commit, value, started_at in points:
+        values_by_commit.setdefault(commit, []).append(value)
+        if commit not in earliest_seen or started_at < earliest_seen[commit]:
+            earliest_seen[commit] = started_at
+
+    ordered_commits = sorted(values_by_commit, key=lambda commit: earliest_seen[commit])
+    series = [statistics.median(values_by_commit[commit]) for commit in ordered_commits]
+    if latest_value is not None:
+        series.append(latest_value)
+    return tuple(series)
 
 
 def _group_run_points_by_metric(rows: Sequence[RunPoint]) -> Dict[str, List[Tuple[str, float, str]]]:

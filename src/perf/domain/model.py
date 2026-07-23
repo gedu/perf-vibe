@@ -170,6 +170,11 @@ class Verdict:
     pretty renderer (sparkline, latest-vs-baseline line) and the `--json`
     contract — all new fields default safely so existing positional/
     keyword construction (e.g. `run`-era tests) keeps working unchanged.
+
+    PR-C adds `floor` (the ACTIVE absolute floor `regression.classify` used
+    to gate this verdict) so the `--json` contract can report it per-metric
+    even on `insufficient-data` — floor is config-derived, not a symptom of
+    history depth, so it threads through every classification path.
     """
 
     metric_name: str
@@ -182,6 +187,7 @@ class Verdict:
     sample_n: int = 0
     baseline_commit_n: int = 0
     series: Sequence[float] = ()
+    floor: float = 0.0
 
 
 @dataclass(frozen=True)

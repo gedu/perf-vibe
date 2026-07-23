@@ -68,12 +68,20 @@ def grade(
     `max_abs` = the largest observed `|delta|`, (5) `flagged` reuses
     `regression.classify`'s worse-AND-floor-AND-threshold rule.
 
-    Label: `too-loose` IFF `floor >= max_abs` (the config could NEVER
-    flag anything, regardless of direction); else `too-strict` IFF
+    Label: `too-loose` IFF there EXISTS a historical walk-forward step
+    whose `|delta_pct| >= threshold_pct` (the percentage threshold WOULD
+    have flagged it) BUT whose `|delta_abs| < floor` (the floor actually
+    SUPPRESSED that step) — i.e. the floor is provably too big for this
+    metric's scale, evidenced by a concrete suppressed step. A dead-stable
+    baseline (no step ever reaches `threshold_pct`) is NEVER `too-loose`
+    just because the floor happens to exceed its tiny deltas — that would
+    LIE about a healthy history (decision #58 anti-lying-label; PR-C
+    review fix — the previous `floor >= max_abs` rule mislabelled every
+    stable baseline `too-loose`, since a calm history trivially has
+    `max_abs` below any nonzero floor). Else `too-strict` IFF
     `threshold_pct < noise_pct` (normal noise alone would flag); else
     `reasonable` — reporting the exact count, never lying about a
-    legitimately stable (or improvement-dominated) history (decision #58
-    anti-lying-label nuance).
+    legitimately stable (or improvement-dominated) history.
 
     `per_run_points` are the exact `(git_commit, value, started_at)` rows
     `baseline_points` returns — pre-collapse, any order.
@@ -142,7 +150,12 @@ def grade(
         noise_samples = [abs(pct) for pct in deltas_pct if math.isfinite(pct)]
     noise_pct = median(noise_samples) if noise_samples else 0.0
 
-    if floor >= max_abs:
+    floor_suppressed_a_significant_step = any(
+        abs(delta_pct) >= threshold_pct and abs(delta_abs) < floor
+        for delta_abs, delta_pct in zip(deltas_abs, deltas_pct)
+    )
+
+    if floor_suppressed_a_significant_step:
         status = STATUS_TOO_LOOSE
     elif threshold_pct < noise_pct:
         status = STATUS_TOO_STRICT

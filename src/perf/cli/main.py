@@ -17,6 +17,7 @@ from typing import Optional
 import typer
 
 from perf.cli.banner import render_banner, should_show_banner
+from perf.cli.commands.compare import compare as compare_command
 from perf.cli.commands.run import run as run_command
 from perf.cli.output.context import resolve_output_context
 from perf.config.loader import load_config
@@ -85,6 +86,11 @@ app.command(
     name="run",
     context_settings={"help_option_names": ["--help", "-h"]},
 )(run_command)
+
+app.command(
+    name="compare",
+    context_settings={"help_option_names": ["--help", "-h"]},
+)(compare_command)
 
 
 def main() -> None:
