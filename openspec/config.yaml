@@ -4,14 +4,21 @@ persistence:
   mode: hybrid            # engram + openspec files (changed from engram-only on 2026-07-22)
   engram_project: perf-vibe
   note: >
-    Additive change. Existing engram artifacts (sdd-init/perf-vibe, sdd/perf-vibe/testing-capabilities,
-    perf-run apply/explore history) remain intact. From this point forward, sdd-propose/sdd-spec/
-    sdd-design/sdd-tasks/sdd-apply/sdd-verify/sdd-archive write BOTH an openspec/changes/{change}/ file
-    artifact AND the equivalent mem_save under sdd/{change}/{artifact-type}, per
-    ../_shared/sdd-phase-common.md Section C (Hybrid mode).
+    Each SDD phase (propose/spec/design/tasks/apply/verify/archive) writes BOTH an
+    openspec/changes/{change}/ file artifact AND the equivalent mem_save under
+    sdd/{change}/{artifact-type}.
+    IMPORTANT for anyone other than the original author: engram memories are per-machine and are
+    NOT carried by a clone. A fresh checkout has NO engram history for this project, regardless of
+    what topic keys are referenced anywhere. The committed openspec/ and docs/specs/ files are the
+    only portable source of truth — always prefer them, and never block on an engram lookup that
+    returns nothing.
+    Engram binds to this repo via .engram/config.json ({"project_name": "perf-vibe"}), which is the
+    ONLY file the engram binary reads for project resolution; engram_project above is a duplicate of
+    that value for human readers, so keep the two in sync if the project is ever renamed.
   historical_export: >
-    docs/specs/perf-run/ (if/when present) is the historical record of the already-shipped `perf run`
-    (Phase 1) capability. Do not migrate it into openspec/changes/ or openspec/specs/; openspec/ covers
+    docs/specs/{capability}/ holds the frozen SDD record of an already-shipped capability
+    (currently: perf-run, compare). Do not migrate it back into openspec/changes/ or
+    openspec/specs/; openspec/specs/ holds the canonical current spec, openspec/changes/ covers
     FUTURE changes only.
 
 context: |
@@ -26,18 +33,22 @@ context: |
   schema_version stability. Strict TDD enforced (RED before GREEN is a hard rule in python-testing skill).
   Style: ruff (lint+format) + mypy designated by python-style skill; not yet wired into pyproject.toml
   (no [tool.ruff]/[tool.mypy] blocks present yet — treat as a gap, not a decision reversal).
-  Status: `perf run` (Phase 1 core) is COMPLETE and MERGED. Future SDD changes build on top of this
-  real codebase, not the greenfield master-design doc used at initial (engram-only) init.
+  Status: `perf run` (Phase 1) and `perf compare` (Phase 2, compare-only slice) are both COMPLETE
+  and MERGED; canonical specs live in openspec/specs/{perf-run,compare}.md. Deferred and not yet
+  started: `budget-check` (the future owner of exit code 1) and `perf compare --calibrate`.
+  Future SDD changes build on top of this real codebase, not the greenfield master-design doc used
+  at initial init.
 
 strict_tdd: true   # marker found: python-testing SKILL.md hard rule 4 ("RED before GREEN, and RED for
-                   # the right reason") + pytest runner detected with 197 tests collected across
-                   # unit/integration/contract/golden layers.
+                   # the right reason") + pytest runner detected across unit/integration/contract/
+                   # golden layers.
 
 testing:
   test_runner:
-    command: "pytest"        # via .venv; project also exposes `perf` console_script (pyproject.toml)
+    command: "pytest"        # run it as ./.venv/bin/pytest — pytest is a dev dep, not on PATH
+    console_script: "perfvibe"   # NOT `perf` — renamed to avoid the Linux kernel profiler
     framework: pytest (>=8.0, dev dependency)
-    collected: 197 tests (unit/integration/contract/golden) as of 2026-07-22
+    collected: "do not hardcode — read it from ./.venv/bin/pytest -q --collect-only"
   layers:
     unit: { available: true, tool: "pytest — tests/unit/ (pure domain: statistics, regression, run_flow, model)" }
     integration: { available: true, tool: "pytest — tests/integration/ (adapters vs recorded fixtures, real SQLite temp DB, no live devices)" }
@@ -66,7 +77,8 @@ rules:
   tasks:
     - Group by phase, use hierarchical numbering
     - Keep tasks completable in one session
-    - Follow the 400-changed-line PR review budget (see ../_shared/sdd-phase-common.md Section E)
+    - Keep a PR under ~400 changed lines; past that, split into chained/stacked PRs so review
+      stays focused (this capability shipped as PR-A domain -> PR-B store -> PR-C CLI)
   apply:
     guidelines:
       - Follow existing hexagonal layering and the 4 project skills (perf-cli-standards, python-architecture, python-style, python-testing)
