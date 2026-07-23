@@ -47,7 +47,7 @@ examples/demo-compare/perf.toml compare demo` from the repo root, or
 
 Both commands exit `0` — a regression verdict is INFORMATIONAL in this
 slice (the CI-gating `budget-check` that exits `1` on regression is a
-DEFERRED follow-up; see `openspec/changes/compare/spec.md`).
+DEFERRED follow-up; see `openspec/specs/compare.md`).
 
 ## What you should see
 
