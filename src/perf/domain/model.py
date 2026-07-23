@@ -19,6 +19,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for mypy's benefit — never imported at runtime (see the docstring
+    # on `CompareResult.calibration` below for why the runtime import is
+    # deliberately avoided).
+    from perf.domain.calibration import CalibrationReport
 
 
 class LoopMode(StrEnum):
@@ -208,7 +215,7 @@ class CompareResult:
     # perf.domain.calibration here would create the cycle
     # model -> calibration -> regression -> model, so the name is intentionally
     # never bound in this module — hence the suppression below.
-    calibration: CalibrationReport  # noqa: F821
+    calibration: CalibrationReport
 
 
 @dataclass(frozen=True)

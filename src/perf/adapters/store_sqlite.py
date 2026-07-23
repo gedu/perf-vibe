@@ -45,6 +45,7 @@ from collections.abc import Sequence
 from dataclasses import fields as dc_fields
 from datetime import UTC, datetime
 from pathlib import Path
+from types import TracebackType
 from typing import NamedTuple
 
 from perf.domain.model import Marker, RunContext, RunPoint, SystemSample, default_higher_is_better
@@ -170,7 +171,12 @@ class SqliteStore:
     def __enter__(self) -> SqliteStore:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         self.close()
 
     def _connect(self) -> sqlite3.Connection:
@@ -355,7 +361,15 @@ class SqliteStore:
                 raw_report_path,
             ),
         )
-        return cur.lastrowid
+        # `sqlite3.Cursor.lastrowid` is typed `int | None` in the stubs
+        # (it is `None` for statements that are not INSERT). This IS an
+        # INSERT, so `None` here means the driver failed to report a row id
+        # — an unexpected runtime/tooling failure (SKILL rule 7 exit 3), not
+        # a value to silently coerce away.
+        run_id = cur.lastrowid
+        if run_id is None:
+            raise RuntimeError("INSERT INTO run did not return a row id (lastrowid is None)")
+        return run_id
 
     @staticmethod
     def _insert_measures(

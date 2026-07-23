@@ -18,7 +18,7 @@ import typer
 from perf.cli.banner import render_banner, should_show_banner
 from perf.cli.commands.compare import compare as compare_command
 from perf.cli.commands.run import run as run_command
-from perf.cli.output.context import resolve_output_context
+from perf.cli.output.context import OutputContext, resolve_output_context
 from perf.config.loader import load_config
 
 app = typer.Typer(
@@ -32,7 +32,7 @@ app = typer.Typer(
 )
 
 
-def _print_help_with_banner(ctx: typer.Context, output) -> None:
+def _print_help_with_banner(ctx: typer.Context, output: OutputContext) -> None:
     if should_show_banner(json_mode=output.json_mode, stdout_is_tty=output.stdout_is_tty):
         typer.echo(render_banner(color=output.color_enabled))
     typer.echo(ctx.get_help())
