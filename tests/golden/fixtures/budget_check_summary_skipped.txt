@@ -1,0 +1,14 @@
+┌─ perfvibe budget-check · checkout · HEAD a1b2c3d (main)
+│
+│      METRIC               LATEST     BASELINE          Δ  STATUS             TREND
+│   ────────────────────────────────────────────────────────────────────────────────
+│
+│   ·  checkout           100.0 ms            -        - -  insufficient-data  ▁
+│
+│   · insufficient data to grade config sanity
+│
+├───────────────────────────────────────────────────────────────────────────────────
+│
+│   ·  GATE SKIPPED   ·   not enough history to judge (fail-open)   ·   exit 0
+│
+└─

@@ -8,9 +8,13 @@ only the `--json` payload (`schema_version`-carrying) is machine-safe.
 `perfvibe run` is persist-only and `perfvibe compare` is show-only: both exit
 `0` on success, `2` on a usage error, and `3` on any runtime/tooling failure.
 **Neither ever exits `1`** — a `compare` regression still exits `0`, because
-`compare` reports and does not gate. Exit `1` is reserved for a future
-`budget-check` CI gate. Never treat a non-zero exit as "regression found";
-read the verdict out of the `--json` payload.
+`compare` reports and does not gate. `perfvibe budget-check` is the CI gate:
+it exits `1` on a confirmed regression (or, under `--strict`, on an
+unprovable-safety case such as no baseline history), `0` on a pass or a
+fail-open skip, `2`/`3` the same as `compare`. Never treat a non-zero exit
+from `run`/`compare` as "regression found"; read the verdict out of the
+`--json` payload. For `budget-check`, the exit code IS the gate signal — but
+still read `--json` for the offending metric names.
 
 ## Commands
 

@@ -8,7 +8,7 @@
 
 `perf compare <flow>` reads `run`'s stored data (writes NOTHING new — no schema migration to `run`'s tables) and computes + SHOWS a per-metric, direction-aware regression verdict for the latest run against recent history: a median-by-commit baseline over the prior N commits, 4-state classification (`improvement | stable | regression | insufficient-data`), a config sanity label, pretty sparkline output, and a versioned `--json` contract. This slice is **compare-only and purely informational**.
 
-**Critical invariant**: `compare` is show-only. It exits `0` (verdict shown, regardless of value — including `regression`), `2` (usage error), or `3` (runtime error). It SHALL NEVER exit `1`. Exit `1` is reserved exclusively for the future `budget-check` CI gate.
+**Critical invariant**: `compare` is show-only. It exits `0` (verdict shown, regardless of value — including `regression`), `2` (usage error), or `3` (runtime error). It SHALL NEVER exit `1`. Exit `1` is spent by the SHIPPED `budget-check` CI gate (see `openspec/specs/budget-check.md`) — `compare` remains unaffected and never gates.
 
 ## Scope
 
@@ -25,7 +25,7 @@
 | Hexagonal boundary: pure domain, `Analyzer` Protocol port | compare | SHIPPED ✓ |
 | Bounded/indexed baseline performance (O(1) SQL statement count) | compare | SHIPPED ✓ |
 | Corner-case handling (C1–C9 matrix) | compare | SHIPPED ✓ |
-| `budget-check` CI gate (exit `1` on regression) | **budget-check** (future) | **DEFERRED** |
+| `budget-check` CI gate (exit `1` on regression) | **budget-check** | SHIPPED ✓ — see `openspec/specs/budget-check.md` |
 | `perf compare --calibrate` sweep mode | compare (future slice) | **DEFERRED** |
 | Per-metric threshold override; variance/reliability flag | compare (future slice) | **DEFERRED** |
 | Warm-up discard for marker/`measure` metrics | N/A by design (no iteration ordinal) | Documented policy, not a gap |

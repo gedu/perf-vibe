@@ -1,0 +1,9 @@
+# Device-free demo config for `perf budget-check` (see README.md in this
+# directory). `budget-check` never touches `driver`/`sampler`/
+# `marker_source` — it only reads the local store — so this config only
+# needs `db_path` and a config-known `[flows.demo]` entry (matching what
+# `seed.py` persisted).
+
+db_path = "examples/demo-budget-check/perf.db"
+
+[flows.demo]
