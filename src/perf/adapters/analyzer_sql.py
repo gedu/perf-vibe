@@ -24,7 +24,13 @@ from perf.adapters.store_sqlite import (
     SystemSampleRawPoint,
 )
 from perf.domain import calibration, regression, statistics
-from perf.domain.model import CompareResult, RunPoint, Verdict, default_higher_is_better
+from perf.domain.model import (
+    CompareResult,
+    RunPoint,
+    SeriesPoint,
+    Verdict,
+    default_higher_is_better,
+)
 
 # Fixed unit metadata for the closed set of `system_sample` aggregate
 # fields (design "Interfaces / Contracts"; decision #58 floors keyed by
@@ -175,6 +181,7 @@ class SqlAnalyzer:
                     sample_n=point.sample_n,
                     min_n=self._min_baseline_commits,
                     series=_sparkline_series(non_null_points, point.p90_ms),
+                    series_points=_series_points(non_null_points, point.p90_ms, latest.git_commit),
                 )
             )
 
@@ -231,12 +238,34 @@ class SqlAnalyzer:
                     sample_n=sample_n,
                     min_n=self._min_baseline_commits,
                     series=_sparkline_series(points, latest_value),
+                    series_points=_series_points(points, latest_value, latest.git_commit),
                 )
             )
 
             per_metric_points[metric_name] = points
             units[metric_name] = unit
             higher_is_better[metric_name] = better_when_higher
+
+
+def _ordered_commit_medians(
+    points: Sequence[tuple[str, float, str]],
+) -> list[tuple[str, float]]:
+    """Chronological (oldest-first) `(commit, median)` pairs, one per
+    distinct baseline commit — the SINGLE ordering source both
+    `_sparkline_series` (bare floats, `Verdict.series`) and
+    `_series_points` (labeled `SeriesPoint`s, `Verdict.series_points`)
+    derive from (budget-check design risk #1: factored once so the two
+    carriers cannot drift out of sync, not merely tested-against)."""
+
+    earliest_seen: dict[str, str] = {}
+    values_by_commit: dict[str, list[float]] = {}
+    for commit, value, started_at in points:
+        values_by_commit.setdefault(commit, []).append(value)
+        if commit not in earliest_seen or started_at < earliest_seen[commit]:
+            earliest_seen[commit] = started_at
+
+    ordered_commits = sorted(values_by_commit, key=lambda commit: earliest_seen[commit])
+    return [(commit, statistics.median(values_by_commit[commit])) for commit in ordered_commits]
 
 
 def _sparkline_series(
@@ -255,18 +284,45 @@ def _sparkline_series(
     if not points:
         return (latest_value,) if latest_value is not None else ()
 
-    earliest_seen: dict[str, str] = {}
-    values_by_commit: dict[str, list[float]] = {}
-    for commit, value, started_at in points:
-        values_by_commit.setdefault(commit, []).append(value)
-        if commit not in earliest_seen or started_at < earliest_seen[commit]:
-            earliest_seen[commit] = started_at
-
-    ordered_commits = sorted(values_by_commit, key=lambda commit: earliest_seen[commit])
-    series = [statistics.median(values_by_commit[commit]) for commit in ordered_commits]
+    series = [median for _commit, median in _ordered_commit_medians(points)]
     if latest_value is not None:
         series.append(latest_value)
     return tuple(series)
+
+
+def _series_points(
+    points: Sequence[tuple[str, float, str]],
+    latest_value: float | None,
+    latest_commit: str | None,
+) -> tuple[SeriesPoint, ...]:
+    """Labeled parallel carrier to `_sparkline_series` (budget-check design
+    §5, decision D7): the SAME chronological ordering (`_ordered_commit_
+    medians`), each point paired with its originating commit, plus a final
+    `SeriesPoint(latest_commit, latest_value)` when `latest_value is not
+    None` — mirrors `_sparkline_series`'s own latest-append guard exactly,
+    so `len(series) == len(series_points)` and per-index values match by
+    construction (design risk #1). `latest_commit` is `latest.git_commit`,
+    which is `None` when a run was persisted with no resolvable git repo
+    (`BashRunContextProvider` degrades gracefully rather than raising) —
+    that edge case labels the point with `""` rather than dropping it, so
+    the length parity invariant holds even then."""
+
+    commit_label = latest_commit if latest_commit is not None else ""
+
+    if not points:
+        return (
+            (SeriesPoint(commit=commit_label, value=latest_value),)
+            if (latest_value is not None)
+            else ()
+        )
+
+    series_points = [
+        SeriesPoint(commit=commit, value=median)
+        for commit, median in _ordered_commit_medians(points)
+    ]
+    if latest_value is not None:
+        series_points.append(SeriesPoint(commit=commit_label, value=latest_value))
+    return tuple(series_points)
 
 
 def _group_run_points_by_metric(

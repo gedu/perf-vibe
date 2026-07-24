@@ -17,7 +17,14 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "hypothesis>=6.100",
-    "ruff>=0.6",
+    # Upper-bounded on purpose. `ruff>=0.6` was unbounded, so CI silently
+    # installed 0.16 while a developer venv sat on 0.15 — and 0.16 began
+    # formatting Python code blocks inside Markdown, which 0.15 never did.
+    # The result was the worst possible failure mode: the exact same commands
+    # passed locally and failed in CI. Keep the floor and the ceiling on the
+    # same minor line so "green locally" keeps predicting "green in CI"; bump
+    # both together, deliberately, after checking the formatter's changelog.
+    "ruff>=0.16,<0.17",
     "mypy>=1.11",
 ]
 
@@ -64,6 +71,21 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PTH", "RUF"]
 [tool.ruff.lint.per-file-ignores]
 # Tests may use assert and slightly longer lines for fixtures/expectations.
 "tests/**" = ["E501"]
+
+[tool.ruff.format]
+# ruff >=0.16 formats Python code blocks embedded in Markdown. Prose in this
+# repo documents INTENT, not compilable code: design docs, PRDs and RFCs carry
+# pseudo-code, elided bodies, and forward references to modules that do not
+# exist yet (the `budget-check` design cited `perf.cli.commands.budget_check`
+# before that CLI slice was written). Those snippets cannot satisfy a
+# formatter, and bending them until they do would strip the shorthand that
+# makes the document readable.
+#
+# Excluding Markdown wholesale rather than listing doc folders is deliberate:
+# a per-folder list silently re-breaks CI the day someone adds `docs/rfcs/`.
+# Python FILES are formatted exactly as before — this only stops the formatter
+# from reaching into documentation.
+exclude = ["*.md"]
 
 [tool.mypy]
 python_version = "3.11"

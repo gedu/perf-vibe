@@ -27,6 +27,7 @@ from perf.domain.model import (
     RunContext,
     RunPoint,
     SamplerCommand,
+    SeriesPoint,
     SystemSample,
     Verdict,
     compose_execution_plan,
@@ -395,3 +396,55 @@ def test_run_point_is_a_frozen_read_model_row():
     assert point.started_at == "2026-07-22T00:00:00Z"
     with pytest.raises(dataclasses.FrozenInstanceError):
         point.value = 1.0
+
+
+# ===== `SeriesPoint` + `Verdict.series_points` (budget-check design §2/§5,
+# task 1.1) — additive, backward-compatible baseline chart labeling =====
+
+
+def test_series_point_is_a_frozen_dataclass_comparing_by_value():
+    a = SeriesPoint(commit="c1", value=100.0)
+    b = SeriesPoint(commit="c1", value=100.0)
+    assert a == b
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        a.value = 200.0
+
+
+def test_verdict_series_points_defaults_to_empty_tuple():
+    verdict = Verdict(
+        metric_name="/loans/details/:id", delta_pct=5.0, threshold_pct=10.0, status="stable"
+    )
+    assert verdict.series_points == ()
+
+
+def test_verdict_constructed_without_series_points_still_succeeds_backward_compat():
+    """Design risk #2: existing positional/keyword `Verdict(...)`
+    construction (the shape `run`/pre-budget-check tests use) must keep
+    working unchanged — `series_points` is the LAST field, additive with a
+    safe default."""
+    verdict = Verdict(
+        metric_name="fps_avg",
+        delta_pct=-10.0,
+        threshold_pct=5.0,
+        status="regression",
+        latest_value=54.0,
+        baseline_value=60.0,
+        unit="fps",
+        sample_n=10,
+        baseline_commit_n=8,
+        series=(58.0, 59.0, 60.0, 54.0),
+        floor=2.0,
+    )
+    assert verdict.series_points == ()
+
+
+def test_verdict_carries_series_points_when_provided():
+    points = (SeriesPoint(commit="c1", value=58.0), SeriesPoint(commit="HEAD", value=54.0))
+    verdict = Verdict(
+        metric_name="fps_avg",
+        delta_pct=-10.0,
+        threshold_pct=5.0,
+        status="regression",
+        series_points=points,
+    )
+    assert verdict.series_points == points

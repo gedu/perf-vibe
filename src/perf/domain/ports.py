@@ -139,3 +139,12 @@ class Analyzer(Protocol):
 
 class Clock(Protocol):
     def now_utc_iso(self) -> str: ...
+
+
+class CommitLog(Protocol):
+    """Git commit-subject lookup for budget-check's render-time git context
+    (design §4, decision D6). PURE seam; the concrete adapter runs `git
+    log` behind it. Fail-graceful: `subject(sha)` returns `None` when the
+    repo/commit/binary is unavailable — it NEVER raises."""
+
+    def subject(self, sha: str) -> str | None: ...

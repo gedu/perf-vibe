@@ -94,6 +94,18 @@ def test_compare_domain_modules_import_no_adapters():
     assert not offenders, f"compare domain modules importing adapters/: {offenders}"
 
 
+def test_budget_domain_module_imports_no_adapters():
+    """budget-check (task 1.8a): `domain/budget.py` — the ONE pure gate
+    rule — must stay adapter-free, same static-import guard already applied
+    to `regression.py`/`statistics.py`/`calibration.py`."""
+    path = DOMAIN_DIR / "budget.py"
+    assert path.is_file(), f"expected {path} to exist"
+
+    imported = _imported_module_names(path.read_text())
+    adapter_imports = {name for name in imported if "adapters" in name}
+    assert not adapter_imports, f"domain/budget.py importing adapters/: {adapter_imports}"
+
+
 def test_analyzer_compare_latest_returns_compare_result():
     """design 'Verdict carrier' / tasks #59: `Analyzer.compare_latest`
     returns a single additive `CompareResult(verdicts, calibration)`

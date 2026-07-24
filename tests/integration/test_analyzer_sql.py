@@ -336,6 +336,59 @@ def test_verdict_series_is_chronological_baseline_medians_plus_latest(tmp_path):
         store.close()
 
 
+def test_verdict_series_points_parity_across_both_families(tmp_path):
+    """budget-check design risk #1 (highest blast radius): `series_points`
+    MUST be in the SAME order as `series` for BOTH the `measure` and
+    `system_sample` families — factored from the SAME sorted input
+    `_sparkline_series` consumes, so drift is structurally impossible, not
+    merely tested-against. Pins: length parity, per-index value parity,
+    chronological order, and the LAST point's `.commit == latest.git_commit`."""
+    store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
+    try:
+        # Two system_sample iterations per run: `warmup_k=1` (the default in
+        # `_make_analyzer`) drops idx0, so a single-iteration seed would
+        # leave `fps_avg`/`ram_avg_mb` with zero post-warmup samples
+        # (insufficient-data, empty series) — matches the pattern every
+        # other system_sample seed in this file already uses.
+        for commit, checkout_ms, fps, ram in (
+            ("c1", 100.0, 60.0, 200.0),
+            ("c2", 110.0, 61.0, 201.0),
+            ("c3", 105.0, 62.0, 202.0),
+        ):
+            _seed(
+                store,
+                git_commit=commit,
+                checkout_ms=checkout_ms,
+                fps_values=[fps, fps],
+                ram_values=[ram, ram],
+            )
+        _seed(
+            store,
+            git_commit="HEAD",
+            checkout_ms=120.0,
+            fps_values=[63.0, 63.0],
+            ram_values=[203.0, 203.0],
+        )
+
+        analyzer = _make_analyzer(store, min_baseline_commits=2)
+        result = analyzer.compare_latest(FLOW, DEVICE_A, "warm")
+        assert result is not None
+
+        for metric_name in ("checkout", "fps_avg", "ram_avg_mb"):
+            verdict = _verdict_by_metric(result, metric_name)
+            assert verdict is not None, metric_name
+
+            assert len(verdict.series_points) == len(verdict.series), metric_name
+            for i, value in enumerate(verdict.series):
+                assert verdict.series_points[i].value == value, (metric_name, i)
+
+            commits = [p.commit for p in verdict.series_points]
+            assert commits == ["c1", "c2", "c3", "HEAD"], metric_name  # chronological
+            assert verdict.series_points[-1].commit == "HEAD", metric_name  # == latest.git_commit
+    finally:
+        store.close()
+
+
 def test_compare_latest_returns_none_when_no_runs_at_all(tmp_path):
     """No prior run at all for this flow/device/mode — `SqlAnalyzer`
     returns `None` (the CLI, PR-C, maps this to the usage-error exit)."""

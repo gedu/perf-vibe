@@ -167,6 +167,20 @@ class Measure:
 
 
 @dataclass(frozen=True)
+class SeriesPoint:
+    """One labeled chart point for the budget-check detail view (design
+    `budget-check` §2, decision D7): the SAME per-commit baseline medians
+    (or the latest run's own value) `Verdict.series` already carries as
+    bare floats, but paired with the commit that produced it. `series` and
+    `series_points` describe the SAME points — `series_points[i].value ==
+    series[i]` by construction (`adapters/analyzer_sql._series_points`
+    shares its ordering with `_sparkline_series`, design risk #1)."""
+
+    commit: str  # git sha for this baseline point (or HEAD for the latest point)
+    value: float  # the per-commit median (or the latest run's own value)
+
+
+@dataclass(frozen=True)
 class Verdict:
     """The regression/compare verdict (§10, design Rev 3 "Verdict
     carrier"). `run` never produces or consumes this — it exists here for
@@ -182,6 +196,13 @@ class Verdict:
     to gate this verdict) so the `--json` contract can report it per-metric
     even on `insufficient-data` — floor is config-derived, not a symptom of
     history depth, so it threads through every classification path.
+
+    budget-check (design §2/§5, decision D7) adds `series_points`: the
+    labeled parallel carrier to `series` the detail chart consumes. MUST
+    stay the LAST field with a safe default — `compare_v1`/`compare_pretty`
+    never read it, and every existing positional/keyword `Verdict(...)`
+    construction (e.g. `run`-era tests) must keep working unchanged
+    (design risk #2).
     """
 
     metric_name: str
@@ -195,6 +216,7 @@ class Verdict:
     baseline_commit_n: int = 0
     series: Sequence[float] = ()
     floor: float = 0.0
+    series_points: Sequence[SeriesPoint] = ()
 
 
 @dataclass(frozen=True)
@@ -215,6 +237,41 @@ class CompareResult:
     # perf.domain.calibration here would create the cycle
     # model -> calibration -> regression -> model, so the name is intentionally
     # never bound in this module — hence the suppression below.
+    calibration: CalibrationReport
+
+
+# ===== budget-check gate carriers (design §2, tasks 1.9) =====
+
+GATE_PASS = "pass"
+GATE_FAIL = "fail"
+GATE_SKIPPED = "skipped"
+
+
+@dataclass(frozen=True)
+class GatedVerdict:
+    """One metric's compare `Verdict` plus this invocation's gate
+    annotation (design §2): `gated=True` means this metric counts as an
+    offender in `domain/budget.evaluate`'s all-or-nothing decision. The
+    underlying `verdict` is untouched, carried by value."""
+
+    verdict: Verdict
+    gated: bool
+
+
+@dataclass(frozen=True)
+class BudgetVerdict:
+    """The gate result `domain/budget.evaluate` returns (design §2/§3):
+    `gate_status` is a RETURN value, never a raise (decision D3) — the CLI
+    maps `fail` to exit 1. `gated_verdicts` preserves `CompareResult`
+    order; `offending_metrics` aggregates EVERY offender (never stops at
+    the first, design 'All-or-Nothing Gating with Full Aggregation').
+    `calibration` rides through unchanged for the pretty footer — it is
+    informational only and never influences `gate_status`."""
+
+    gate_status: str  # 'pass' | 'fail' | 'skipped'
+    gated_verdicts: Sequence[GatedVerdict]
+    offending_metrics: Sequence[str]
+    strict: bool
     calibration: CalibrationReport
 
 
