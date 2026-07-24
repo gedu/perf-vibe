@@ -1,0 +1,16 @@
+┌─ perfvibe budget-check · checkout · HEAD a1b2c3d (main)
+│
+│   METRIC               LATEST    BASELINE             Δ  STATUS              TREND
+│   ──────────────────────────────────────────────────────────────────────────
+│
+│   ✓ checkout           102.0 ms    100.0 ms   ↑     +2.0%  stable              ▁▅▆█
+│
+│   ✓ fps_avg            58.0 fps    60.0 fps   ↓     -3.3%  stable              █▅▆▁
+│
+│   ✓ reasonable — 1 of 10 runs would flag
+│
+├───────────────────────────────────────────────────────────────────────────
+│
+│   ✓  GATE PASSED   ·   0 regressions   ·   exit 0
+│
+└─

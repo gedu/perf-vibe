@@ -1,0 +1,21 @@
+┌─ checkout · REGRESSION · lower-is-better · warm · Pixel-7
+│
+│   latest     120.0 ms   at HEAD  a1b2c3d  "feat: coupon field on checkout"
+│   baseline   100.0 ms   median of 10 commits
+│   delta      ↑ +20.0%     threshold 5.0%  ·  floor 8.0 ms  ·  BREACHED
+│
+│   ms
+│     120.0 ┤                         ██
+│     114.5 ┤                         ██
+│     109.0 ┤                         ██
+│     103.5 ┤                         ██
+│      98.0 ┤ ██      ██      ██      ██
+│             └────────────────────────────────
+│             d4e5f6a e5f6a7b f6a7b8c a1b2c3d
+│                                     └ HEAD
+│
+│   baseline commits (median-by-commit):
+│     d4e5f6a   98.0    e5f6a7b  100.0    f6a7b8c  101.0
+│     (HEAD a1b2c3d excluded)
+│
+└─
