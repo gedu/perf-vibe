@@ -18,6 +18,7 @@ import typer
 from perf.cli.banner import render_banner, should_show_banner
 from perf.cli.commands.budget_check import budget_check as budget_check_command
 from perf.cli.commands.compare import compare as compare_command
+from perf.cli.commands.init import init as init_command
 from perf.cli.commands.run import run as run_command
 from perf.cli.output.context import OutputContext, resolve_output_context
 from perf.config.loader import load_config
@@ -71,7 +72,12 @@ def main_callback(
         no_color_config=perf_config.no_color,
         stdout=sys.stdout,
     )
-    ctx.obj = {"output": output, "config": perf_config}
+    # `config_path` carries the RAW `--config` CLI string (or `None`) —
+    # distinct from `perf_config` (the fully layered/merged result) —
+    # so `init` can resolve its OWN write target per tasks.md decision #2
+    # ("reuse the global --config option; default to ./perf.toml in CWD
+    # when omitted"), without every other command needing to care.
+    ctx.obj = {"output": output, "config": perf_config, "config_path": config}
 
     if help_:
         _print_help_with_banner(ctx, output)
@@ -96,6 +102,11 @@ app.command(
     name="budget-check",
     context_settings={"help_option_names": ["--help", "-h"]},
 )(budget_check_command)
+
+app.command(
+    name="init",
+    context_settings={"help_option_names": ["--help", "-h"]},
+)(init_command)
 
 
 def main() -> None:
