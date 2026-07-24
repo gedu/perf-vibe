@@ -240,6 +240,41 @@ class CompareResult:
     calibration: CalibrationReport
 
 
+# ===== budget-check gate carriers (design §2, tasks 1.9) =====
+
+GATE_PASS = "pass"
+GATE_FAIL = "fail"
+GATE_SKIPPED = "skipped"
+
+
+@dataclass(frozen=True)
+class GatedVerdict:
+    """One metric's compare `Verdict` plus this invocation's gate
+    annotation (design §2): `gated=True` means this metric counts as an
+    offender in `domain/budget.evaluate`'s all-or-nothing decision. The
+    underlying `verdict` is untouched, carried by value."""
+
+    verdict: Verdict
+    gated: bool
+
+
+@dataclass(frozen=True)
+class BudgetVerdict:
+    """The gate result `domain/budget.evaluate` returns (design §2/§3):
+    `gate_status` is a RETURN value, never a raise (decision D3) — the CLI
+    maps `fail` to exit 1. `gated_verdicts` preserves `CompareResult`
+    order; `offending_metrics` aggregates EVERY offender (never stops at
+    the first, design 'All-or-Nothing Gating with Full Aggregation').
+    `calibration` rides through unchanged for the pretty footer — it is
+    informational only and never influences `gate_status`."""
+
+    gate_status: str  # 'pass' | 'fail' | 'skipped'
+    gated_verdicts: Sequence[GatedVerdict]
+    offending_metrics: Sequence[str]
+    strict: bool
+    calibration: CalibrationReport
+
+
 @dataclass(frozen=True)
 class RunPoint:
     """One per-run baseline observation (design Rev 3 "Bounded baseline
