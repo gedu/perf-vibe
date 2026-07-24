@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from fakes import FakeAnalyzer
 from perf.application.budget_check_flow import (
     BudgetCheckFailedError,
     BudgetCheckRequest,
@@ -18,8 +19,6 @@ from perf.domain import budget
 from perf.domain.calibration import CalibrationReport
 from perf.domain.model import CompareResult, Verdict
 from perf.domain.regression import STATUS_REGRESSION, STATUS_STABLE
-
-from fakes import FakeAnalyzer
 
 _CALIBRATION = CalibrationReport(metrics=(), status="reasonable", runs_flagged=0, runs_total=3)
 
@@ -55,9 +54,7 @@ def test_analyzer_returning_none_becomes_usage_error():
 
 
 def test_compare_result_delegates_to_domain_budget_evaluate_unchanged():
-    result = _result(
-        _verdict("checkout", STATUS_REGRESSION), _verdict("fps_avg", STATUS_STABLE)
-    )
+    result = _result(_verdict("checkout", STATUS_REGRESSION), _verdict("fps_avg", STATUS_STABLE))
     analyzer = FakeAnalyzer(result=result)
     use_case = BudgetCheckUseCase(analyzer=analyzer)
 
