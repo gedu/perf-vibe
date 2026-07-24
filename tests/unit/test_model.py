@@ -448,3 +448,29 @@ def test_verdict_carries_series_points_when_provided():
         series_points=points,
     )
     assert verdict.series_points == points
+
+
+# ===== `Verdict.higher_is_better` (audit fix: carries the direction
+# `regression.classify` actually used, so `contracts/compare_v1.py` never
+# re-derives it by metric name at serialization time) =====
+
+
+def test_verdict_higher_is_better_defaults_false_backward_compat():
+    """Additive with a safe default — existing positional/keyword
+    `Verdict(...)` construction (e.g. `run`-era tests) keeps working
+    unchanged, matching `Metric.higher_is_better`'s own default."""
+    verdict = Verdict(
+        metric_name="/loans/details/:id", delta_pct=5.0, threshold_pct=10.0, status="stable"
+    )
+    assert verdict.higher_is_better is False
+
+
+def test_verdict_carries_higher_is_better_when_provided():
+    verdict = Verdict(
+        metric_name="fps_avg",
+        delta_pct=-10.0,
+        threshold_pct=5.0,
+        status="regression",
+        higher_is_better=True,
+    )
+    assert verdict.higher_is_better is True

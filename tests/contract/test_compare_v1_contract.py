@@ -49,6 +49,7 @@ def _sample_result() -> CompareResult:
             baseline_commit_n=5,
             series=(100.0, 102.0, 98.0, 120.0),
             floor=5.0,
+            higher_is_better=False,
         ),
         Verdict(
             metric_name="fps_avg",
@@ -62,6 +63,7 @@ def _sample_result() -> CompareResult:
             baseline_commit_n=0,
             series=(),
             floor=2.0,
+            higher_is_better=True,
         ),
     )
     calibration = CalibrationReport(
@@ -133,6 +135,31 @@ def test_direction_reflects_metric_direction_metadata():
     by_metric = {v["metric"]: v for v in payload["verdicts"]}
     assert by_metric["checkout"]["direction"] == "lower-is-better"
     assert by_metric["fps_avg"]["direction"] == "higher-is-better"
+
+
+def test_direction_is_sourced_from_the_verdict_not_re_derived_by_metric_name():
+    """Audit fix regression guard: `_direction` must read `Verdict.
+    higher_is_better` — NOT re-derive it via `default_higher_is_better
+    (metric_name)`. A metric name that `default_higher_is_better` would
+    classify lower-is-better ("checkout") is given `higher_is_better=True`
+    here; if `_direction` ever regresses to a name-based lookup, this
+    verdict's `direction` would silently flip back to "lower-is-better"
+    while `status` stayed classified against the opposite direction."""
+    verdict = Verdict(
+        metric_name="checkout",
+        delta_pct=-10.0,
+        threshold_pct=5.0,
+        status="improvement",
+        higher_is_better=True,
+    )
+    result = CompareResult(
+        verdicts=(verdict,),
+        calibration=CalibrationReport(
+            metrics=(), status="reasonable", runs_flagged=0, runs_total=1
+        ),
+    )
+    payload = build_compare_payload(result)
+    assert payload["verdicts"][0]["direction"] == "higher-is-better"
 
 
 def test_payload_is_json_serializable_and_lossless():

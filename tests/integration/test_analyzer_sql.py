@@ -190,6 +190,40 @@ def test_compare_latest_direction_aware_verdicts_across_both_families(tmp_path):
         store.close()
 
 
+def test_verdict_carries_higher_is_better_for_both_families(tmp_path):
+    """Audit fix: `Verdict.higher_is_better` must be populated with the
+    SAME direction `classify` actually used for each family — the measure
+    family threads `RunPoint.higher_is_better` (persisted at ingestion,
+    `store_sqlite.py`), the `system_sample` family threads
+    `default_higher_is_better(metric_name)` computed in `analyzer_sql.py`
+    itself. `contracts/compare_v1.py` reads this field directly rather
+    than re-deriving it by metric name at serialization time."""
+    store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
+    try:
+        for commit in ("c1", "c2"):
+            _seed(
+                store,
+                git_commit=commit,
+                checkout_ms=100.0,
+                fps_values=[60.0, 60.0],
+                ram_values=[200.0, 200.0],
+            )
+        _seed(store, git_commit="HEAD", checkout_ms=100.0, fps_values=[60.0], ram_values=[200.0])
+
+        analyzer = _make_analyzer(store)
+        result = analyzer.compare_latest(FLOW, DEVICE_A, "warm")
+
+        checkout = _verdict_by_metric(result, "checkout")  # measure family, lower-is-better
+        fps = _verdict_by_metric(result, "fps_avg")  # system_sample family, higher-is-better
+        ram = _verdict_by_metric(result, "ram_avg_mb")  # system_sample family, lower-is-better
+
+        assert checkout is not None and checkout.higher_is_better is False
+        assert fps is not None and fps.higher_is_better is True
+        assert ram is not None and ram.higher_is_better is False
+    finally:
+        store.close()
+
+
 def test_warmup_k_drops_first_iteration_for_system_sample_only_not_measure(tmp_path):
     """spec 'Warm-Up Discard Asymmetry': `idx < K` is dropped for
     `system_sample` metrics ONLY. Marker/measure metrics ('checkout') have

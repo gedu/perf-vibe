@@ -7,12 +7,15 @@ bump.").
 `schema_version=1`. Stable, versioned, and lossless over `CompareResult`:
 every per-metric `Verdict` (including `insufficient-data` ones) and the
 always-on config sanity label (`CalibrationReport`, decision #58) are
-included verbatim. `direction` is reconstructed via the pure
-`default_higher_is_better(metric_name)` — the SAME rule `run`'s own
-ingestion (`SqliteStore._upsert_metrics`) already used to persist each
-metric's direction, so it is never a divergent guess. Contains NO
-secrets — this module only ever receives a `CompareResult`, never a
-request/env mapping.
+included verbatim. `direction` is read straight off `Verdict.higher_is_
+better` — the EXACT value `regression.classify` used to produce this
+verdict's `status` (threaded through by `analyzer_sql.py`'s calls into
+`classify`) — rather than re-derived from `metric_name` at serialization
+time (audit fix: the two lookups could otherwise silently diverge if
+`_HIGHER_IS_BETTER_METRICS` ever changes for a metric with old persisted
+rows, or a per-metric override is ever introduced). Contains NO secrets —
+this module only ever receives a `CompareResult`, never a request/env
+mapping.
 """
 
 from __future__ import annotations
@@ -20,22 +23,22 @@ from __future__ import annotations
 from typing import Any
 
 from perf.domain.calibration import CalibrationReport, MetricCalibration
-from perf.domain.model import CompareResult, Verdict, default_higher_is_better
+from perf.domain.model import CompareResult, Verdict
 
 __all__ = ["SCHEMA_VERSION", "build_compare_payload"]
 
 SCHEMA_VERSION = 1
 
 
-def _direction(metric_name: str) -> str:
-    return "higher-is-better" if default_higher_is_better(metric_name) else "lower-is-better"
+def _direction(verdict: Verdict) -> str:
+    return "higher-is-better" if verdict.higher_is_better else "lower-is-better"
 
 
 def _verdict_payload(verdict: Verdict) -> dict[str, Any]:
     return {
         "metric": verdict.metric_name,
         "unit": verdict.unit,
-        "direction": _direction(verdict.metric_name),
+        "direction": _direction(verdict),
         "latest_value": verdict.latest_value,
         "baseline_value": verdict.baseline_value,
         "delta_pct": verdict.delta_pct,
