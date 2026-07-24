@@ -47,6 +47,8 @@ Chain strategy: pending
 | 2 | Pure helpers (`discover_flows`, `parse_app_id`, `reconcile_bundle_id`, `serialize_toml`, `merge_config`, `has_comments`) + the `init` command assembled in `init.py` | PR-B (~700–750 ln) | `pytest tests/unit/test_init_discover.py tests/unit/test_init_parse_app_id.py tests/unit/test_init_reconcile.py tests/unit/test_init_serialize.py tests/unit/test_init_merge.py -q` | N/A — pure functions over fixture text/dicts, no CLI registration yet (not runnable as `perfvibe init` until PR-C) | Revert `src/perf/cli/commands/init.py` and its 5 unit test files; PR-A fixtures/contract remain independently valid |
 | 3 | CLI registration + integration tests (fixture-driven, wizard, comment-guard, exit codes) + pretty golden + README | PR-C (~650 ln) | `pytest tests/integration/test_cli_init.py tests/integration/test_cli_init_wizard.py tests/golden/test_init_pretty_golden.py -q` | `perfvibe init tests/fixtures/flows --yes --bundle-id com.example.app` — device-free, real fs (`tmp_path`) | Revert `src/perf/cli/main.py` registration block, both integration test files, the golden test + its fixtures, and the README section; PR-A/PR-B remain usable standalone (unregistered command) |
 
+> **Correction (CI coverage gate, discovered after PR-B pushed)**: this project's CI runs `pytest --cov=perf --cov-fail-under=93` (`pyproject.toml` `[tool.coverage.report]`) — enforced PER PR, not only at the end of the chain. PR-B's pure-helper-only unit tests left `cli/commands/init.py`'s `init()` command body (the bulk of the file) at 0% coverage, dropping total repo coverage to 90.77% and failing CI on PR-B alone. Tasks **3.1–3.7** (the core `CliRunner` integration tests: fresh-create, zero-flows, merge, collision ±`--force`, mismatch interactive/non-interactive, comment-loss gate, `--driver`/`--db` passthrough, output-path resolution, exit-code sweep) are moved into **PR-B** to close this gap. Tasks **3.8 (wizard TTY simulation), 3.10 (golden pretty output), 3.12 (README), 3.13 (design.md cross-check)** remain in **PR-C**.
+
 ## Phase 1: Foundation — fixtures + `init_v1` contract (PR-A)
 
 - [x] 1.1 Create `tests/fixtures/flows/login.yaml` — concrete `appId: com.example.app` header + `---` + a trivial step (spec "Concrete appId is parsed")
@@ -78,13 +80,20 @@ Chain strategy: pending
 
 ## Phase 3: Integration + golden + docs (PR-C)
 
-- [ ] 3.1 RED (highest blast radius, real wiring): `tests/integration/test_cli_init.py` — full `perfvibe init` via `CliRunner` against `tests/fixtures/flows`: creates `perf.toml` fresh when absent (I9), round-trips through `load_config`/`MaestroDriver` (I16), `--json` `init_v1` payload end-to-end
-- [ ] 3.2 RED: `test_cli_init.py` (extend) — zero-flows dir exits `2` (I1/I2, `flows_empty` fixture); mismatch non-interactive w/o `--bundle-id` exits `2` (I7, `flows_mismatch` fixture); mismatch non-interactive w/ `--bundle-id` resolves, exit `0` (I8)
-- [ ] 3.3 RED: `test_cli_init.py` (extend) — merge into an existing `perf.toml`: new flow names merge in, existing entries byte-for-byte untouched (I10); colliding flow name w/o `--force` exits `2`, file untouched (I11); w/ `--force` overwrites, exit `0` (I12)
-- [ ] 3.4 RED: `test_cli_init.py` (extend) — comment-preservation guard (decision #3): an existing `perf.toml` containing a `#` comment requires confirmation; non-interactive/`--yes` without `--force` exits `2` with a clear warning; `--force` proceeds and overwrites
-- [ ] 3.5 RED: `test_cli_init.py` (extend) — `--driver`/`--db` passthrough (decision #1): written verbatim as literal top-level keys (`driver = "..."`, `db_path = "..."`) only when supplied; omitted entirely otherwise
-- [ ] 3.6 RED: `test_cli_init.py` (extend) — output path resolution (decision #2): defaults to `./perf.toml` in CWD (via `tmp_path`) when `--config` is omitted; an explicit `--config <path>` is used verbatim
-- [ ] 3.7 RED: `test_cli_init.py` (extend) — exit-code sweep: never exits `1` across I1–I17; an unexpected I/O failure (e.g. unwritable target dir) exits `3` (I17)
+- [x] 3.1 RED (highest blast radius, real wiring): `tests/integration/test_cli_init.py` — full `perfvibe init` via `CliRunner` against `tests/fixtures/flows`: creates `perf.toml` fresh when absent (I9), round-trips through `load_config`/`MaestroDriver` (I16), `--json` `init_v1` payload end-to-end
+- [x] 3.2 RED: `test_cli_init.py` (extend) — zero-flows dir exits `2` (I1/I2, `flows_empty` fixture); mismatch non-interactive w/o `--bundle-id` exits `2` (I7, `flows_mismatch` fixture); mismatch non-interactive w/ `--bundle-id` resolves, exit `0` (I8)
+- [x] 3.3 RED: `test_cli_init.py` (extend) — merge into an existing `perf.toml`: new flow names merge in, existing entries byte-for-byte untouched (I10); colliding flow name w/o `--force` exits `2`, file untouched (I11); w/ `--force` overwrites, exit `0` (I12)
+- [x] 3.4 RED: `test_cli_init.py` (extend) — comment-preservation guard (decision #3): an existing `perf.toml` containing a `#` comment requires confirmation; non-interactive/`--yes` without `--force` exits `2` with a clear warning; `--force` proceeds and overwrites
+- [x] 3.5 RED: `test_cli_init.py` (extend) — `--driver`/`--db` passthrough (decision #1): written verbatim as literal top-level keys (`driver = "..."`, `db_path = "..."`) only when supplied; omitted entirely otherwise
+- [x] 3.6 RED: `test_cli_init.py` (extend) — output path resolution (decision #2): defaults to `./perf.toml` in CWD (via `tmp_path`) when `--config` is omitted; an explicit `--config <path>` is used verbatim
+- [x] 3.7 RED: `test_cli_init.py` (extend) — exit-code sweep: never exits `1` across I1–I17; an unexpected I/O failure (e.g. unwritable target dir) exits `3` (I17)
+
+> **PR-B coverage-gap batch STATUS**: COMPLETE (2026-07-24) — 3.1-3.7 implemented in
+> `tests/integration/test_cli_init.py` (21 tests) against the ALREADY-existing PR-B
+> `init.py` command body (no production code changes needed; the command already
+> satisfied every scenario). Full suite 490 passed, `init.py` coverage 0% → 85%,
+> TOTAL repo coverage 90.77% → 94.03% (clears the 93% floor). ruff check/format and
+> mypy clean. 3.8/3.10/3.12/3.13 remain PR-C, unstarted.
 - [ ] 3.8 RED (interactive path): `tests/integration/test_cli_init_wizard.py` — TTY simulated (`isatty` patched `True`) w/o `--yes`: wizard prompts shown, dim-placeholder default accepted on blank Enter, override on typed input; `--yes` forces non-interactive despite TTY (I13/I14); non-TTY w/o `--yes` auto-detects non-interactive (I15)
 - [ ] 3.9 GREEN: fold any implementation gaps surfaced by 3.1–3.8 back into `init.py`
 - [ ] 3.10 RED [UX]: `tests/golden/test_init_pretty_golden.py` — color forced off, fixed width: (a) fresh `perf.toml` created summary, (b) merge-added-flows summary, (c) `bundle_id` mismatch prompt text, (d) comment-loss warning text; assert no ANSI bytes under `--no-color`/`NO_COLOR`/non-TTY (mirrors `test_budget_check_pretty_golden.py`)
