@@ -34,12 +34,24 @@ info "Using $($PY --version) at $(command -v "$PY")"
 
 # --- pipx (install if missing) ---
 if ! command -v pipx >/dev/null 2>&1; then
-  info "pipx not found — installing it with '$PY -m pip install --user pipx'"
-  "$PY" -m pip install --user pipx
-  "$PY" -m pipx ensurepath
-  PIPX="$PY -m pipx"
-else
+  if command -v brew >/dev/null 2>&1; then
+    info "pipx not found — installing it with 'brew install pipx'"
+    brew install pipx
+  elif "$PY" -m pip install --user pipx 2>/dev/null; then
+    "$PY" -m pipx ensurepath
+  else
+    # PEP 668 "externally-managed-environment" (e.g. Homebrew/distro Python
+    # without brew on PATH, or Debian/Ubuntu system Python).
+    info "pip install --user failed (externally-managed environment) — retrying with --break-system-packages"
+    "$PY" -m pip install --user --break-system-packages pipx
+    "$PY" -m pipx ensurepath
+  fi
+fi
+
+if command -v pipx >/dev/null 2>&1; then
   PIPX="pipx"
+else
+  PIPX="$PY -m pipx"
 fi
 
 # --- install perfvibe from the repo ---
