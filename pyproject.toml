@@ -73,15 +73,19 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PTH", "RUF"]
 "tests/**" = ["E501"]
 
 [tool.ruff.format]
-# ruff >=0.16 formats Python code blocks embedded in Markdown. That is right
-# for prose that documents working code, and wrong for SDD artifacts: a design
-# doc deliberately carries pseudo-code, elided bodies, and forward references
-# to modules that do not exist yet (a design for `budget-check` cites
-# `perf.cli.commands.budget_check` before the CLI slice is written). Those
-# snippets CANNOT satisfy the formatter, and making them satisfy it would
-# strip the shorthand that makes a design doc readable. Exclude the artifact
-# trees only — every other Markdown file stays formatted.
-exclude = ["openspec/**", "docs/specs/**"]
+# ruff >=0.16 formats Python code blocks embedded in Markdown. Prose in this
+# repo documents INTENT, not compilable code: design docs, PRDs and RFCs carry
+# pseudo-code, elided bodies, and forward references to modules that do not
+# exist yet (the `budget-check` design cited `perf.cli.commands.budget_check`
+# before that CLI slice was written). Those snippets cannot satisfy a
+# formatter, and bending them until they do would strip the shorthand that
+# makes the document readable.
+#
+# Excluding Markdown wholesale rather than listing doc folders is deliberate:
+# a per-folder list silently re-breaks CI the day someone adds `docs/rfcs/`.
+# Python FILES are formatted exactly as before — this only stops the formatter
+# from reaching into documentation.
+exclude = ["*.md"]
 
 [tool.mypy]
 python_version = "3.11"
