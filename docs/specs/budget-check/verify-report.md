@@ -65,11 +65,13 @@ All ten corner cases from the spec pass end-to-end via real `SqlAnalyzer`/`Sqlit
 | B5 | One regression, rest stable | fail/exit 1 (all offenders aggregated) | fail/exit 1 | ✓ verified |
 | B6 | New metric, no baseline | pass/exit 0 (absent other regressions) | fail/exit 1 | ✓ verified (unit) |
 | B7 | Dropped metric | skipped/non-fatal | skipped/non-fatal | ✓ verified (unit) |
-| B8 | Unseen device+mode | skipped/exit 0 | fail/exit 1 | ✓ verified (unit) |
+| B8 | Unseen device+mode | skipped/exit 0 | fail/exit 1 | ✓ verified (`tests/integration/test_cli_budget_check.py::test_unseen_device_mode_combo_default_skipped_strict_fails`) |
 | B9 | Dev-bundle-only history | skipped/exit 0 | fail/exit 1 | ✓ verified (unit) |
 | B10 | Render/tooling failure | exit 3 (never silently 0/1) | exit 3 | ✓ verified |
 
 **Invariant hold**: budget-check NEVER crashes and NEVER exits 1 except on confirmed regression (default) or strict insufficient-data.
+
+**Correction (audit finding)**: B8's row previously claimed "✓ verified (unit)" with no test actually exercising the unseen-device+mode scenario — only a lower-level store test (`test_baseline_measure_points_unseen_device_returns_empty`) checked that the baseline query itself returns empty, never the full gate/exit-code path. This has been closed by the integration test referenced above, which seeds real baseline history under one `device_key`/`mode` combo and evaluates a genuinely unseen combo through the real CLI, `SqlAnalyzer`, and `SqliteStore`.
 
 ## Two Defects Found and Fixed During Cycle
 

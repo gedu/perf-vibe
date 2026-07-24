@@ -44,16 +44,16 @@ def _config(db_path: str, **overrides) -> PerfConfig:
     return PerfConfig(**defaults)
 
 
-def _patch_context_provider(monkeypatch, *, git_commit="HEAD"):
-    ctx = make_run_context(device_key=DEVICE_KEY, git_commit=git_commit)
+def _patch_context_provider(monkeypatch, *, git_commit="HEAD", device_key=DEVICE_KEY):
+    ctx = make_run_context(device_key=device_key, git_commit=git_commit)
     monkeypatch.setattr(
         budget_check_module, "build_context_provider", lambda **kw: FakeRunContextProvider(ctx)
     )
 
 
-def _seed(store, *, git_commit, checkout_ms, mode="warm", is_dev_bundle=False):
+def _seed(store, *, git_commit, checkout_ms, mode="warm", is_dev_bundle=False, device_key=DEVICE_KEY):
     ctx = make_run_context(
-        device_key=DEVICE_KEY, git_commit=git_commit, is_dev_bundle=is_dev_bundle
+        device_key=device_key, git_commit=git_commit, is_dev_bundle=is_dev_bundle
     )
     markers = [Marker(name="checkout", value=checkout_ms, unit="ms") for _ in range(3)]
     samples = [
@@ -227,6 +227,42 @@ def test_mixed_metrics_one_regression_gate_fails_and_offender_listed(monkeypatch
     assert checkout_entry["gated"] is True
     fps_entry = next(v for v in payload["verdicts"] if v["metric"] == "fps_avg")
     assert fps_entry["gated"] is False
+
+
+# ===== B8: unseen device+mode combination fails open by default =====
+
+
+def test_unseen_device_mode_combo_default_skipped_strict_fails(monkeypatch, tmp_path: Path):
+    """B8: the flow has REAL baseline history under one device_key/mode
+    combo, but the combo actually being evaluated has never been seen
+    before. This must classify as insufficient-data (gate `skipped`,
+    exit 0 by default; gate `fail`, exit 1 under `--strict`) — distinct
+    from B1 (no history for the flow at all)."""
+    UNSEEN_DEVICE_KEY = "UnseenDevice|99|physical"
+    db_path = tmp_path / "perf.db"
+    store = SqliteStore(db_path, clock=SequentialClock())
+    try:
+        # Baseline history for the KNOWN device_key/mode combo.
+        for commit in ("c1", "c2", "c3", "c4"):
+            _seed(store, git_commit=commit, checkout_ms=100.0, device_key=DEVICE_KEY)
+        # The run being evaluated: a genuinely unseen device_key/mode combo,
+        # with no prior history of its own.
+        _seed(store, git_commit="HEAD", checkout_ms=100.0, device_key=UNSEEN_DEVICE_KEY)
+    finally:
+        store.close()
+    config = _config(str(db_path))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_context_provider(monkeypatch, device_key=UNSEEN_DEVICE_KEY, git_commit="HEAD")
+
+    default_result = runner.invoke(main_module.app, ["--json", "budget-check", "checkout"])
+    strict_result = runner.invoke(
+        main_module.app, ["--json", "budget-check", "checkout", "--strict"]
+    )
+
+    assert default_result.exit_code == 0, default_result.output
+    assert json.loads(default_result.stdout)["gate_status"] == "skipped"
+    assert strict_result.exit_code == 1, strict_result.output
+    assert json.loads(strict_result.stdout)["gate_status"] == "fail"
 
 
 # ===== B9: dev-bundle-only history fails open by default =====
