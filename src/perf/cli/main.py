@@ -16,6 +16,7 @@ import sys
 import typer
 
 from perf.cli.banner import render_banner, should_show_banner
+from perf.cli.commands.budget_check import budget_check as budget_check_command
 from perf.cli.commands.compare import compare as compare_command
 from perf.cli.commands.run import run as run_command
 from perf.cli.output.context import OutputContext, resolve_output_context
@@ -90,6 +91,11 @@ app.command(
     name="compare",
     context_settings={"help_option_names": ["--help", "-h"]},
 )(compare_command)
+
+app.command(
+    name="budget-check",
+    context_settings={"help_option_names": ["--help", "-h"]},
+)(budget_check_command)
 
 
 def main() -> None:
