@@ -94,15 +94,40 @@ Chain strategy: pending
 > satisfied every scenario). Full suite 490 passed, `init.py` coverage 0% → 85%,
 > TOTAL repo coverage 90.77% → 94.03% (clears the 93% floor). ruff check/format and
 > mypy clean. 3.8/3.10/3.12/3.13 remain PR-C, unstarted.
-- [ ] 3.8 RED (interactive path): `tests/integration/test_cli_init_wizard.py` — TTY simulated (`isatty` patched `True`) w/o `--yes`: wizard prompts shown, dim-placeholder default accepted on blank Enter, override on typed input; `--yes` forces non-interactive despite TTY (I13/I14); non-TTY w/o `--yes` auto-detects non-interactive (I15)
-- [ ] 3.9 GREEN: fold any implementation gaps surfaced by 3.1–3.8 back into `init.py`
-- [ ] 3.10 RED [UX]: `tests/golden/test_init_pretty_golden.py` — color forced off, fixed width: (a) fresh `perf.toml` created summary, (b) merge-added-flows summary, (c) `bundle_id` mismatch prompt text, (d) comment-loss warning text; assert no ANSI bytes under `--no-color`/`NO_COLOR`/non-TTY (mirrors `test_budget_check_pretty_golden.py`)
-- [ ] 3.11 GREEN: `init.py`'s pretty-render helper(s) satisfy 3.10 (`--update-golden` regenerates)
-- [ ] 3.12 Update `README.md` — new "Configuring flows" section: `perf.toml`'s `[flows]` table shape (`[flows.<name>]` → `maestro_path`), that `perfvibe init` scaffolds/merges it, and that CI should read a **committed** `perf.toml` rather than regenerate one at CI time
-- [ ] 3.13 Cross-check `docs/specs/init-command/design.md` Open Questions — mark both resolved (output-path reuse of `--config`; comment-loss confirm/`--force` gate) per the 3 decisions above
+- [x] 3.8 RED (interactive path): `tests/integration/test_cli_init_wizard.py` — TTY simulated (`isatty` patched `True`) w/o `--yes`: wizard prompts shown, dim-placeholder default accepted on blank Enter, override on typed input; `--yes` forces non-interactive despite TTY (I13/I14); non-TTY w/o `--yes` auto-detects non-interactive (I15)
+- [x] 3.9 GREEN: fold any implementation gaps surfaced by 3.1–3.8 back into `init.py`
+- [x] 3.10 RED [UX]: `tests/golden/test_init_pretty_golden.py` — color forced off, fixed width: (a) fresh `perf.toml` created summary, (b) merge-added-flows summary, (c) `bundle_id` mismatch prompt text, (d) comment-loss warning text; assert no ANSI bytes under `--no-color`/`NO_COLOR`/non-TTY (mirrors `test_budget_check_pretty_golden.py`)
+- [x] 3.11 GREEN: `init.py`'s pretty-render helper(s) satisfy 3.10 (`--update-golden` regenerates)
+- [x] 3.12 Update `README.md` — new "Configuring flows" section: `perf.toml`'s `[flows]` table shape (`[flows.<name>]` → `maestro_path`), that `perfvibe init` scaffolds/merges it, and that CI should read a **committed** `perf.toml` rather than regenerate one at CI time
+- [x] 3.13 Cross-check `docs/specs/init-command/design.md` Open Questions — mark both resolved (output-path reuse of `--config`; comment-loss confirm/`--force` gate) per the 3 decisions above
+
+> **PR-C batch STATUS**: COMPLETE (2026-07-24) — 3.8 wrote `tests/integration/test_cli_init_wizard.py`
+> (5 tests, TTY simulated by patching the `typer.testing._NamedTextIOWrapper` CLASS — patching an
+> instance has no effect since `CliRunner.isolation()` replaces `sys.stdin` with a fresh instance
+> per `invoke()`). 3.9: no implementation gaps — all 5 wizard tests passed immediately against the
+> existing PR-B `init.py`. 3.10 required a small, non-speculative extraction (2 new pure render
+> helpers — `_render_mismatch_conflict_message`, `_render_comment_loss_confirm_prompt` +
+> `_render_comment_loss_error` — mirroring the existing `_render_confirmation` pattern) so the
+> mismatch-prompt and comment-loss text (previously inlined `typer.echo` f-strings) became directly
+> golden-testable; `tests/golden/test_init_pretty_golden.py` (11 tests) covers all 4 scenarios plus
+> ANSI-byte assertions across `--no-color`/`NO_COLOR`/default-non-TTY. 3.11: the extraction IS the
+> GREEN — no other gaps. 3.12/3.13 done (see `README.md` "Configuring flows" section and
+> `design.md`'s Open Questions, both now checked `[x]` with resolution notes).
 
 ## Phase 4: Verification
 
-- [ ] 4.1 Run full `pytest`; confirm `ruff`/`mypy` clean; confirm the domain/application boundary test is unaffected (`init.py` is CLI-only — no `domain/`/`application/` import)
-- [ ] 4.2 Confirm the 93% coverage floor holds with `init.py` + `contracts/init_v1.py` added
-- [ ] 4.3 Manual round-trip proof (I16): `perfvibe init tests/fixtures/flows --yes --bundle-id com.example.app` writes a valid `perf.toml`; `perfvibe --config <path> run <flow>` recognizes every scaffolded flow
+- [x] 4.1 Run full `pytest`; confirm `ruff`/`mypy` clean; confirm the domain/application boundary test is unaffected (`init.py` is CLI-only — no `domain/`/`application/` import)
+- [x] 4.2 Confirm the 93% coverage floor holds with `init.py` + `contracts/init_v1.py` added
+- [x] 4.3 Manual round-trip proof (I16): `perfvibe init tests/fixtures/flows --yes --bundle-id com.example.app` writes a valid `perf.toml`; `perfvibe --config <path> run <flow>` recognizes every scaffolded flow
+
+> **Phase 4 STATUS**: COMPLETE (2026-07-24) — `.venv/bin/pytest -q --cov=perf --cov-report=term-missing`
+> → `506 passed`, TOTAL coverage **94.53%** (clears the 93% `fail_under` gate; `init.py` itself at 89%,
+> up from 85% after the 3.10 golden extraction). `ruff check .` / `ruff format --check .` / `mypy src/perf`
+> all clean. `rg` confirms zero `domain/`/`application/` imports in `init.py`. Manual round-trip: ran
+> `python -m perf.cli.main --json init tests/fixtures/flows --yes --bundle-id com.example.app` in a
+> throwaway CWD — wrote a valid `perf.toml` with all 5 non-subflows fixture flows under `[flows.<name>]`;
+> a subsequent `python -m perf.cli.main --json --config ./perf.toml compare login` recognized the `login`
+> flow (proceeded past config/flow-name resolution to a "no history" runtime error, never an
+> "unknown flow" config error) — consistent with the stronger automated proof in
+> `tests/integration/test_cli_init.py` (real `MaestroDriver.command()` against all 5 fixture flows,
+> never raises `ValueError`).

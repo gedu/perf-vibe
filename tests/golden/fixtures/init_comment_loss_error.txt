@@ -1,0 +1,1 @@
+Error: perf.toml contains hand-written comments that would be lost on rewrite; pass --force to overwrite anyway

@@ -1,0 +1,3 @@
+✓ perf init wrote perf.toml
+  flows added: checkout, login
+  bundle_id:   com.example.app (detected)

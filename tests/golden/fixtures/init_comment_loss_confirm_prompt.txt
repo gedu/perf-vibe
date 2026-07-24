@@ -1,0 +1,1 @@
+perf.toml contains hand-written comments that will be lost on rewrite — continue?
