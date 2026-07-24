@@ -50,6 +50,12 @@ def classify(
     returned `Verdict` on BOTH the insufficient-data early return and the
     normal-classification return — additive, defaults to `()` so every
     existing caller keeps working unchanged.
+
+    `higher_is_better` (audit fix) is likewise echoed onto the returned
+    `Verdict` on both paths — it is the SAME input this function used to
+    decide `worse`/`better`, so the verdict carries the exact direction it
+    was classified with rather than leaving `--json` serialization to
+    re-derive it by metric name later.
     """
 
     if latest is None or baseline is None or baseline_commit_n < min_n or sample_n < min_n:
@@ -66,6 +72,7 @@ def classify(
             series=tuple(series),
             floor=floor,
             series_points=tuple(series_points),
+            higher_is_better=higher_is_better,
         )
 
     delta = latest - baseline
@@ -100,4 +107,5 @@ def classify(
         series=tuple(series),
         floor=floor,
         series_points=tuple(series_points),
+        higher_is_better=higher_is_better,
     )

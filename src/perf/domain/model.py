@@ -203,6 +203,19 @@ class Verdict:
     never read it, and every existing positional/keyword `Verdict(...)`
     construction (e.g. `run`-era tests) must keep working unchanged
     (design risk #2).
+
+    `higher_is_better` (audit fix — latent contract-drift gap) carries the
+    EXACT direction `regression.classify` used to produce `status`, so
+    `contracts/compare_v1.py`'s `direction` field reads it straight off the
+    verdict instead of re-deriving it from `metric_name` via
+    `default_higher_is_better` at serialization time — the two lookups
+    could otherwise silently diverge if `_HIGHER_IS_BETTER_METRICS` ever
+    changes for a metric with old persisted rows, or a per-metric override
+    is ever introduced. Additive, defaults to `False` (matching
+    `default_higher_is_better`'s own default and `Metric.higher_is_better`'s
+    default) so every existing positional/keyword `Verdict(...)`
+    construction keeps working unchanged; added AFTER `series_points` to
+    preserve that field's own "stays last" backward-compat guarantee.
     """
 
     metric_name: str
@@ -217,6 +230,7 @@ class Verdict:
     series: Sequence[float] = ()
     floor: float = 0.0
     series_points: Sequence[SeriesPoint] = ()
+    higher_is_better: bool = False
 
 
 @dataclass(frozen=True)

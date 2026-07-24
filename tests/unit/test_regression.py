@@ -285,3 +285,26 @@ def test_classify_echoes_series_points_onto_verdict_insufficient_data_path():
 def test_classify_series_points_defaults_to_empty_tuple_when_omitted():
     verdict = _classify(100.0, 100.0, higher_is_better=False)
     assert verdict.series_points == ()
+
+
+# ===== `higher_is_better` threading onto `Verdict` (audit fix: the
+# `--json` contract's `direction` must read this field, not re-derive it
+# by metric name at serialization time) =====
+
+
+def test_classify_echoes_higher_is_better_onto_verdict_normal_path():
+    verdict = _classify(54.0, 60.0, higher_is_better=True)
+    assert verdict.status == "regression"
+    assert verdict.higher_is_better is True
+
+
+def test_classify_echoes_higher_is_better_false_onto_verdict_normal_path():
+    verdict = _classify(120.0, 100.0, higher_is_better=False)
+    assert verdict.status == "regression"
+    assert verdict.higher_is_better is False
+
+
+def test_classify_echoes_higher_is_better_onto_verdict_insufficient_data_path():
+    verdict = _classify(100.0, None, higher_is_better=True)
+    assert verdict.status == "insufficient-data"
+    assert verdict.higher_is_better is True
