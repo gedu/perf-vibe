@@ -65,24 +65,33 @@ perfvibe --json --config examples/demo-run/perf.toml run demo   # machine contra
 ```
 
 There is a second, seeded demo that shows `compare` computing a real regression
-verdict — see [`examples/demo-compare/`](./examples/demo-compare/) — and the
-`run` demo lives in [`examples/demo-run/`](./examples/demo-run/).
+verdict — see [`examples/demo-compare/`](./examples/demo-compare/) — a third
+that shows `budget-check` gating on that same regression and exiting `1` — see
+[`examples/demo-budget-check/`](./examples/demo-budget-check/) — and the `run`
+demo lives in [`examples/demo-run/`](./examples/demo-run/).
 
 ## Usage
 
 ```bash
 perfvibe run <flow> [n] [--restart] [--device <serial>]     # measure and persist
 perfvibe compare <flow>                                     # verdict vs history
+perfvibe budget-check <flow> [--strict] [--metric <name>] [--verbose] [--restart] [--device <serial>]
 perfvibe --json run <flow>          # stable machine output (schema_version=1)
 perfvibe --json compare <flow>
+perfvibe --json budget-check <flow>
 ```
 
 `run` persists a run. `compare` reads that history and shows a per-metric,
 direction-aware verdict (median-by-commit baseline, sparklines, `--json`).
+`budget-check` reuses `compare`'s verdict and applies ONE gate rule: any
+`regression` fails the flow. It is the CI-gating command — `run` and `compare`
+never exit `1`, `budget-check` does.
 
-Exit codes: `0` success · `2` usage error · `3` runtime/tooling failure.
-Neither `run` nor `compare` ever exits `1` — `compare` is show-only, so even a
-regression exits `0`. Exit `1` is reserved for a future `budget-check` CI gate.
+Exit codes: `0` success (or a `budget-check` gate `pass`/`skipped`) · `1`
+**`budget-check` only** — a confirmed regression (or, under `--strict`, an
+unprovable-safety case) · `2` usage error · `3` runtime/tooling failure.
+`run` and `compare` never exit `1` — `compare` is show-only, so even a
+regression exits `0`; `budget-check` is what spends the CI-gating exit `1`.
 
 ## Development
 
