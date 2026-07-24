@@ -51,7 +51,9 @@ def _patch_context_provider(monkeypatch, *, git_commit="HEAD", device_key=DEVICE
     )
 
 
-def _seed(store, *, git_commit, checkout_ms, mode="warm", is_dev_bundle=False, device_key=DEVICE_KEY):
+def _seed(
+    store, *, git_commit, checkout_ms, mode="warm", is_dev_bundle=False, device_key=DEVICE_KEY
+):
     ctx = make_run_context(
         device_key=device_key, git_commit=git_commit, is_dev_bundle=is_dev_bundle
     )

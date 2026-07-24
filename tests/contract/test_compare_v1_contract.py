@@ -154,7 +154,9 @@ def test_direction_is_sourced_from_the_verdict_not_re_derived_by_metric_name():
     )
     result = CompareResult(
         verdicts=(verdict,),
-        calibration=CalibrationReport(metrics=(), status="reasonable", runs_flagged=0, runs_total=1),
+        calibration=CalibrationReport(
+            metrics=(), status="reasonable", runs_flagged=0, runs_total=1
+        ),
     )
     payload = build_compare_payload(result)
     assert payload["verdicts"][0]["direction"] == "higher-is-better"
