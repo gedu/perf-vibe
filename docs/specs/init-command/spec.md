@@ -107,7 +107,7 @@ If no `perf.toml` exists, the system SHALL create one with `[flows.<name>]` entr
 #### Scenario: New flow names merge into an existing file
 - GIVEN an existing `perf.toml` with `[flows.login]` already declared, and discovery finds `login` and a new `checkout`
 - WHEN `perfvibe init` runs (no `--force` needed)
-- THEN `[flows.checkout]` is appended and `[flows.login]` is left byte-for-byte unmodified
+- THEN `[flows.checkout]` is appended and `[flows.login]` is left semantically unmodified (values preserved — the file is canonically re-serialized, not byte-for-byte preserved, which is why the comment-loss guard exists)
 
 #### Scenario: Colliding flow name without --force is refused
 - GIVEN an existing `perf.toml` already declares `[flows.login]`, and discovery also finds a flow named `login`

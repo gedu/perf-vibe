@@ -53,9 +53,10 @@ value. End-of-header with no match → `None`. Bound scanned lines/line-length; 
   "flows_total": 2, "appid_conflict": null }
 ```
 
-Typer signature — `init(ctx, flows_dir: Path = Argument(..., exists=True, file_okay=False),
---bundle-id, --driver="maestro" (written only if non-default), --out="perf.toml", --force,
---yes)`. Global `--json`/`--no-color`/`--db`/`--config` come from the callback. Interactive
+Typer signature — `init(ctx, flows_dir: str = Argument(...), --bundle-id, --driver (verbatim
+pass-through, written only if supplied), --db (verbatim pass-through, written only if
+supplied), --force, --yes)`. Output path reuses the global `--config` option (no `--out` flag);
+defaults to `./perf.toml` in CWD when `--config` is omitted. Interactive
 (TTY and not `--yes`): `click.prompt(default=styled_dim(detected))`. Exit: `0` success; `2`
 bad/empty flows-dir, appId mismatch non-interactive w/o `--bundle-id`, colliding flow name w/o
 `--force`; `3` fs read/write or unexpected failure.
