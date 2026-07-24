@@ -20,6 +20,7 @@ from typing import TypeVar
 
 from perf.adapters.analyzer_sql import SqlAnalyzer
 from perf.adapters.clock_system import SystemClock
+from perf.adapters.commit_log_git import GitCommitLog
 from perf.adapters.context_bash_perfmeta import BashRunContextProvider
 from perf.adapters.driver_maestro import MaestroDriver
 from perf.adapters.driver_manual import ManualDriver
@@ -31,6 +32,7 @@ from perf.adapters.store_sqlite import SqliteStore
 from perf.domain.ports import (
     Analyzer,
     Clock,
+    CommitLog,
     FlowDriver,
     MarkerSource,
     RunContextProvider,
@@ -224,6 +226,19 @@ def build_analyzer(
         warmup_k=warmup_k,
         baseline_n=baseline_n,
     )
+
+
+def build_commit_log(
+    *,
+    repo_path: str | None = None,
+    runner: SubprocessRunner | None = None,
+) -> CommitLog:
+    """`CommitLog` has exactly one implementation — a single factory, no
+    name-keyed map needed (mirrors `build_context_provider`/`build_store`;
+    budget-check design §10, decision D6). Kwonly params mirror
+    `GitCommitLog.__init__` exactly."""
+
+    return GitCommitLog(repo_path=repo_path, runner=runner)
 
 
 def build_clock() -> Clock:

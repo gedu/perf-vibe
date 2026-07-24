@@ -293,7 +293,7 @@ def _sparkline_series(
 def _series_points(
     points: Sequence[tuple[str, float, str]],
     latest_value: float | None,
-    latest_commit: str,
+    latest_commit: str | None,
 ) -> tuple[SeriesPoint, ...]:
     """Labeled parallel carrier to `_sparkline_series` (budget-check design
     §5, decision D7): the SAME chronological ordering (`_ordered_commit_
@@ -301,19 +301,27 @@ def _series_points(
     `SeriesPoint(latest_commit, latest_value)` when `latest_value is not
     None` — mirrors `_sparkline_series`'s own latest-append guard exactly,
     so `len(series) == len(series_points)` and per-index values match by
-    construction (design risk #1)."""
+    construction (design risk #1). `latest_commit` is `latest.git_commit`,
+    which is `None` when a run was persisted with no resolvable git repo
+    (`BashRunContextProvider` degrades gracefully rather than raising) —
+    that edge case labels the point with `""` rather than dropping it, so
+    the length parity invariant holds even then."""
+
+    commit_label = latest_commit if latest_commit is not None else ""
 
     if not points:
-        return (SeriesPoint(commit=latest_commit, value=latest_value),) if (
-            latest_value is not None
-        ) else ()
+        return (
+            (SeriesPoint(commit=commit_label, value=latest_value),)
+            if (latest_value is not None)
+            else ()
+        )
 
     series_points = [
         SeriesPoint(commit=commit, value=median)
         for commit, median in _ordered_commit_medians(points)
     ]
     if latest_value is not None:
-        series_points.append(SeriesPoint(commit=latest_commit, value=latest_value))
+        series_points.append(SeriesPoint(commit=commit_label, value=latest_value))
     return tuple(series_points)
 
 

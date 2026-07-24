@@ -29,9 +29,7 @@ class GitCommitLog:
 
     def subject(self, sha: str) -> str | None:
         try:
-            result = self._runner.run(
-                ["git", "log", "-1", "--format=%s", sha], cwd=self._repo_path
-            )
+            result = self._runner.run(["git", "log", "-1", "--format=%s", sha], cwd=self._repo_path)
         except OSError:
             # `git` missing from PATH, or any other subprocess-level
             # failure — degrade to None, never raise (fail-graceful

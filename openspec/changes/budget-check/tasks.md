@@ -72,10 +72,10 @@ Chained PRs recommended: **Yes**
 - [x] 1.10 GREEN: `domain/budget.py` (new) — `evaluate(result: CompareResult, *, strict: bool = False) -> BudgetVerdict`, pure, no I/O, no adapter imports (satisfies 1.8 and 1.8a).
 - [x] 1.11 RED: `tests/unit/test_commit_log_git.py` (new) — `GitCommitLog.subject(sha)` invokes a fake `SubprocessRunner.run(["git", "log", "-1", "--format=%s", sha], cwd=repo_path)` — argv-list, never `shell=True`; returns the stripped stdout on `returncode == 0`; returns `None` (never raises) on non-zero `returncode`, on the runner raising, and on empty/whitespace-only stdout.
 - [x] 1.12 GREEN: `domain/ports.py` — add `CommitLog(Protocol)` with `subject(self, sha: str) -> str | None`. `adapters/commit_log_git.py` (new) — `GitCommitLog` implementing it via `SubprocessRunner` (mirrors `driver_maestro.py`'s argv-list-only discipline).
-- [ ] 1.13 RED: `tests/integration/test_registry.py` (extend) — `build_commit_log(repo_path=None, runner=None) -> CommitLog` returns a `GitCommitLog`.
-- [ ] 1.14 GREEN: `adapters/registry.py` — add `build_commit_log(*, repo_path=None, runner=None) -> CommitLog` (plain factory, one implementation — mirrors `build_context_provider`/`build_store`).
-- [ ] 1.15 INFRA: `tests/fakes.py` — add `FakeCommitLog(subject: str | None = "fixed subject")` implementing `CommitLog`, and `FakeAnalyzer(result: CompareResult | None = None, raises: Exception | None = None)` implementing `Analyzer.compare_latest(...)` (needed by PR-B's use-case tests and PR-C's renderer/CLI tests — compare-era tests never needed one since they always exercise the real `SqlAnalyzer`).
-- [ ] 1.16 CHECKPOINT: `./.venv/bin/pytest -q` full suite green; `ruff check`; `ruff format --check`; `mypy src/perf` clean on the PR-A diff.
+- [x] 1.13 RED: `tests/integration/test_registry.py` (extend) — `build_commit_log(repo_path=None, runner=None) -> CommitLog` returns a `GitCommitLog`.
+- [x] 1.14 GREEN: `adapters/registry.py` — add `build_commit_log(*, repo_path=None, runner=None) -> CommitLog` (plain factory, one implementation — mirrors `build_context_provider`/`build_store`).
+- [x] 1.15 INFRA: `tests/fakes.py` — add `FakeCommitLog(subject: str | None = "fixed subject")` implementing `CommitLog`, and `FakeAnalyzer(result: CompareResult | None = None, raises: Exception | None = None)` implementing `Analyzer.compare_latest(...)` (needed by PR-B's use-case tests and PR-C's renderer/CLI tests — compare-era tests never needed one since they always exercise the real `SqlAnalyzer`).
+- [x] 1.16 CHECKPOINT: `./.venv/bin/pytest -q` full suite green; `ruff check`; `ruff format --check`; `mypy src/perf` clean on the PR-A diff.
 
 ## Phase 2: Application use-case + `budget_check_v1` contract (PR-B)
 

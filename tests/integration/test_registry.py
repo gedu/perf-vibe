@@ -98,6 +98,25 @@ def test_build_analyzer_returns_sql_analyzer(tmp_path):
         store.close()
 
 
+def test_build_commit_log_returns_git_commit_log():
+    """budget-check design §10: `CommitLog` has exactly one implementation
+    — a plain factory, no name-keyed map needed (mirrors
+    `build_context_provider`/`build_store`)."""
+    from perf.adapters.commit_log_git import GitCommitLog
+
+    commit_log = registry.build_commit_log()
+    assert isinstance(commit_log, GitCommitLog)
+
+
+def test_build_commit_log_threads_repo_path_and_runner():
+    from perf.adapters.commit_log_git import GitCommitLog
+    from perf.adapters.process import SubprocessRunner
+
+    runner = SubprocessRunner()
+    commit_log = registry.build_commit_log(repo_path="/repo", runner=runner)
+    assert isinstance(commit_log, GitCommitLog)
+
+
 def test_unknown_driver_name_raises_clear_error():
     with pytest.raises(ValueError, match="maestro"):
         registry.build_driver("not-a-real-driver")

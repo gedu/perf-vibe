@@ -26,7 +26,9 @@ class _FakeRunner:
 
 
 def test_subject_invokes_git_log_dash1_format_subject_as_argv_list():
-    runner = _FakeRunner(result=CommandResult(returncode=0, stdout="Fix checkout regression\n", stderr=""))
+    runner = _FakeRunner(
+        result=CommandResult(returncode=0, stdout="Fix checkout regression\n", stderr="")
+    )
     commit_log = GitCommitLog(repo_path="/repo", runner=runner)
 
     subject = commit_log.subject("abc123")

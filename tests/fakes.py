@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 from perf.domain.model import (
     CaptureSpec,
+    CompareResult,
     DriverCommand,
     DriverResult,
     ExecutionPlan,
@@ -22,6 +23,8 @@ from perf.domain.model import (
 )
 
 __all__ = [
+    "FakeAnalyzer",
+    "FakeCommitLog",
     "FakeDriver",
     "FakeMarkerSource",
     "FakeRunContextProvider",
@@ -265,3 +268,42 @@ class FakeStore:
 
     def history(self, flow_name: str, metric_name: str, device_key: str, limit: int) -> Sequence:
         return ()
+
+
+class FakeCommitLog:
+    """`CommitLog` (`domain/ports.py`) fake — a fixed commit subject, no
+    real git repository touched (budget-check PR-B/PR-C tests, task 1.15).
+    """
+
+    def __init__(self, subject: str | None = "fixed subject") -> None:
+        self._subject = subject
+        self.calls: list[str] = []
+
+    def subject(self, sha: str) -> str | None:
+        self.calls.append(sha)
+        return self._subject
+
+
+class FakeAnalyzer:
+    """`Analyzer` (`domain/ports.py`) fake — needed by PR-B's use-case
+    tests and PR-C's renderer/CLI tests (task 1.15). `compare`-era tests
+    never needed one, since they always exercise the real `SqlAnalyzer`
+    against a temp SQLite store."""
+
+    def __init__(
+        self,
+        *,
+        result: CompareResult | None = None,
+        raises: Exception | None = None,
+    ) -> None:
+        self._result = result
+        self._raises = raises
+        self.calls: list[tuple[str, str, str]] = []
+
+    def compare_latest(
+        self, flow_name: str, device_key: str, mode: str = "warm"
+    ) -> CompareResult | None:
+        self.calls.append((flow_name, device_key, mode))
+        if self._raises is not None:
+            raise self._raises
+        return self._result
