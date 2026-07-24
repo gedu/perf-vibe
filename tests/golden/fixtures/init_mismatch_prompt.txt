@@ -1,0 +1,1 @@
+Conflicting appId values detected: com.example.app, com.other.app

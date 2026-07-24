@@ -93,6 +93,46 @@ unprovable-safety case) · `2` usage error · `3` runtime/tooling failure.
 `run` and `compare` never exit `1` — `compare` is show-only, so even a
 regression exits `0`; `budget-check` is what spends the CI-gating exit `1`.
 
+## Configuring flows
+
+`perfvibe` reads which Maestro flows exist and where their `.yaml` files live
+from a `perf.toml` config file's `[flows]` table — one `[flows.<name>]`
+sub-table per flow, pointing at that flow's `maestro_path`:
+
+```toml
+bundle_id = "com.example.app"
+
+[flows.checkout]
+maestro_path = "flows/checkout.yaml"
+
+[flows.login]
+maestro_path = "flows/login.yaml"
+```
+
+Hand-writing this table works, but `perfvibe init <flows-dir>` scaffolds or
+merges it for you: it recursively scans a Maestro flows directory (skipping
+any `subflows/` — those are `runFlow` utilities, never top-level flows),
+detects a single consistent `appId:` header across the flows as your
+`bundle_id`, and writes (or safely merges into) `perf.toml`.
+
+```bash
+perfvibe init tests/fixtures/flows --yes --bundle-id com.example.app
+```
+
+Add `--force` to overwrite a colliding flow name or a `perf.toml` that
+contains hand-written comments (re-serializing always drops comments — this
+tool refuses to do that silently). See `perfvibe init --help` for the full
+flag list (`--driver`, `--db`, `--bundle-id`, `--force`, `--yes`).
+
+**CI should read a committed `perf.toml`, not regenerate one at CI time.**
+Run `perfvibe init` locally once, review the diff, and commit the resulting
+`perf.toml` alongside your Maestro flows — the same way you'd commit any
+other config file. `run`/`compare`/`budget-check` in CI then read that
+committed file directly; there is no `init` step in the CI pipeline itself.
+This keeps the set of flows CI measures explicit and reviewable in the PR
+diff, rather than implicitly whatever `init` happens to (re-)discover on a
+CI runner.
+
 ## Development
 
 ```bash

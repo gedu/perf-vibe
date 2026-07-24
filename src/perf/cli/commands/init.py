@@ -287,6 +287,28 @@ def merge_config(
     return merged
 
 
+# ===== Comment-loss warning (tasks.md decision #3, golden 3.10) =====
+
+
+def _render_comment_loss_confirm_prompt(config_path: Path) -> str:
+    """Interactive confirm-gate text — shown before overwriting an existing
+    `perf.toml` that contains a hand-written `#` comment (decision #3).
+    Extracted as a pure function so both call sites share identical wording
+    and it is directly golden-testable (tasks.md 3.10)."""
+
+    return f"{config_path} contains hand-written comments that will be lost on rewrite — continue?"
+
+
+def _render_comment_loss_error(config_path: Path) -> str:
+    """Non-interactive error text for the same guard — printed to stderr
+    when `--force` was not supplied and there is no TTY to confirm in."""
+
+    return (
+        f"Error: {config_path} contains hand-written comments that would be "
+        "lost on rewrite; pass --force to overwrite anyway"
+    )
+
+
 # ===== Pretty confirmation (design "Testing Strategy" — golden, Phase 3) =====
 
 _DIM = "\x1b[2m"
@@ -327,10 +349,18 @@ def _prompt_bundle_id(candidate: str | None, *, color: bool) -> str | None:
     return raw.strip() or None
 
 
+def _render_mismatch_conflict_message(conflict: Sequence[str], *, color: bool) -> str:
+    """Text shown before the interactive mismatch-resolution prompt (spec
+    "Mismatch — interactive prompt"). Extracted as a pure function (mirrors
+    `_render_confirmation`) so it is directly golden-testable without
+    needing a simulated TTY (tasks.md 3.10)."""
+
+    text = f"Conflicting appId values detected: {', '.join(conflict)}"
+    return _style(text, color=color, code=_DIM)
+
+
 def _prompt_bundle_id_conflict(conflict: Sequence[str], *, color: bool) -> str | None:
-    typer.echo(
-        _style(f"Conflicting appId values detected: {', '.join(conflict)}", color=color, code=_DIM)
-    )
+    typer.echo(_render_mismatch_conflict_message(conflict, color=color))
     raw = typer.prompt("Enter the bundle_id to use", default="", show_default=False)
     return raw.strip() or None
 
@@ -469,9 +499,7 @@ def init(
         if interactive:
             try:
                 confirmed = typer.confirm(
-                    f"{config_path} contains hand-written comments that will be lost on "
-                    "rewrite — continue?",
-                    default=False,
+                    _render_comment_loss_confirm_prompt(config_path), default=False
                 )
             except typer.Abort:
                 typer.echo("Error: aborted during interactive prompt", err=True)
@@ -483,11 +511,7 @@ def init(
                 )
                 raise typer.Exit(code=2)
         else:
-            typer.echo(
-                f"Error: {config_path} contains hand-written comments that would be lost on "
-                "rewrite; pass --force to overwrite anyway",
-                err=True,
-            )
+            typer.echo(_render_comment_loss_error(config_path), err=True)
             raise typer.Exit(code=2)
 
     try:

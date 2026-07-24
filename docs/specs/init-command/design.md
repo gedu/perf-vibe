@@ -95,5 +95,5 @@ revert branch.
 
 ## Open Questions
 
-- [ ] `--out` target vs reusing global `--config` as the write path — default `perf.toml` in CWD; confirm at tasks whether `--config` should double as the init destination.
-- [ ] Comment loss: re-serializing an existing `perf.toml` drops comments (tool-managed file, accepted). Confirm no user relies on hand-comments surviving a re-`init`.
+- [x] `--out` target vs reusing global `--config` as the write path — **Resolved** (tasks.md decision #2): no new `--out` flag. `init` reuses the existing global `--config` option as its write path; defaults to `./perf.toml` in CWD when `--config` is omitted, matching `_find_project_config`'s CWD-only discovery. Implemented in `init.py`'s output-path resolution; covered by `tests/integration/test_cli_init.py`'s 3.6 output-path-resolution tests.
+- [x] Comment loss: re-serializing an existing `perf.toml` drops comments (tool-managed file, accepted). — **Resolved** (tasks.md decision #3): never silent. `has_comments()` detects a `#` outside string literals; if the target file has one, `init` requires explicit confirmation (interactive, via `_render_comment_loss_confirm_prompt`) or `--force` (non-interactive/scripted, exit `2` otherwise with `_render_comment_loss_error`'s text) before overwriting. Covered by `tests/integration/test_cli_init.py`'s 3.4 comment-guard tests and golden-pinned in `tests/golden/test_init_pretty_golden.py`.
