@@ -124,6 +124,15 @@ contains hand-written comments (re-serializing always drops comments — this
 tool refuses to do that silently). See `perfvibe init --help` for the full
 flag list (`--driver`, `--db`, `--bundle-id`, `--force`, `--yes`).
 
+**Adding flows later?** Re-run the same `perfvibe init <flows-dir>` command —
+it re-scans the whole directory and merges in any genuinely new flow names,
+leaving existing entries untouched. Since `perf.toml` is a plain committed
+file, `git diff perf.toml` right after running it is your review of what
+changed. Note this is add-only: if an *existing* flow's file moved or you
+want to update its `maestro_path`, a plain re-run won't touch that entry —
+pass `--force` to overwrite it (which overwrites every colliding name in
+that run, not just one).
+
 **CI should read a committed `perf.toml`, not regenerate one at CI time.**
 Run `perfvibe init` locally once, review the diff, and commit the resulting
 `perf.toml` alongside your Maestro flows — the same way you'd commit any
