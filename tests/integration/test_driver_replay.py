@@ -64,7 +64,7 @@ def test_command_returns_non_none_argv_so_flashlight_wraps(tmp_path: Path):
     # Confirm the CRITICAL contract: a configured FlashlightSampler.wrap()
     # actually wraps (returns non-None) given this DriverCommand — proving
     # samples would get replayed rather than silently skipped.
-    wrap = FlashlightSampler().wrap(
+    wrap = FlashlightSampler(bundle_id="com.example.demo").wrap(
         inner, iterations=2, restart=False, results_path=str(tmp_path / "out.json")
     )
     assert wrap is not None

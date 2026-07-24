@@ -44,7 +44,17 @@ class FlashlightParseError(RuntimeError):
 
 
 class FlashlightSampler:
-    """`SystemSampler` (`domain/ports.py`) implementation."""
+    """`SystemSampler` (`domain/ports.py`) implementation.
+
+    `bundle_id` is Flashlight's REQUIRED `--bundleId` — the app under
+    measurement. It is threaded from `perf.toml`'s `bundle_id` key (written
+    by `perf init`, resolved by `config/loader.py`) at composition time.
+    Kept `Optional` at construction so parse-only uses need not supply it,
+    but `wrap()` refuses to build an invalid Flashlight command without it
+    (see below)."""
+
+    def __init__(self, *, bundle_id: str | None = None) -> None:
+        self._bundle_id = bundle_id
 
     def wrap(
         self,
@@ -57,8 +67,22 @@ class FlashlightSampler:
         if inner.argv is None:
             # Manual driver, no automated inner command — Flashlight's
             # `measure` seam for manual+Flashlight is documented but not
-            # built in Phase 1 (design §3/§7).
+            # built in Phase 1 (design §3/§7). No `--bundleId` needed here:
+            # there is no command to build.
             return None
+
+        if not self._bundle_id:
+            # Flashlight's `test` requires `--bundleId`; without it the real
+            # binary aborts with a cryptic commander error. Fail LOUD and
+            # EARLY at the adapter boundary (before any device/tool touch),
+            # regardless of which caller composed this wrap — this is the
+            # sampler's own invariant, not the CLI's. The use-case remaps
+            # this `ValueError` to a usage error (exit 2).
+            raise ValueError(
+                "flashlight sampler requires a bundle_id (Flashlight's "
+                "--bundleId, the app under measurement); run `perfvibe init` "
+                "to detect it or set bundle_id in perf.toml"
+            )
 
         # `shlex.join` (stdlib) safely quotes each already-validated argv
         # element into the single string Flashlight's `--testCommand`
@@ -71,6 +95,8 @@ class FlashlightSampler:
         argv: list[str] = [
             "flashlight",
             "test",
+            "--bundleId",
+            self._bundle_id,
             "--testCommand",
             inner_command,
             "--iterationCount",

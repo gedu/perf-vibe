@@ -92,7 +92,7 @@ def run(
             replay_logcat=config.replay_logcat,
             replay_flashlight=config.replay_flashlight,
         )
-        sampler = build_sampler(config.sampler)
+        sampler = build_sampler(config.sampler, bundle_id=config.bundle_id)
         marker_source = build_marker_source(config.marker_source, device=resolved_device)
         context_provider = build_context_provider(
             build_variant=config.build_variant,

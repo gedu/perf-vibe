@@ -31,6 +31,7 @@ def _write_config(tmp_path: Path, db_path: Path) -> Path:
             [
                 'driver = "replay"',
                 'sampler = "flashlight"',
+                'bundle_id = "com.example.demo"',
                 'marker_source = "adb-logcat"',
                 "default_iterations = 2",
                 f'db_path = "{db_path.as_posix()}"',

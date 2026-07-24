@@ -49,6 +49,21 @@ def test_build_sampler_flashlight_by_name():
     assert isinstance(sampler, FlashlightSampler)
 
 
+def test_build_sampler_flashlight_threads_bundle_id_into_the_command():
+    """Seam guard (regression): the `bundle_id` from config MUST reach the
+    Flashlight invocation. `build_sampler` passes it through to the
+    constructor, and `wrap()` emits it as `--bundleId` — without this the
+    real binary aborts with 'required option --bundleId not specified'."""
+    from perf.domain.model import DriverCommand
+
+    sampler = registry.build_sampler("flashlight", bundle_id="com.example.app")
+    inner = DriverCommand(argv=["maestro", "test", "flow.yaml"], automated=True)
+    wrapped = sampler.wrap(inner, iterations=1, restart=False, results_path="out.json")
+
+    assert "--bundleId" in wrapped.argv
+    assert wrapped.argv[wrapped.argv.index("--bundleId") + 1] == "com.example.app"
+
+
 def test_build_sampler_none_when_not_selected():
     assert registry.build_sampler(None) is None
 
