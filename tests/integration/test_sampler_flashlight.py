@@ -91,7 +91,7 @@ def test_parse_empty_measures_still_records_iteration_time(tmp_path):
 
 
 def test_wrap_builds_flashlight_argv_wrapping_the_inner_maestro_command(tmp_path):
-    sampler = FlashlightSampler()
+    sampler = FlashlightSampler(bundle_id="com.example.app")
     inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
     results_path = tmp_path / "run1.json"
 
@@ -99,6 +99,9 @@ def test_wrap_builds_flashlight_argv_wrapping_the_inner_maestro_command(tmp_path
 
     assert isinstance(wrapped.argv, list)
     assert wrapped.argv[0] == "flashlight"
+    assert "--bundleId" in wrapped.argv
+    bundle_id_idx = wrapped.argv.index("--bundleId") + 1
+    assert wrapped.argv[bundle_id_idx] == "com.example.app"
     assert "--testCommand" in wrapped.argv
     test_command_idx = wrapped.argv.index("--testCommand") + 1
     assert wrapped.argv[test_command_idx] == "maestro test flows/checkout.yaml"
@@ -111,16 +114,29 @@ def test_wrap_builds_flashlight_argv_wrapping_the_inner_maestro_command(tmp_path
 
 
 def test_wrap_omits_skip_restart_flag_when_restart_forces_cold(tmp_path):
-    sampler = FlashlightSampler()
+    sampler = FlashlightSampler(bundle_id="com.example.app")
     inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
     wrapped = sampler.wrap(inner, iterations=1, restart=True, results_path=str(tmp_path / "r.json"))
     assert "--skipRestart" not in wrapped.argv
 
 
+def test_wrap_raises_when_bundle_id_missing_for_an_automated_command(tmp_path):
+    """Flashlight's `test` REQUIRES `--bundleId`; without it the real binary
+    aborts with a cryptic commander error. The sampler enforces its own
+    invariant — `wrap()` refuses to build an invalid command, so the use-case
+    can remap it to a clear usage error (exit 2) before any device touch."""
+    sampler = FlashlightSampler()  # no bundle_id
+    inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
+    with pytest.raises(ValueError, match="bundle_id"):
+        sampler.wrap(inner, iterations=1, restart=False, results_path=str(tmp_path / "r.json"))
+
+
 def test_wrap_returns_none_for_manual_driver_with_no_automated_command(tmp_path):
     """Manual + Flashlight `measure` is a documented, not-built-in-Phase-1
-    seam (design §3/§7) — `wrap()` returns `None` when `inner.argv is None`."""
-    sampler = FlashlightSampler()
+    seam (design §3/§7) — `wrap()` returns `None` when `inner.argv is None`.
+    No `bundle_id` is needed here: there is no command to build, so a missing
+    `bundle_id` must NOT raise (the manual seam is bundle-id-agnostic)."""
+    sampler = FlashlightSampler()  # deliberately no bundle_id
     inner = DriverCommand(argv=None, automated=False, prompt="do the thing")
     wrapped = sampler.wrap(
         inner, iterations=1, restart=False, results_path=str(tmp_path / "r.json")

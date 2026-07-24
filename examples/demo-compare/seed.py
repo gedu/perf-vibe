@@ -88,7 +88,7 @@ def _run_once(
     results_dir: Path,
 ) -> int:
     driver = ReplayDriver(logcat_path=logcat_path, flashlight_path=flashlight_path)
-    sampler = FlashlightSampler()
+    sampler = FlashlightSampler(bundle_id="com.example.demo")
     marker_source = AdbLogcatMarkerSource()
     real_context_provider = build_context_provider(
         build_variant=None, tool_version="0.0.0-demo", device=None

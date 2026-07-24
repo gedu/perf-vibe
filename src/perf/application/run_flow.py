@@ -173,12 +173,19 @@ class RunFlowUseCase:
         wrap = None
         if self._sampler is not None:
             candidate_results_path = self._build_results_path(request)
-            wrap = self._sampler.wrap(
-                inner,
-                iterations=request.iterations,
-                restart=request.restart,
-                results_path=candidate_results_path,
-            )
+            # A sampler that cannot build a valid command from the current
+            # configuration (e.g. Flashlight without a `bundle_id`) raises
+            # `ValueError` here — a usage error resolved BEFORE any device
+            # touch, remapped like the driver's own `command()` guard above.
+            try:
+                wrap = self._sampler.wrap(
+                    inner,
+                    iterations=request.iterations,
+                    restart=request.restart,
+                    results_path=candidate_results_path,
+                )
+            except ValueError as exc:
+                raise UsageError(str(exc)) from exc
 
         # Step 6: marker capture spec (pure).
         capture = self._marker_source.capture_spec() if self._marker_source is not None else None

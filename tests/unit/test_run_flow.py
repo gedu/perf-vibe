@@ -201,6 +201,25 @@ def test_bad_flow_name_maps_to_usage_error_not_runtime_error():
     assert not driver.drive_calls
 
 
+def test_flashlight_without_bundle_id_maps_to_usage_error_before_any_device_touch():
+    """Seam guard (regression): a Flashlight sampler configured without a
+    `bundle_id` must fail as a USAGE error (exit 2) resolved during pure
+    compose — BEFORE the flow is ever driven — not as the cryptic
+    'required option --bundleId not specified' runtime failure the real
+    binary would otherwise emit mid-run."""
+    from perf.adapters.sampler_flashlight import FlashlightSampler
+
+    driver = FakeDriver(automated=True)
+    store = FakeStore()
+    use_case = _use_case(driver=driver, sampler=FlashlightSampler(bundle_id=None), store=store)
+
+    with pytest.raises(UsageError, match="bundle_id"):
+        use_case.execute(_request())
+
+    assert not store.saved_runs
+    assert not driver.drive_calls, "must fail during compose, before driving the flow"
+
+
 # ===== Runtime/tooling failures (exit 3), zero rows persisted =====
 
 
