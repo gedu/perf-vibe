@@ -1,15 +1,15 @@
 ┌─ perfvibe budget-check · checkout · HEAD a1b2c3d (main)
 │
-│   METRIC               LATEST    BASELINE             Δ  STATUS              TREND
-│   ──────────────────────────────────────────────────────────────────────────
+│      METRIC               LATEST     BASELINE          Δ  STATUS             TREND
+│   ────────────────────────────────────────────────────────────────────────────────
 │
-│   ✗ checkout           120.0 ms    100.0 ms   ↑    +20.0%  REGRESSION          ▁▂▂█
+│   ✗  checkout           120.0 ms     100.0 ms   ↑ +20.0%  REGRESSION         ▁▂▂█
 │
-│   ✓ fps_avg            58.0 fps    60.0 fps   ↓     -3.3%  stable              █▅▆▁
+│   ✓  fps_avg            58.0 fps     60.0 fps    ↓ -3.3%  stable             █▅▆▁
 │
 │   ✓ reasonable — 1 of 10 runs would flag
 │
-├───────────────────────────────────────────────────────────────────────────
+├───────────────────────────────────────────────────────────────────────────────────
 │
 │   ✗  GATE FAILED   ·   1 metric regressed   ·   exit 1
 │

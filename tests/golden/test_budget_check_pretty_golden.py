@@ -505,3 +505,73 @@ def test_detail_view_no_right_border():
     lines = actual.rstrip("\n").split("\n")
     assert lines[0].startswith("┌─")
     assert lines[-1] == "└─"
+
+
+def _summary_lines() -> tuple[str, list[str]]:
+    """Header line plus the metric rows of a rendered FAIL summary."""
+
+    rendered = render_summary(
+        _fail_verdict(), _RC, FakeCommitLog(), flow_name="checkout", color=False
+    )
+    lines = rendered.rstrip("\n").split("\n")
+    header = next(line for line in lines if "METRIC" in line)
+    rows = [
+        line
+        for line in lines
+        if line.startswith("│   ")
+        and any(name in line for name in ("checkout", "fps_avg"))
+        and "METRIC" not in line
+    ]
+    return header, rows
+
+
+def test_summary_header_aligns_with_its_columns():
+    """The header must sit over the column it labels.
+
+    A golden file cannot catch this: it freezes whatever was rendered,
+    misalignment included. This pins the relationship instead — left-aligned
+    columns share a START offset with their title, right-aligned ones share
+    an END offset. Before the shared column spec, the data rows carried a
+    two-character status-glyph prefix the header did not, so every column
+    after METRIC sat 2-8 characters off its own heading.
+    """
+
+    header, rows = _summary_lines()
+    assert rows, "expected at least one metric row"
+
+    for row in rows:
+        name = "checkout" if "checkout" in row else "fps_avg"
+        status = "REGRESSION" if "REGRESSION" in row else "stable"
+        spark = next(char for char in row if char in "▁▂▃▄▅▆▇█")
+
+        # Left-aligned columns: the cell begins where its title begins.
+        assert row.index(name) == header.index("METRIC")
+        assert row.index(status) == header.index("STATUS")
+        assert row.index(spark) == header.index("TREND")
+
+        # Right-aligned columns: the cell ends where its title ends. Both
+        # values in a row carry a unit, so search past the metric name to
+        # avoid matching the flow name in the box header.
+        latest_end = row.index(" ms", row.index(name)) + 3 if " ms" in row else None
+        if latest_end is not None:
+            assert latest_end == header.index("LATEST") + len("LATEST")
+
+
+def test_summary_rules_span_the_table_they_underline():
+    """Both horizontal rules must reach the same right edge as the header.
+
+    The first cut hardcoded a width of 74, which rendered the two rules 78
+    and 76 characters wide — visibly ragged against each other. They are now
+    derived from the column spec, so a column change cannot leave one short.
+    """
+
+    rendered = render_summary(
+        _fail_verdict(), _RC, FakeCommitLog(), flow_name="checkout", color=False
+    )
+    lines = rendered.rstrip("\n").split("\n")
+    header = next(line for line in lines if "METRIC" in line)
+    column_rule = next(line for line in lines if line.startswith("│   ─"))
+    gate_rule = next(line for line in lines if line.startswith("├─"))
+
+    assert len(column_rule) == len(header)
+    assert len(gate_rule) == len(header)

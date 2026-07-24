@@ -56,11 +56,23 @@ _GLYPH_OFFENDER = "✗"
 _GLYPH_OK = "✓"
 _GLYPH_NEUTRAL = "·"
 
-_RULE_WIDTH = 74
-_NAME_W = 15
-_VALUE_W = 12
-_DELTA_W = 9
-_STATUS_W = 20
+# ONE column spec drives BOTH the header and every data row. The first cut of
+# this renderer kept two hand-tuned f-strings and trusted them to agree by eye;
+# they drifted 2-8 columns apart, and the golden test froze the misalignment
+# without complaint — a golden proves the output is STABLE, never that it is
+# right. Deriving both lines from this tuple makes that class of drift
+# impossible by construction rather than something a reviewer has to catch.
+# (title, width, alignment). Width 0 marks the flexible trailing column.
+_GAP = 2
+_SUMMARY_COLUMNS: tuple[tuple[str, int, str], ...] = (
+    ("", 1, "<"),  # status glyph — a real column, so the header cannot drift past it
+    ("METRIC", 14, "<"),
+    ("LATEST", 11, ">"),
+    ("BASELINE", 11, ">"),
+    ("Δ", 9, ">"),
+    ("STATUS", 17, "<"),
+    ("TREND", 0, "<"),
+)
 
 _CHART_ROWS = 5
 _COL_W = 8
@@ -69,6 +81,25 @@ _PREFIX_W = 10  # "{value:>7.1f} ┤ " — 7 + 3 chars
 
 def _style(text: str, *, color: bool, code: str) -> str:
     return f"{code}{text}{_RESET}" if color else text
+
+
+def _table_line(cells: Sequence[str]) -> str:
+    """Lays out one summary-table line from `_SUMMARY_COLUMNS`. The header
+    and every metric row go through here, which is what keeps a column and
+    the header that labels it from ever drifting apart."""
+
+    parts = [
+        f"{cell:{align}{width}}" if width else cell
+        for (_, width, align), cell in zip(_SUMMARY_COLUMNS, cells, strict=True)
+    ]
+    return (" " * _GAP).join(parts).rstrip()
+
+
+# Derived, never hand-counted: the rules span exactly the table they underline,
+# so widening a column cannot leave a rule short (the earlier version hardcoded
+# 74 and the two rules rendered 78 and 76 characters wide).
+_HEADER_LINE = _table_line([title for title, _, _ in _SUMMARY_COLUMNS])
+_RULE_WIDTH = len(_HEADER_LINE)
 
 
 def _short_sha(sha: str | None) -> str:
@@ -126,9 +157,8 @@ def _metric_row(gv: GatedVerdict, *, color: bool) -> str:
     glyph = _row_glyph(gv)
     status_word = verdict.status.upper() if gv.gated else verdict.status.lower()
 
-    text = (
-        f"│   {glyph} {verdict.metric_name:<{_NAME_W}}{latest:>{_VALUE_W}}{baseline:>{_VALUE_W}}"
-        f"   {arrow} {pct:>{_DELTA_W}}  {status_word:<{_STATUS_W}}{sparkline}"
+    text = "│   " + _table_line(
+        [glyph, verdict.metric_name, latest, baseline, f"{arrow} {pct}", status_word, sparkline]
     )
     if gv.gated:
         return _style(text, color=color, code=_BOLD_RED)
@@ -207,11 +237,7 @@ def render_summary(
     branch = rc.git_branch or "unknown"
     lines: list[str] = [f"┌─ perfvibe budget-check · {flow_name} · HEAD {head} ({branch})"]
     lines.append("│")
-    header = (
-        f"│   {'METRIC':<{_NAME_W}}{'LATEST':>{_VALUE_W}}{'BASELINE':>{_VALUE_W}}"
-        f"   {'Δ':>{_DELTA_W + 2}}  {'STATUS':<{_STATUS_W}}TREND"
-    )
-    lines.append(header)
+    lines.append(f"│   {_HEADER_LINE}")
     lines.append(f"│   {'─' * width}")
     lines.append("│")
 
@@ -230,7 +256,9 @@ def render_summary(
 
     lines.append(f"│   {_sanity_label(bv.calibration)}")
     lines.append("│")
-    lines.append(f"├{'─' * (width + 1)}")
+    # +3 so the divider reaches the same right edge as the table above it
+    # (the content is indented 4 by the "│   " rail).
+    lines.append(f"├{'─' * (width + 3)}")
     lines.append("│")
     lines.append(f"│   {_style(_gate_footer(bv), color=color, code=_gate_footer_color(bv) or '')}")
     lines.append("│")
