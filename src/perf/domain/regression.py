@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 
-from perf.domain.model import Verdict
+from perf.domain.model import SeriesPoint, Verdict
 
 STATUS_IMPROVEMENT = "improvement"
 STATUS_STABLE = "stable"
@@ -33,6 +33,7 @@ def classify(
     sample_n: int,
     min_n: int,
     series: Sequence[float] = (),
+    series_points: Sequence[SeriesPoint] = (),
 ) -> Verdict:
     """Direction-aware classify (design "Interfaces / Contracts").
 
@@ -44,6 +45,11 @@ def classify(
     `regression` (spec "Threshold and Absolute Floor"); `higher_is_better`
     decides which delta sign is "worse" (decision #39). `baseline == 0`
     is guarded — no `ZeroDivisionError` (corner case C4).
+
+    `series_points` (budget-check design §5) is threaded straight onto the
+    returned `Verdict` on BOTH the insufficient-data early return and the
+    normal-classification return — additive, defaults to `()` so every
+    existing caller keeps working unchanged.
     """
 
     if latest is None or baseline is None or baseline_commit_n < min_n or sample_n < min_n:
@@ -59,6 +65,7 @@ def classify(
             baseline_commit_n=baseline_commit_n,
             series=tuple(series),
             floor=floor,
+            series_points=tuple(series_points),
         )
 
     delta = latest - baseline
@@ -92,4 +99,5 @@ def classify(
         baseline_commit_n=baseline_commit_n,
         series=tuple(series),
         floor=floor,
+        series_points=tuple(series_points),
     )

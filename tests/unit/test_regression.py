@@ -9,6 +9,7 @@ from __future__ import annotations
 from hypothesis import given
 from hypothesis import strategies as st
 
+from perf.domain.model import SeriesPoint
 from perf.domain.regression import classify
 
 _FLOOR = 5.0
@@ -238,3 +239,49 @@ def test_verdict_carries_the_active_floor_even_when_insufficient_data():
     )
     assert verdict.status == "insufficient-data"
     assert verdict.floor == 7.5
+
+
+# ===== `series_points` threading (budget-check design §5, task 1.3) =====
+
+
+def test_classify_echoes_series_points_onto_verdict_normal_path():
+    points = (SeriesPoint(commit="c1", value=58.0), SeriesPoint(commit="HEAD", value=54.0))
+    verdict = classify(
+        "fps_avg",
+        54.0,
+        60.0,
+        unit="fps",
+        higher_is_better=True,
+        threshold_pct=5.0,
+        floor=2.0,
+        baseline_commit_n=8,
+        sample_n=10,
+        min_n=3,
+        series_points=points,
+    )
+    assert verdict.status == "regression"  # normal classification path
+    assert verdict.series_points == points
+
+
+def test_classify_echoes_series_points_onto_verdict_insufficient_data_path():
+    points = (SeriesPoint(commit="a", value=1.0),)
+    verdict = classify(
+        "metric",
+        100.0,
+        None,  # no baseline -> insufficient-data early return
+        unit="ms",
+        higher_is_better=False,
+        threshold_pct=5.0,
+        floor=5.0,
+        baseline_commit_n=0,
+        sample_n=3,
+        min_n=3,
+        series_points=points,
+    )
+    assert verdict.status == "insufficient-data"
+    assert verdict.series_points == points
+
+
+def test_classify_series_points_defaults_to_empty_tuple_when_omitted():
+    verdict = _classify(100.0, 100.0, higher_is_better=False)
+    assert verdict.series_points == ()
