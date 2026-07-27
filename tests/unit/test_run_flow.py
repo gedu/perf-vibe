@@ -277,6 +277,27 @@ def test_flow_failure_is_blamed_over_capture_when_both_fail():
     assert not store.saved_runs
 
 
+def test_flow_failure_message_summarizes_outcomes_as_a_count_not_a_raw_list():
+    """A 10-iteration run that all fails (e.g. no device) must read as
+    '0/10 iterations succeeded', never dump `['failed', 'failed', … x10]`."""
+    driver = FakeDriver(
+        drive_result=DriverResult(
+            ok=False,
+            iteration_outcomes=("failed",) * 10,
+            logcat_lines=(),
+            diagnostics="adb: no devices/emulators found",
+        )
+    )
+    use_case = _use_case(driver=driver, store=FakeStore())
+
+    with pytest.raises(RunFailedError) as excinfo:
+        use_case.execute(_request(iterations=10))
+
+    message = str(excinfo.value)
+    assert "0/10 iterations succeeded" in message
+    assert "'failed'" not in message  # the noisy raw list is gone
+
+
 def test_capture_failed_raises_run_failed_even_when_ok():
     driver = FakeDriver(
         drive_result=DriverResult(
