@@ -418,3 +418,57 @@ def test_password_env_drives_run_and_never_appears_in_stdout(monkeypatch, tmp_pa
 
     assert result.exit_code == 0, result.output
     assert "s3cret-value" not in result.stdout
+
+
+# ===== run-live-progress Slice B =====
+
+
+def test_driver_managed_maestro_relay_stays_on_stderr_json_purity_holds(
+    monkeypatch, tmp_path: Path
+):
+    """B.8: `--json` purity re-confirmed with the REAL, registry-built
+    `MaestroDriver` DRIVER_MANAGED path — `build_driver` is NEVER
+    monkeypatched (python-testing rule 3: "if a CLI test patches
+    build_driver, it is not testing the real wiring"). Only
+    `SubprocessRunner`'s own process-spawning methods (the actual
+    device/subprocess I/O boundary) are faked, proving the reporter's live
+    relay reaches STDERR ONLY even with the real driver + real
+    `StderrProgressReporter` wired end-to-end."""
+    from perf.adapters.process import CaptureResult, CommandResult
+    from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
+
+    def fake_run_streamed(self, argv, *, env=None, cwd=None, on_line=None):
+        if on_line is not None:
+            on_line("RUN Checkout Flow")
+            on_line("[PERF] checkout: 900ms")
+        return CommandResult(returncode=0, stdout="", stderr="")
+
+    def fake_start_capture(self, argv):
+        return object()
+
+    def fake_stop_capture(self, process):
+        return CaptureResult(lines=["[PERF] checkout: 900ms"], returncode=0)
+
+    monkeypatch.setattr(RealSubprocessRunner, "run_streamed", fake_run_streamed)
+    monkeypatch.setattr(RealSubprocessRunner, "start_capture", fake_start_capture)
+    monkeypatch.setattr(RealSubprocessRunner, "stop_capture", fake_stop_capture)
+
+    config = PerfConfig(
+        db_path=str(tmp_path / "perf.db"),
+        no_color=True,
+        driver="maestro",
+        sampler=None,
+        marker_source="adb-logcat",
+        default_iterations=1,
+        flows={"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
+    )
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["--json", "run", "checkout"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)  # raises if any stray byte reached stdout
+    assert payload["schema_version"] == 1
+    assert payload["flow"] == "checkout"
+    assert "RUN Checkout Flow" not in result.stdout
+    assert "RUN Checkout Flow" in result.stderr
