@@ -19,6 +19,7 @@ import typer
 from perf.adapters.registry import build_analyzer, build_context_provider, build_store
 from perf.cli.output.compare_pretty import render_compare
 from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
+from perf.cli.output.errors import emit_error
 from perf.cli.output.json_reporter import render_json
 from perf.config.loader import PerfConfig
 from perf.contracts.compare_v1 import build_compare_payload
@@ -49,10 +50,10 @@ def compare(
     # guard): an unknown flow is a usage error, not a runtime failure —
     # checked before any store/analyzer construction (corner case C2).
     if flow not in config.flows:
-        typer.echo(
-            f"Error: unknown flow {flow!r}; must be one of the config-known "
+        emit_error(
+            output,
+            f"unknown flow {flow!r}; must be one of the config-known "
             f"flows {sorted(config.flows)!r}",
-            err=True,
         )
         raise typer.Exit(code=2)
 
@@ -88,7 +89,7 @@ def compare(
         # must NEVER exit 1 (SKILL rule 7 / decision #53 — exit 1 is
         # DEFERRED to `budget-check`). Any unexpected exception is a
         # runtime/tooling failure, never a usage error.
-        typer.echo(f"Error: unexpected failure comparing {flow!r}: {exc}", err=True)
+        emit_error(output, f"unexpected failure comparing {flow!r}: {exc}")
         raise typer.Exit(code=3) from None
     finally:
         if store is not None and hasattr(store, "close"):
@@ -103,9 +104,9 @@ def compare(
         # No runs at all for this flow/device/mode (corner cases C2/C7) —
         # a usage error, not a runtime failure (spec "Unknown flow is a
         # usage error": "a flow name with no history").
-        typer.echo(
-            f"Error: no history for flow {flow!r} (device={device_key!r}, mode={mode!r})",
-            err=True,
+        emit_error(
+            output,
+            f"no history for flow {flow!r} (device={device_key!r}, mode={mode!r})",
         )
         raise typer.Exit(code=2)
 
@@ -120,7 +121,7 @@ def compare(
     except Exception as exc:
         # main guarded block; an output failure is still a runtime
         # failure, never exit 1 (SKILL rule 7).
-        typer.echo(f"Error: failed to render output for {flow!r}: {exc}", err=True)
+        emit_error(output, f"failed to render output for {flow!r}: {exc}")
         raise typer.Exit(code=3) from None
 
     raise typer.Exit(code=0)

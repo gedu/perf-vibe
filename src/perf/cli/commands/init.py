@@ -24,6 +24,7 @@ from typing import Final
 import typer
 
 from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
+from perf.cli.output.errors import emit_error
 from perf.cli.output.json_reporter import render_json
 from perf.config.loader import PerfConfig
 from perf.contracts.init_v1 import build_init_payload
@@ -300,11 +301,12 @@ def _render_comment_loss_confirm_prompt(config_path: Path) -> str:
 
 
 def _render_comment_loss_error(config_path: Path) -> str:
-    """Non-interactive error text for the same guard — printed to stderr
-    when `--force` was not supplied and there is no TTY to confirm in."""
+    """Non-interactive error BODY for the same guard — printed to stderr
+    (via `emit_error`, which owns the `Error:` prefix + color) when
+    `--force` was not supplied and there is no TTY to confirm in."""
 
     return (
-        f"Error: {config_path} contains hand-written comments that would be "
+        f"{config_path} contains hand-written comments that would be "
         "lost on rewrite; pass --force to overwrite anyway"
     )
 
@@ -414,17 +416,15 @@ def init(
     # BEFORE any fs write.
     flows_path = Path(flows_dir)
     if not flows_path.is_dir():
-        typer.echo(
-            f"Error: --flows-dir {flows_dir!r} does not exist or is not a directory", err=True
-        )
+        emit_error(output, f"--flows-dir {flows_dir!r} does not exist or is not a directory")
         raise typer.Exit(code=2)
 
     flows = discover_flows(flows_path)
     if not flows:
-        typer.echo(
-            f"Error: no candidate flows discovered under {flows_dir!r} "
+        emit_error(
+            output,
+            f"no candidate flows discovered under {flows_dir!r} "
             "(after excluding subflows/); nothing to scaffold",
-            err=True,
         )
         raise typer.Exit(code=2)
 
@@ -435,7 +435,7 @@ def init(
     try:
         appid_by_flow = {name: parse_app_id(path.read_text()) for name, path in flows.items()}
     except OSError as exc:
-        typer.echo(f"Error: failed to read a flow header under {flows_dir!s}: {exc}", err=True)
+        emit_error(output, f"failed to read a flow header under {flows_dir!s}: {exc}")
         raise typer.Exit(code=3) from None
 
     reconciliation = reconcile_bundle_id(appid_by_flow)
@@ -454,10 +454,10 @@ def init(
                 )
                 bundle_id_source = "prompt" if resolved_bundle_id else "none"
             else:
-                typer.echo(
-                    "Error: conflicting appId values detected across flows: "
-                    f"{', '.join(reconciliation.conflict)}; pass --bundle-id to resolve",
-                    err=True,
+                emit_error(
+                    output,
+                    "conflicting appId values detected across flows: "
+                    f"{', '.join(reconciliation.conflict)}; pass `--bundle-id` to resolve",
                 )
                 raise typer.Exit(code=2)
         elif interactive:
@@ -473,7 +473,7 @@ def init(
         # Ctrl-C / EOF mid-prompt is a runtime interruption, never Python's
         # default exit 1 (perf-cli-standards rule 7 / spec "init never
         # exits 1").
-        typer.echo("Error: aborted during interactive prompt", err=True)
+        emit_error(output, "aborted during interactive prompt")
         raise typer.Exit(code=3) from None
 
     # Output path resolution (tasks.md decision #2): reuse the global
@@ -490,7 +490,7 @@ def init(
             existing_raw_text = ""
             existing_data = {}
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        typer.echo(f"Error: failed to read existing {config_path}: {exc}", err=True)
+        emit_error(output, f"failed to read existing {config_path}: {exc}")
         raise typer.Exit(code=3) from None
 
     # Comment-loss confirmation gate (tasks.md decision #3): re-serializing
@@ -502,25 +502,25 @@ def init(
                     _render_comment_loss_confirm_prompt(config_path), default=False
                 )
             except typer.Abort:
-                typer.echo("Error: aborted during interactive prompt", err=True)
+                emit_error(output, "aborted during interactive prompt")
                 raise typer.Exit(code=3) from None
             if not confirmed:
-                typer.echo(
-                    f"Error: aborted — re-run with --force to overwrite {config_path} anyway",
-                    err=True,
+                emit_error(
+                    output,
+                    f"aborted — re-run with `--force` to overwrite {config_path} anyway",
                 )
                 raise typer.Exit(code=2)
         else:
-            typer.echo(_render_comment_loss_error(config_path), err=True)
+            emit_error(output, _render_comment_loss_error(config_path))
             raise typer.Exit(code=2)
 
     try:
         merged = merge_config(existing_data, flows, resolved_bundle_id, force)
     except FlowCollisionError as exc:
-        typer.echo(
-            f"Error: flow name(s) already exist in {config_path}: "
-            f"{', '.join(exc.colliding_names)}; pass --force to overwrite",
-            err=True,
+        emit_error(
+            output,
+            f"flow name(s) already exist in `{config_path}`: "
+            f"{', '.join(exc.colliding_names)}; pass `--force` to overwrite",
         )
         raise typer.Exit(code=2) from None
 
@@ -534,7 +534,7 @@ def init(
     try:
         config_path.write_text(serialize_toml(merged))
     except OSError as exc:
-        typer.echo(f"Error: failed to write {config_path}: {exc}", err=True)
+        emit_error(output, f"failed to write {config_path}: {exc}")
         raise typer.Exit(code=3) from None
 
     # The all-or-nothing collision refusal above means every discovered
@@ -573,7 +573,7 @@ def init(
     except typer.Exit:
         raise
     except Exception as exc:
-        typer.echo(f"Error: failed to render output for {config_path}: {exc}", err=True)
+        emit_error(output, f"failed to render output for {config_path}: {exc}")
         raise typer.Exit(code=3) from None
 
     raise typer.Exit(code=0)

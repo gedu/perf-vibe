@@ -209,16 +209,24 @@ class RunFlowUseCase:
                 diagnostics=str(exc),
             ) from exc
 
-        if driver_result.capture_failed:
-            raise RunFailedError(
-                f"Marker capture failed while running {request.flow_name!r} "
-                "(dead/failed logcat capture) — aborting before persist.",
-                diagnostics=driver_result.diagnostics,
-            )
+        # Attribution order matters (fix): when the flow's OWN command failed
+        # (e.g. Flashlight aborting because adb is unauthorized), that is the
+        # ROOT cause and its stderr is in `diagnostics` — report it first.
+        # A failing tool often ALSO drags the parallel logcat down
+        # (`capture_failed=True`), so blaming "marker capture" first (the old
+        # order) misattributed the failure. The dead-capture message is now
+        # reserved for the case it was designed for: the flow ran fine but the
+        # logcat capture itself died.
         if not driver_result.ok:
             raise RunFailedError(
-                f"Flow {request.flow_name!r} did not complete successfully "
+                f"flow {request.flow_name!r} did not complete successfully "
                 f"(iteration outcomes: {list(driver_result.iteration_outcomes)!r}).",
+                diagnostics=driver_result.diagnostics,
+            )
+        if driver_result.capture_failed:
+            raise RunFailedError(
+                f"marker capture failed while running {request.flow_name!r} "
+                "(dead/failed logcat capture) — aborting before persist.",
                 diagnostics=driver_result.diagnostics,
             )
 

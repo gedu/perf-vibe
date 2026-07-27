@@ -25,6 +25,7 @@ from perf.application.run_flow import (
     UsageError,
 )
 from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
+from perf.cli.output.errors import emit_error, hint_for_diagnostics, salient_tool_line
 from perf.cli.output.json_reporter import render_json
 from perf.cli.output.pretty import render_confirmation
 from perf.config.loader import PerfConfig
@@ -61,10 +62,10 @@ def run(
     # unknown flow name by itself, so this CLI-level guard is what actually
     # enforces the requirement uniformly).
     if flow not in config.flows:
-        typer.echo(
-            f"Error: unknown flow {flow!r}; must be one of the config-known "
+        emit_error(
+            output,
+            f"unknown flow {flow!r}; must be one of the config-known "
             f"flows {sorted(config.flows)!r}",
-            err=True,
         )
         raise typer.Exit(code=2)
 
@@ -121,25 +122,32 @@ def run(
 
         result = use_case.execute(request)
     except UsageError as exc:
-        typer.echo(f"Error: {exc}", err=True)
+        emit_error(output, str(exc))
         raise typer.Exit(code=2) from None
     except ValueError as exc:
         # An unknown/invalid adapter name from the registry (e.g. a typo in
         # perf.toml `driver = "maestr"`) is a configuration/usage error →
         # exit 2, NOT a runtime/tooling failure (exit 3).
-        typer.echo(f"Error: {exc}", err=True)
+        emit_error(output, str(exc))
         raise typer.Exit(code=2) from None
     except RunFailedError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        if exc.diagnostics:
-            typer.echo(f"  diagnostics: {exc.diagnostics}", err=True)
+        # The raw `diagnostics` is often a huge multi-line tool stderr (e.g.
+        # Flashlight dumping a Node stack trace on an adb failure) — surface
+        # the ONE meaningful line as `cause` and, when the signature is
+        # recognized, an actionable `hint`, instead of the whole blob.
+        emit_error(
+            output,
+            str(exc),
+            cause=salient_tool_line(exc.diagnostics),
+            hint=hint_for_diagnostics(exc.diagnostics),
+        )
         raise typer.Exit(code=3) from None
     except Exception as exc:
         # NEVER exit 1 (SKILL rule 7). Any unexpected exception (a bug, an
         # adapter surprise) is still a runtime/tooling failure, not a usage
         # error — map it to exit 3 rather than let Python's default
         # traceback/exit-1 escape.
-        typer.echo(f"Error: unexpected failure running {flow!r}: {exc}", err=True)
+        emit_error(output, f"unexpected failure running {flow!r}: {exc}")
         raise typer.Exit(code=3) from None
     finally:
         if store is not None and hasattr(store, "close"):
@@ -161,7 +169,7 @@ def run(
     except Exception as exc:
         # guarded block; an output failure is still a runtime failure, never
         # exit 1 (SKILL rule 7).
-        typer.echo(f"Error: failed to render output for {flow!r}: {exc}", err=True)
+        emit_error(output, f"failed to render output for {flow!r}: {exc}")
         raise typer.Exit(code=3) from None
 
     raise typer.Exit(code=0)
