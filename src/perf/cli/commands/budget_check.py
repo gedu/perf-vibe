@@ -145,8 +145,7 @@ def budget_check(
                 # without ever reaching exit 2.
                 emit_error(
                     output,
-                    f"unknown metric {metric!r} for flow {flow!r}; "
-                    f"must be one of {valid_names!r}",
+                    f"unknown metric {metric!r} for flow {flow!r}; must be one of {valid_names!r}",
                 )
                 raise typer.Exit(code=2)
             if output.should_nudge_stderr:

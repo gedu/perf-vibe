@@ -114,8 +114,7 @@ def salient_tool_line(diagnostics: str | None) -> str | None:
 _HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(r"device unauthorized", re.IGNORECASE),
-        "accept the USB-debugging dialog on your device, then run "
-        "`adb kill-server && adb devices`",
+        "accept the USB-debugging dialog on your device, then run `adb kill-server && adb devices`",
     ),
     (
         re.compile(r"more than one device", re.IGNORECASE),
@@ -128,8 +127,7 @@ _HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(r"command not found|ENOENT|no such file", re.IGNORECASE),
-        "a required tool (maestro / flashlight / adb) is missing from PATH — "
-        "install it and retry",
+        "a required tool (maestro / flashlight / adb) is missing from PATH — install it and retry",
     ),
 )
 
