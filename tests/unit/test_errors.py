@@ -105,6 +105,21 @@ def test_hint_maps_multiple_devices():
     assert "--device" in hint
 
 
+def test_hint_maps_no_device_across_adb_variants():
+    # Every realistic "no usable device" adb wording maps to the same hint —
+    # including `device '<serial>' not found`, where the serial sits between
+    # "device" and "not found".
+    for diag in (
+        "adb: no devices/emulators found",
+        "error: no devices/emulators found",
+        "adb: device offline",
+        "error: device 'emulator-5554' not found",
+    ):
+        hint = hint_for_diagnostics(diag)
+        assert hint is not None, diag
+        assert "adb devices" in hint
+
+
 def test_hint_none_when_signature_unrecognized():
     assert hint_for_diagnostics("some unrelated failure") is None
     assert hint_for_diagnostics(None) is None

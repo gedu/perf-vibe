@@ -122,7 +122,13 @@ _HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
         "(list them with `adb devices`)",
     ),
     (
-        re.compile(r"no devices?/emulators?|device (?:offline|not found)", re.IGNORECASE),
+        # `device not found` may carry the serial in between
+        # (`device 'emulator-5554' not found`), so allow anything up to the
+        # end of the line between "device" and "not found".
+        re.compile(
+            r"no devices?/emulators?|device offline|device\b[^\n]*\bnot found",
+            re.IGNORECASE,
+        ),
         "no usable device detected — connect one and check `adb devices`",
     ),
     (
