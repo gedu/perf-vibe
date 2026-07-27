@@ -5,10 +5,16 @@ while logcat captures.").
 RED-before-GREEN: written before `src/perf/adapters/driver_manual.py`
 existed. Driven entirely via a fake input function and a fake process
 runner — no device required.
+
+`run-live-progress` Slice A (RED-before-GREEN for the `reporter` kwarg):
+prompt/confirm now route through the injected `FakeProgressReporter`
+(`awaiting_user_input`/`iteration_started`/`iteration_finished`), never raw
+`print()`/STDOUT — the fix for the `--json` STDOUT-corruption bug.
 """
 
 from __future__ import annotations
 
+from fakes import FakeProgressReporter
 from perf.adapters.driver_manual import ManualDriver
 from perf.adapters.process import CaptureResult
 from perf.domain.model import CaptureSpec, ExecutionPlan, LoopMode
@@ -58,7 +64,8 @@ def test_command_falls_back_to_a_generic_prompt_for_unconfigured_flow():
 def test_drive_prompts_once_per_iteration_via_fake_stdin_no_device():
     fake_input = _FakeInput()
     runner = _FakeRunner()
-    driver = ManualDriver({}, runner=runner, input_fn=fake_input)
+    reporter = FakeProgressReporter()
+    driver = ManualDriver({}, runner=runner, input_fn=fake_input, reporter=reporter)
     inner_cmd = driver.command("onboarding", mode="warm", restart=False)
     plan = ExecutionPlan(
         command=None,
@@ -78,9 +85,26 @@ def test_drive_prompts_once_per_iteration_via_fake_stdin_no_device():
     assert runner.capture_started == [["adb", "logcat", "-s", "ReactNativeJS:V"]]
     assert runner.capture_stopped == 1
 
+    # `run-live-progress` Slice A: one started/awaiting/finished triple per
+    # iteration, in order, and NOTHING routed via raw print/stdout.
+    event_kinds = [event[0] for event in reporter.events]
+    assert event_kinds == [
+        "iteration_started",
+        "awaiting_user_input",
+        "iteration_finished",
+        "iteration_started",
+        "awaiting_user_input",
+        "iteration_finished",
+        "iteration_started",
+        "awaiting_user_input",
+        "iteration_finished",
+    ]
+    finished_events = [event for event in reporter.events if event[0] == "iteration_finished"]
+    assert all(event[3] is True for event in finished_events)
+
 
 def test_drive_without_marker_capture_returns_empty_logcat_lines():
-    driver = ManualDriver({}, input_fn=_FakeInput())
+    driver = ManualDriver({}, input_fn=_FakeInput(), reporter=FakeProgressReporter())
     inner_cmd = driver.command("onboarding", mode="warm", restart=False)
     plan = ExecutionPlan(
         command=None,
@@ -101,7 +125,7 @@ def test_dead_logcat_capture_surfaces_as_capture_failed():
     the same way — never silently indistinguishable from zero markers."""
     fake_input = _FakeInput()
     runner = _FakeRunner(capture_returncode=1)
-    driver = ManualDriver({}, runner=runner, input_fn=fake_input)
+    driver = ManualDriver({}, runner=runner, input_fn=fake_input, reporter=FakeProgressReporter())
     inner_cmd = driver.command("onboarding", mode="warm", restart=False)
     plan = ExecutionPlan(
         command=None,
@@ -113,3 +137,36 @@ def test_dead_logcat_capture_surfaces_as_capture_failed():
     )
     result = driver.drive(plan)
     assert result.capture_failed is True
+
+
+def test_drive_never_writes_to_stdout_prompt_and_confirm_reach_reporter_only(capsys):
+    """RED (Slice A task A.4) — the `--json` STDOUT-corruption bug this
+    fixes: `ManualDriver` used to `print()`/`input(prompt)` straight to
+    STDOUT. Now the prompt text reaches ONLY the injected
+    `ProgressReporter.awaiting_user_input`, and `input_fn` is invoked with
+    an empty string so a real `input()` never echoes it a second time."""
+    fake_input = _FakeInput()
+    reporter = FakeProgressReporter()
+    driver = ManualDriver(
+        {"onboarding": "Perform onboarding end-to-end."},
+        input_fn=fake_input,
+        reporter=reporter,
+    )
+    inner_cmd = driver.command("onboarding", mode="warm", restart=False)
+    plan = ExecutionPlan(
+        command=None,
+        inner=inner_cmd,
+        loop_mode=LoopMode.DRIVER_MANAGED,
+        iterations=2,
+        capture=None,
+        results_path=None,
+    )
+
+    driver.drive(plan)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert fake_input.prompts == ["", ""]
+    awaiting_events = [event for event in reporter.events if event[0] == "awaiting_user_input"]
+    assert len(awaiting_events) == 2
+    assert "Perform onboarding end-to-end." in awaiting_events[0][1]

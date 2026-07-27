@@ -27,8 +27,18 @@ main_module = import_module("perf.cli.main")
 
 # These must follow the import_module() call above, which has to run before
 # anything else touches perf.cli.main — hence the suppressions.
-from fakes import FakeDriver, FakeMarkerSource, FakeRunContextProvider  # noqa: E402
-from perf.domain.model import DriverResult, MarkerParseResult  # noqa: E402
+from fakes import (  # noqa: E402
+    FakeDriver,
+    FakeMarkerSource,
+    FakeRunContextProvider,
+    FakeSystemSampler,
+)
+from perf.domain.model import (  # noqa: E402
+    DriverResult,
+    MarkerParseResult,
+    SystemSample,
+    SystemSampleParseResult,
+)
 
 runner = CliRunner()
 
@@ -325,6 +335,62 @@ def test_unknown_driver_in_config_exits_2(monkeypatch, tmp_path: Path):
     result = runner.invoke(main_module.app, ["run", "checkout"])
 
     assert result.exit_code == 2, result.output
+
+
+# ===== run-live-progress Slice A =====
+
+
+def test_manual_driver_json_run_has_zero_stdout_progress_bytes(monkeypatch, tmp_path: Path):
+    """RED (Slice A task A.9) — the `--json` STDOUT-corruption bug: drives a
+    REAL `ManualDriver` built through the REAL registry (never monkeypatched
+    — `build_driver` stays untouched, python-testing rule 3: "if a CLI test
+    patches build_driver, it is not testing the real wiring"). Only
+    `build_sampler`/`build_context_provider` are faked (no device/subprocess
+    touched) and the real `input` builtin is stubbed so the manual prompt
+    loop never blocks. Proves stdout is byte-identical to the `--json`
+    payload — zero progress bytes leaked, even with the manual driver's
+    reporter-driven prompt loop active."""
+    config = PerfConfig(
+        db_path=str(tmp_path / "perf.db"),
+        no_color=True,
+        driver="manual",
+        sampler="flashlight",
+        marker_source=None,
+        default_iterations=1,
+        flows={"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
+    )
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    monkeypatch.setattr("builtins.input", lambda *a, **k: "")
+    monkeypatch.setattr(
+        run_module,
+        "build_sampler",
+        lambda name, **kw: FakeSystemSampler(
+            parse_result=SystemSampleParseResult(
+                samples=(
+                    SystemSample(
+                        iteration_idx=0,
+                        total_time_ms=900.0,
+                        start_time_ms=0.0,
+                        fps_avg=None,
+                        fps_min=None,
+                        ram_avg_mb=None,
+                        ram_peak_mb=None,
+                        cpu_avg_pct=None,
+                        cpu_peak_pct=None,
+                    ),
+                ),
+                partial_coverage=False,
+            )
+        ),
+    )
+    monkeypatch.setattr(run_module, "build_context_provider", lambda **kw: FakeRunContextProvider())
+
+    result = runner.invoke(main_module.app, ["--json", "run", "checkout"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)  # raises if any stray byte reached stdout
+    assert payload["schema_version"] == 1
+    assert payload["flow"] == "checkout"
 
 
 def test_run_help_has_no_password_flag(monkeypatch, tmp_path: Path):

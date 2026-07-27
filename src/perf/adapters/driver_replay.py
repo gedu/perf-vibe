@@ -26,6 +26,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from perf.domain.model import DriverCommand, DriverResult, ExecutionPlan
+from perf.domain.ports import ProgressReporter
 
 
 class ReplayDriver:
@@ -36,7 +37,12 @@ class ReplayDriver:
         *,
         logcat_path: str | Path,
         flashlight_path: str | Path | None = None,
+        reporter: ProgressReporter | None = None,
     ) -> None:
+        # `reporter` joins the uniform driver-builder kwargs (mirrors
+        # `runner`) — replay emits minimal/no live progress by design
+        # (spec run-progress "Replay driver" scenario), so it stays unused.
+        del reporter
         self._logcat_path = Path(logcat_path)
         self._flashlight_path = Path(flashlight_path) if flashlight_path is not None else None
 

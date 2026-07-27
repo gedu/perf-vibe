@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import pytest
 
-from fakes import SequentialClock
+from fakes import FakeProgressReporter, SequentialClock
 from perf.adapters import registry
 from perf.adapters.driver_maestro import MaestroDriver
 from perf.adapters.driver_manual import ManualDriver
+from perf.adapters.driver_replay import ReplayDriver
 from perf.adapters.markers_adb_logcat import AdbLogcatMarkerSource
 from perf.adapters.sampler_flashlight import FlashlightSampler
 from perf.adapters.store_sqlite import SqliteStore
@@ -42,6 +43,39 @@ def test_build_driver_accepts_uniform_cli_kwargs_for_every_driver():
     }
     assert isinstance(registry.build_driver("maestro", **common), MaestroDriver)
     assert isinstance(registry.build_driver("manual", **common), ManualDriver)
+
+
+def test_build_progress_reporter_returns_a_concrete_reporter():
+    """RED (Slice A task A.7): `build_progress_reporter` returns a
+    CONCRETE `ProgressReporter` — every method callable without error."""
+    reporter = registry.build_progress_reporter()
+
+    reporter.iteration_started(1, 3)
+    reporter.iteration_finished(1, 3, ok=True)
+    reporter.awaiting_user_input("Perform the flow manually, then press Enter.")
+    reporter.relayed_line("some relayed tool output")
+
+
+def test_build_driver_threads_reporter_uniformly_into_every_driver(tmp_path):
+    """RED (Slice A task A.7): `reporter` joins the uniform driver-builder
+    kwargs (mirrors `runner`/`known_flows`/`device`/`flow_prompts`) —
+    `build_driver` passes it through to EVERY driver builder, including
+    the drivers that do not use it yet (maestro, replay)."""
+    replay_logcat = tmp_path / "logcat.txt"
+    replay_logcat.write_text("[PERF] onboarding: 300ms\n")
+
+    reporter = FakeProgressReporter()
+    common = {
+        "known_flows": {"checkout": "checkout.yaml"},
+        "device": "emulator-5554",
+        "flow_prompts": {},
+        "replay_logcat": replay_logcat,
+        "replay_flashlight": None,
+        "reporter": reporter,
+    }
+    assert isinstance(registry.build_driver("maestro", **common), MaestroDriver)
+    assert isinstance(registry.build_driver("manual", **common), ManualDriver)
+    assert isinstance(registry.build_driver("replay", **common), ReplayDriver)
 
 
 def test_build_sampler_flashlight_by_name():

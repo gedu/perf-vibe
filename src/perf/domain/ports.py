@@ -148,3 +148,25 @@ class CommitLog(Protocol):
     repo/commit/binary is unavailable — it NEVER raises."""
 
     def subject(self, sha: str) -> str | None: ...
+
+
+class ProgressReporter(Protocol):
+    """Live driver-progress events (`run-live-progress` design "Where the
+    port is injected"). Injected INTO each `FlowDriver` adapter's
+    constructor (like `runner`), NEVER into `RunFlowUseCase` — the
+    per-iteration loop lives inside `drive()`, which the use-case calls
+    exactly once. PURE Protocol: primitives only, no `RunFlowResult` (an
+    `application/` type) and no adapter import.
+
+    `recap()` deliberately does NOT live here — it needs `RunFlowResult`,
+    so it stays a method on the concrete CLI reporter only
+    (`cli/output/progress.py`), called by `cli/commands/run.py` after
+    `execute()` returns (design "recap() placement")."""
+
+    def iteration_started(self, index: int, total: int) -> None: ...
+
+    def iteration_finished(self, index: int, total: int, *, ok: bool) -> None: ...
+
+    def awaiting_user_input(self, prompt: str) -> None: ...
+
+    def relayed_line(self, text: str) -> None: ...
