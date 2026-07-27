@@ -27,6 +27,7 @@ __all__ = [
     "FakeCommitLog",
     "FakeDriver",
     "FakeMarkerSource",
+    "FakeProgressReporter",
     "FakeRunContextProvider",
     "FakeStore",
     "FakeSystemSampler",
@@ -156,6 +157,29 @@ class FakeSystemSampler:
         if self._parse_error is not None:
             raise self._parse_error
         return self._parse_result
+
+
+class FakeProgressReporter:
+    """`ProgressReporter` (`domain/ports.py`) fake — records every emitted
+    event, in call order, as a plain tuple. NEVER writes to stdout/stderr
+    (unlike the real concrete reporter, `cli/output/progress.py`, Slice B),
+    so driver tests can assert the emitted event sequence with no terminal
+    I/O and no risk of polluting a test's captured stdout."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple] = []
+
+    def iteration_started(self, index: int, total: int) -> None:
+        self.events.append(("iteration_started", index, total))
+
+    def iteration_finished(self, index: int, total: int, *, ok: bool) -> None:
+        self.events.append(("iteration_finished", index, total, ok))
+
+    def awaiting_user_input(self, prompt: str) -> None:
+        self.events.append(("awaiting_user_input", prompt))
+
+    def relayed_line(self, text: str) -> None:
+        self.events.append(("relayed_line", text))
 
 
 class FakeMarkerSource:

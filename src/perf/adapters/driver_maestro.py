@@ -22,6 +22,7 @@ from collections.abc import Mapping, Sequence
 
 from perf.adapters.process import SubprocessRunner, bounded_diagnostics, scrub_secrets
 from perf.domain.model import DriverCommand, DriverResult, ExecutionPlan, LoopMode
+from perf.domain.ports import ProgressReporter
 
 
 class MaestroDriver:
@@ -33,7 +34,13 @@ class MaestroDriver:
         *,
         device: str | None = None,
         runner: SubprocessRunner | None = None,
+        reporter: ProgressReporter | None = None,
     ) -> None:
+        # `reporter` joins the uniform driver-builder kwargs (mirrors
+        # `runner`) — Slice A wires it through unused; Slice B's
+        # DRIVER_MANAGED loop and Slice C's TOOL_MANAGED relay emit events
+        # through it (`run-live-progress` design, tasks B.6/C.2).
+        del reporter
         self._known_flows = dict(known_flows)
         self._device = device
         self._runner = runner if runner is not None else SubprocessRunner()

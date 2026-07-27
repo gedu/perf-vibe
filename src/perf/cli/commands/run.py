@@ -15,6 +15,7 @@ from perf.adapters.registry import (
     build_context_provider,
     build_driver,
     build_marker_source,
+    build_progress_reporter,
     build_sampler,
     build_store,
 )
@@ -85,11 +86,13 @@ def run(
 
     store = None
     try:
+        reporter = build_progress_reporter()
         driver = build_driver(
             config.driver,
             known_flows=known_flows,
             device=resolved_device,
             flow_prompts=flow_prompts,
+            reporter=reporter,
             replay_logcat=config.replay_logcat,
             replay_flashlight=config.replay_flashlight,
         )

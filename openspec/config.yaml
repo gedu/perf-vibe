@@ -31,12 +31,15 @@ context: |
   Testing: pytest, layered tests/{unit,integration,contract,golden}, fakes over mocks (tests/fakes.py),
   hypothesis for pure-math invariants, golden files for pretty output, contract tests for --json
   schema_version stability. Strict TDD enforced (RED before GREEN is a hard rule in python-testing skill).
-  Style: ruff (lint+format) + mypy designated by python-style skill; not yet wired into pyproject.toml
-  (no [tool.ruff]/[tool.mypy] blocks present yet — treat as a gap, not a decision reversal).
-  Status: `perf run` (Phase 1) and `perf compare` (Phase 2, compare-only slice) are both COMPLETE
-  and MERGED; canonical specs live in openspec/specs/{perf-run,compare}.md. Deferred and not yet
-  started: `budget-check` (the future owner of exit code 1) and `perf compare --calibrate`.
-  Future SDD changes build on top of this real codebase, not the greenfield master-design doc used
+  Style: ruff (lint+format) + mypy designated by python-style skill; wired into pyproject.toml since
+  2026-07-24 ([tool.ruff] line-length 100/py311, [tool.mypy] disallow_untyped_defs) — corrects the
+  earlier "not yet wired" note.
+  Status: `perfvibe run`, `perfvibe compare`, `perfvibe budget-check` (CI gate, exit 1 on confirmed
+  regression), and `perfvibe init` (flow discovery/reconciliation wizard) are all COMPLETE and MERGED;
+  canonical specs live in openspec/specs/{perf-run,compare,budget-check,init-command}.md. Deferred:
+  `perf compare --calibrate`. Console script is `perfvibe`, not `perf` (avoids colliding with the
+  Linux kernel profiler). Future SDD changes build on top of this real codebase, not the greenfield
+  master-design doc used
   at initial init.
 
 strict_tdd: true   # marker found: python-testing SKILL.md hard rule 4 ("RED before GREEN, and RED for
@@ -45,23 +48,30 @@ strict_tdd: true   # marker found: python-testing SKILL.md hard rule 4 ("RED bef
 
 testing:
   test_runner:
-    command: "pytest"        # run it as ./.venv/bin/pytest — pytest is a dev dep, not on PATH
+    command: "./.venv/bin/pytest -q --cov=perf"   # pytest is a dev dep, not on PATH; testpaths=["tests"] set in pyproject.toml
     console_script: "perfvibe"   # NOT `perf` — renamed to avoid the Linux kernel profiler
     framework: pytest (>=8.0, dev dependency)
     collected: "do not hardcode — read it from ./.venv/bin/pytest -q --collect-only"
   layers:
-    unit: { available: true, tool: "pytest — tests/unit/ (pure domain: statistics, regression, run_flow, model)" }
+    unit: { available: true, tool: "pytest — tests/unit/ (pure domain: statistics, regression, run_flow, model, init parse/merge/reconcile, budget)" }
     integration: { available: true, tool: "pytest — tests/integration/ (adapters vs recorded fixtures, real SQLite temp DB, no live devices)" }
     e2e: { available: false, tool: "not planned — CLI covered via contract + golden layers instead" }
-    contract: { available: true, tool: "pytest — tests/contract/ (asserts --json schema_version=1 shape stability)" }
+    contract: { available: true, tool: "pytest — tests/contract/ (asserts --json schema_version=1 shape stability for compare/init/budget-check)" }
     golden: { available: true, tool: "pytest — tests/golden/ (pretty-output snapshots, color forced off, --update-golden)" }
   coverage:
-    available: false
-    command: "recommend `pytest --cov=perf` (pytest-cov not yet a dev dep); priority: domain/regression.py verdict math + SQLite ingestion transaction"
+    available: true   # UPDATED 2026-07-27: pytest-cov is now a real dev dep; corrects the 2026-07-23 note below
+    command: "./.venv/bin/pytest -q --cov=perf"
+    threshold: 93   # [tool.coverage.report] fail_under = 93 in pyproject.toml, measured at 96% when the gate was introduced
   quality_tools:
-    linter: { available: false, command: "ruff (designated by python-style skill, not yet wired into pyproject.toml)" }
-    type_checker: { available: false, command: "mypy (designated by python-style skill, not yet wired into pyproject.toml)" }
-    formatter: { available: false, command: "ruff format (designated by python-style skill, not yet wired into pyproject.toml)" }
+    linter: { available: true, command: "./.venv/bin/ruff check ." }      # UPDATED 2026-07-27: [tool.ruff] is now wired in pyproject.toml (line-length 100, py311, select E/F/I/UP/B/SIM/C4/PTH/RUF); corrects the 2026-07-23 "not yet wired" note below
+    type_checker: { available: true, command: "./.venv/bin/mypy src/perf" }  # UPDATED 2026-07-27: [tool.mypy] is now wired (disallow_untyped_defs, warn_unused_ignores, warn_redundant_casts, no_implicit_optional); corrects the 2026-07-23 note below
+    formatter: { available: true, command: "./.venv/bin/ruff format . (--check to verify only)" }  # excludes *.md — ruff>=0.16 formats fenced code in docs, which this repo's prose (design docs, RFCs) can't satisfy
+  drift_note: >
+    As of 2026-07-23 this section claimed ruff/mypy/coverage were "not yet wired into
+    pyproject.toml". That was true then but is now stale: pyproject.toml (last touched
+    2026-07-24) added [tool.ruff], [tool.mypy], [tool.coverage.run]/[tool.coverage.report]
+    one day later. This sdd-init refresh (2026-07-27) corrects the fields above from the
+    real pyproject.toml.
 
 rules:
   proposal:

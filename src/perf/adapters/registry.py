@@ -14,6 +14,7 @@ needed), so they are plain factory functions rather than name-keyed maps.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TypeVar
@@ -35,6 +36,7 @@ from perf.domain.ports import (
     CommitLog,
     FlowDriver,
     MarkerSource,
+    ProgressReporter,
     RunContextProvider,
     SystemSampler,
 )
@@ -48,11 +50,12 @@ def _build_maestro_driver(
     device: str | None = None,
     flow_prompts: Mapping[str, str] | None = None,
     runner: SubprocessRunner | None = None,
+    reporter: ProgressReporter | None = None,
     replay_logcat: str | Path | None = None,
     replay_flashlight: str | Path | None = None,
 ) -> FlowDriver:
     del flow_prompts, replay_logcat, replay_flashlight  # maestro drives from known_flows + device
-    return MaestroDriver(known_flows or {}, device=device, runner=runner)
+    return MaestroDriver(known_flows or {}, device=device, runner=runner, reporter=reporter)
 
 
 def _build_manual_driver(
@@ -61,6 +64,7 @@ def _build_manual_driver(
     device: str | None = None,
     flow_prompts: Mapping[str, str] | None = None,
     runner: SubprocessRunner | None = None,
+    reporter: ProgressReporter | None = None,
     replay_logcat: str | Path | None = None,
     replay_flashlight: str | Path | None = None,
 ) -> FlowDriver:
@@ -69,7 +73,7 @@ def _build_manual_driver(
     # the CLI can build ANY configured driver uniformly — this is what fixes the
     # `driver = "manual"` TypeError (it previously received known_flows/device).
     del known_flows, device, replay_logcat, replay_flashlight
-    return ManualDriver(flow_prompts or {}, runner=runner)
+    return ManualDriver(flow_prompts or {}, runner=runner, reporter=reporter)
 
 
 def _build_replay_driver(
@@ -78,6 +82,7 @@ def _build_replay_driver(
     device: str | None = None,
     flow_prompts: Mapping[str, str] | None = None,
     runner: SubprocessRunner | None = None,
+    reporter: ProgressReporter | None = None,
     replay_logcat: str | Path | None = None,
     replay_flashlight: str | Path | None = None,
 ) -> FlowDriver:
@@ -94,6 +99,7 @@ def _build_replay_driver(
     return ReplayDriver(
         logcat_path=replay_logcat,  # type: ignore[arg-type]
         flashlight_path=replay_flashlight,
+        reporter=reporter,
     )
 
 
@@ -156,6 +162,36 @@ def build_marker_source(name: str | None, **kwargs: object) -> MarkerSource | No
     """`None` -> no `MarkerSource` selected (spec: independently optional)."""
 
     return _build(MARKER_SOURCES, "marker source", name, **kwargs)
+
+
+class _StderrProgressReporter:
+    """Slice-A concrete `ProgressReporter` (`domain/ports.py`) — plain
+    STDERR text, NO TTY redraw/live table (Slice B's `StderrProgressReporter`
+    in `cli/output/progress.py`) and NO `recap()` (Slice C, concrete-only).
+    Exists only to give every driver a real STDERR sink for
+    `awaiting_user_input`, fixing the `ManualDriver` `--json`
+    STDOUT-corruption bug ahead of the full TTY-aware rendering."""
+
+    def iteration_started(self, index: int, total: int) -> None:
+        pass
+
+    def iteration_finished(self, index: int, total: int, *, ok: bool) -> None:
+        pass
+
+    def awaiting_user_input(self, prompt: str) -> None:
+        print(prompt, file=sys.stderr)
+
+    def relayed_line(self, text: str) -> None:
+        pass
+
+
+def build_progress_reporter() -> ProgressReporter:
+    """Composition-root factory for the `ProgressReporter` port. Slice A
+    returns the minimal `_StderrProgressReporter` above; Slice B swaps in
+    the TTY-aware `StderrProgressReporter` (`cli/output/progress.py`) and
+    Slice D adds a `quiet` path to `NullProgressReporter`."""
+
+    return _StderrProgressReporter()
 
 
 def build_context_provider(
