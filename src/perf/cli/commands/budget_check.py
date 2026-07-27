@@ -31,6 +31,7 @@ from perf.application.budget_check_flow import (
 )
 from perf.cli.output.budget_check_pretty import render_metric_detail, render_summary
 from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
+from perf.cli.output.errors import emit_error
 from perf.cli.output.json_reporter import render_json
 from perf.config.loader import PerfConfig
 from perf.contracts.budget_check_v1 import build_payload
@@ -73,10 +74,10 @@ def budget_check(
     # Usage-error-before-work guard (mirrors `compare.py`, corner case B2):
     # an unknown flow is a usage error regardless of `--strict`.
     if flow not in config.flows:
-        typer.echo(
-            f"Error: unknown flow {flow!r}; must be one of the config-known "
+        emit_error(
+            output,
+            f"unknown flow {flow!r}; must be one of the config-known "
             f"flows {sorted(config.flows)!r}",
-            err=True,
         )
         raise typer.Exit(code=2)
 
@@ -108,16 +109,16 @@ def budget_check(
             BudgetCheckRequest(flow_name=flow, device_key=rc.device_key, mode=mode, strict=strict)
         )
     except UsageError as exc:
-        typer.echo(f"Error: {exc}", err=True)
+        emit_error(output, str(exc))
         raise typer.Exit(code=2) from None
     except BudgetCheckFailedError as exc:
-        typer.echo(f"Error: {exc}", err=True)
+        emit_error(output, str(exc))
         raise typer.Exit(code=3) from None
     except Exception as exc:
         # unexpected failure is a runtime/tooling failure, never Python's
         # default exit 1 and never silently 0 (spec 'Runtime/tooling
         # failure exits 3').
-        typer.echo(f"Error: unexpected failure evaluating budget for {flow!r}: {exc}", err=True)
+        emit_error(output, f"unexpected failure evaluating budget for {flow!r}: {exc}")
         raise typer.Exit(code=3) from None
     finally:
         if store is not None and hasattr(store, "close"):
@@ -142,10 +143,9 @@ def budget_check(
                 # 3.13) — distinct from a valid name with no data THIS run
                 # (task 3.14), which `render_metric_detail` handles inline
                 # without ever reaching exit 2.
-                typer.echo(
-                    f"Error: unknown metric {metric!r} for flow {flow!r}; "
-                    f"must be one of {valid_names!r}",
-                    err=True,
+                emit_error(
+                    output,
+                    f"unknown metric {metric!r} for flow {flow!r}; must be one of {valid_names!r}",
                 )
                 raise typer.Exit(code=2)
             if output.should_nudge_stderr:
@@ -181,7 +181,7 @@ def budget_check(
     except Exception as exc:
         # runtime failure, never exit 1 (this guarded block never lets an
         # exception escape uncaught).
-        typer.echo(f"Error: failed to render output for {flow!r}: {exc}", err=True)
+        emit_error(output, f"failed to render output for {flow!r}: {exc}")
         raise typer.Exit(code=3) from None
 
     # ALWAYS render before mapping the gate to an exit code (decision D3):

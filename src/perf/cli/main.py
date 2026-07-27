@@ -71,6 +71,7 @@ def main_callback(
         no_color_cli=no_color,
         no_color_config=perf_config.no_color,
         stdout=sys.stdout,
+        stderr=sys.stderr,
     )
     # `config_path` carries the RAW `--config` CLI string (or `None`) —
     # distinct from `perf_config` (the fully layered/merged result) —

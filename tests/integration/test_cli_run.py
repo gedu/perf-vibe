@@ -169,6 +169,44 @@ def test_capture_failed_exits_3(monkeypatch, tmp_path: Path):
     assert result.exit_code != 1
 
 
+def test_run_failure_surfaces_salient_cause_and_hint_not_the_raw_node_stack(
+    monkeypatch, tmp_path: Path
+):
+    """A flow failure whose diagnostics is a huge Node stack trace (Flashlight
+    aborting on adb) must render the ONE meaningful line as `cause:` plus an
+    actionable `hint:` — never dump the framework internals at the user."""
+    noisy = (
+        "node:internal/errors:856\n"
+        "  const err = new Error(message);\n"
+        "Error: Command failed: adb shell getprop ro.build.version.sdk\n"
+        "adb: device unauthorized.\n"
+        "    at Object.execSync (node:child_process:891:15)\n"
+    )
+    config = _config(sampler=None, marker_source="adb-logcat", db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_registry(
+        monkeypatch,
+        driver=FakeDriver(
+            drive_result=DriverResult(
+                ok=False,
+                iteration_outcomes=("failed",),
+                logcat_lines=(),
+                capture_failed=True,
+                diagnostics=noisy,
+            )
+        ),
+        marker_factory=_happy_marker_factory,
+    )
+
+    result = runner.invoke(main_module.app, ["run", "checkout"])
+
+    assert result.exit_code == 3, result.output
+    assert "did not complete successfully" in result.output  # flow blamed, not the capture
+    assert "cause: adb: device unauthorized" in result.output
+    assert "hint:" in result.output and "adb kill-server" in result.output
+    assert "node:internal" not in result.output  # raw stack noise never surfaced
+
+
 @pytest.mark.parametrize(
     "args",
     [
