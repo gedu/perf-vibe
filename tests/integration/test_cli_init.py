@@ -83,7 +83,7 @@ def test_fresh_config_created_and_round_trips_through_load_config_and_driver(mon
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert payload["config_path"] == str(config_path)
     assert payload["bundle_id"] == "com.example.app"
     assert payload["bundle_id_source"] == "flag"
@@ -460,3 +460,324 @@ def test_unwritable_target_dir_exits_3(monkeypatch, tmp_path):
         assert result.exit_code != 1
     finally:
         readonly_dir.chmod(0o700)
+
+
+# ===== 3.9+: --prune-missing (spec "Stale Flow Pruning") — every scenario
+# below is non-interactive; the interactive confirm accept/decline and the
+# comment-loss composition (tasks.md 3.1/3.2/3.8) live in
+# `test_cli_init_wizard.py`, which already owns the TTY-simulation helper.
+# =====
+
+_STALE_ENTRY_TOML = (
+    "bundle_id = 'com.existing.app'\n\n[flows.stale]\nmaestro_path = 'gone/stale.yaml'\n"
+)
+
+
+def test_non_interactive_yes_prunes_immediately_exit_0(monkeypatch, tmp_path):
+    _patch_load_config(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    config_path.write_text(_STALE_ENTRY_TOML)
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+            "--prune-missing",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == 2
+    assert payload["flows_pruned"] == ["stale"]
+    merged = tomllib.loads(config_path.read_text())
+    assert "stale" not in merged["flows"]
+
+
+def test_non_interactive_no_yes_json_previews_full_state_and_exits_2(monkeypatch, tmp_path):
+    _patch_load_config(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    original_text = _STALE_ENTRY_TOML
+    config_path.write_text(original_text)
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+            "--prune-missing",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == 2
+    assert payload["flows_pruned"] == ["stale"]
+    assert set(payload["flows_added"]) == _EXPECTED_FLOW_NAMES
+    assert config_path.read_text() == original_text  # NOT written
+
+
+def test_non_interactive_no_yes_no_json_previews_to_stderr_and_exits_2(monkeypatch, tmp_path):
+    _patch_load_config(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    original_text = _STALE_ENTRY_TOML
+    config_path.write_text(original_text)
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+            "--prune-missing",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "stale" in result.output
+    assert config_path.read_text() == original_text
+
+
+def test_zero_missing_set_is_a_no_op_exit_0(monkeypatch, tmp_path):
+    _patch_load_config(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    config_path.write_text("bundle_id = 'com.existing.app'\n")
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+            "--prune-missing",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["flows_pruned"] == []
+
+
+def test_zero_missing_set_is_a_no_op_with_yes_too(monkeypatch, tmp_path):
+    _patch_load_config(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    config_path.write_text("bundle_id = 'com.existing.app'\n")
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+            "--prune-missing",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["flows_pruned"] == []
+
+
+def test_plain_init_without_prune_missing_leaves_stale_entry_untouched(monkeypatch, tmp_path):
+    _patch_load_config(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    config_path.write_text(_STALE_ENTRY_TOML)
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["flows_pruned"] == []
+    merged = tomllib.loads(config_path.read_text())
+    assert merged["flows"]["stale"] == {"maestro_path": "gone/stale.yaml"}
+
+
+def test_composes_with_force_collision_and_prune_in_one_write(monkeypatch, tmp_path):
+    _patch_load_config(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    config_path.write_text(
+        "bundle_id = 'com.existing.app'\n\n"
+        "[flows.login]\nmaestro_path = 'old/login.yaml'\n\n"
+        "[flows.stale]\nmaestro_path = 'gone/stale.yaml'\n"
+    )
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+            "--force",
+            "--prune-missing",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    merged = tomllib.loads(config_path.read_text())
+    assert merged["flows"]["login"]["maestro_path"] != "old/login.yaml"
+    assert "stale" not in merged["flows"]
+
+
+# ===== P9-P12 (pre-apply review corner cases) =====
+
+
+def test_p9_zero_discovered_flows_wins_over_prune_missing(monkeypatch, tmp_path):
+    """P9: `--flows-dir` discovers ZERO flows — the pre-existing zero-flows
+    usage-error guard wins over `--prune-missing`: exit 2, existing
+    `perf.toml` untouched, nothing pruned. `--prune-missing` can never be
+    used to empty a flows table via an empty/wrong glob."""
+
+    _patch_load_config(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    original_text = _STALE_ENTRY_TOML
+    config_path.write_text(original_text)
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_EMPTY_DIR),
+            "--prune-missing",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert config_path.read_text() == original_text
+
+
+def test_p10_comment_loss_guard_fires_first_with_only_yes(monkeypatch, tmp_path):
+    """P10: commented `perf.toml` + missing flows, non-interactive, only
+    `--yes` (no `--force`) — the comment-loss guard runs FIRST and is
+    waived only by `--force`, so it fires its own message and exits 2
+    before the prune gate is ever reached; nothing is pruned."""
+
+    _patch_load_config(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    original_text = "# keep me\n" + _STALE_ENTRY_TOML
+    config_path.write_text(original_text)
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+            "--prune-missing",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "comment" in result.output.lower()
+    assert config_path.read_text() == original_text
+
+
+def test_p11_force_and_yes_together_drop_comments_and_prune_in_one_write(monkeypatch, tmp_path):
+    """P11: both `--force` AND `--yes` waive both guards non-interactively —
+    comments dropped AND the missing entry pruned in the SAME write, exit 0."""
+
+    _patch_load_config(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    config_path.write_text("# keep me\n" + _STALE_ENTRY_TOML)
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+            "--force",
+            "--prune-missing",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    rewritten = config_path.read_text()
+    assert "# keep me" not in rewritten
+    merged = tomllib.loads(rewritten)
+    assert "stale" not in merged["flows"]
+
+
+def test_p12_preview_shows_both_flows_added_and_flows_pruned_populated(monkeypatch, tmp_path):
+    """P12: non-interactive preview (no `--yes`) where discovery adds NEW
+    flows while an existing entry is missing — the v2 payload must show
+    BOTH `flows_added` and `flows_pruned` populated (the full would-be
+    state), plus `bundle_id`/`flows_total`, with NO write."""
+
+    _patch_load_config(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    original_text = _STALE_ENTRY_TOML
+    config_path.write_text(original_text)
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--json",
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+            "--prune-missing",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.stdout)
+    assert set(payload["flows_added"]) == _EXPECTED_FLOW_NAMES  # populated
+    assert payload["flows_pruned"] == ["stale"]  # populated
+    assert payload["bundle_id"] == "com.example.app"
+    assert payload["flows_total"] == len(_EXPECTED_FLOW_NAMES)
+    assert config_path.read_text() == original_text  # no write happened

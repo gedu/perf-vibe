@@ -27,6 +27,7 @@ test below).
 from __future__ import annotations
 
 import json
+import tomllib
 from importlib import import_module
 from pathlib import Path
 
@@ -181,3 +182,101 @@ def test_non_tty_without_yes_auto_detects_non_interactive(monkeypatch, tmp_path)
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
     assert payload["bundle_id_source"] == "detected"
+
+
+# ===== --prune-missing interactive scenarios (spec "Stale Flow Pruning";
+# tasks.md 3.1/3.2/3.8, P8) — needs the same simulated-TTY machinery this
+# file already owns, so these scenarios live here rather than duplicating
+# `_simulate_tty` in the non-interactive `test_cli_init.py`. =====
+
+_STALE_ENTRY_TOML = (
+    "bundle_id = 'com.existing.app'\n\n[flows.stale]\nmaestro_path = 'gone/stale.yaml'\n"
+)
+
+
+def test_prune_interactive_confirm_accepted_removes_stale_entry(monkeypatch, tmp_path):
+    _patch_load_config(monkeypatch)
+    _simulate_tty(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    config_path.write_text(_STALE_ENTRY_TOML)
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--no-color",
+            "--json",
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+            "--prune-missing",
+        ],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    json_line = next(line for line in result.stdout.splitlines() if line.startswith("{"))
+    payload = json.loads(json_line)
+    assert payload["schema_version"] == 2
+    assert payload["flows_pruned"] == ["stale"]
+    merged = tomllib.loads(config_path.read_text())
+    assert "stale" not in merged["flows"]
+
+
+def test_prune_interactive_confirm_declined_leaves_file_unmodified(monkeypatch, tmp_path):
+    _patch_load_config(monkeypatch)
+    _simulate_tty(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    original_text = _STALE_ENTRY_TOML
+    config_path.write_text(original_text)
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--no-color",
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+            "--prune-missing",
+        ],
+        input="n\n",
+    )
+
+    assert result.exit_code == 2, result.output
+    assert config_path.read_text() == original_text
+
+
+def test_prune_composes_with_comment_loss_guard_declining_first_gate_aborts(monkeypatch, tmp_path):
+    """P8: hand-written comments AND a non-empty missing set, interactive, no
+    --force — declining the comment-loss guard (which runs FIRST) aborts
+    before the prune gate is ever reached; no write either way."""
+
+    _patch_load_config(monkeypatch)
+    _simulate_tty(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    original_text = "# keep me\n" + _STALE_ENTRY_TOML
+    config_path.write_text(original_text)
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--no-color",
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+            "--prune-missing",
+        ],
+        input="n\n",
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "comment" in result.output.lower()
+    assert config_path.read_text() == original_text

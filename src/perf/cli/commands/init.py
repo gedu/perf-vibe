@@ -33,6 +33,7 @@ __all__ = [
     "TEMPLATE",
     "BundleReconciliation",
     "FlowCollisionError",
+    "compute_pruned_flows",
     "discover_flows",
     "has_comments",
     "init",
@@ -257,16 +258,40 @@ def has_comments(raw_toml_text: str) -> bool:
     return False
 
 
+def compute_pruned_flows(
+    existing: Mapping[str, object], new_flows: Mapping[str, Path]
+) -> list[str]:
+    """Pure sorted set-difference: existing `[flows.*]` entry names that are
+    NOT among this run's freshly `discover_flows`-ed candidate names (spec
+    "Stale Flow Pruning"). `merge_config` cannot and does not distinguish
+    WHY a name is missing — file deleted, renamed to a different stem, or
+    moved outside `--flows-dir` are the identical, indistinguishable case
+    from here. The single source of truth reused by both the `init()`
+    confirm-gate and `merge_config`'s `prune` param (design "Where the diff
+    lives")."""
+
+    existing_flows_raw = existing.get("flows")
+    existing_flows = existing_flows_raw if isinstance(existing_flows_raw, Mapping) else {}
+    return sorted(set(existing_flows) - set(new_flows))
+
+
 def merge_config(
     existing: Mapping[str, object],
     new_flows: Mapping[str, Path],
     bundle_id: str | None,
     force: bool,
+    prune: bool = False,
 ) -> dict[str, object]:
     """Deep-merges `new_flows` into `existing`'s `[flows]` table, leaving
     every other existing entry/key untouched. A colliding flow NAME is
     refused via `FlowCollisionError` unless `force=True`, in which case it
-    is overwritten (spec "perf.toml Writing and Merge Semantics")."""
+    is overwritten (spec "perf.toml Writing and Merge Semantics").
+
+    `prune=True` additionally drops every existing `[flows.*]` entry
+    `compute_pruned_flows` determines is missing this run (spec "Stale Flow
+    Pruning") — reusing that SAME pure helper so there is a single source
+    of truth for the pruned set, never duplicated logic. `prune=False`
+    (the default) is byte-for-byte identical to pre-pruning behavior."""
 
     existing_flows_raw = existing.get("flows")
     existing_flows: dict[str, object] = (
@@ -276,6 +301,10 @@ def merge_config(
     colliding = sorted(name for name in new_flows if name in existing_flows)
     if colliding and not force:
         raise FlowCollisionError(colliding)
+
+    if prune:
+        for name in compute_pruned_flows(existing, new_flows):
+            existing_flows.pop(name, None)
 
     merged_flows = dict(existing_flows)
     for name, path in new_flows.items():
@@ -311,6 +340,35 @@ def _render_comment_loss_error(config_path: Path) -> str:
     )
 
 
+# ===== Stale-flow pruning (spec "Stale Flow Pruning") =====
+
+
+def _render_prune_confirm_prompt(missing: Sequence[str]) -> str:
+    """Interactive confirm-gate text — shown before removing existing
+    `[flows.*]` entries whose flow file no longer exists under
+    `--flows-dir`. Mirrors `_render_comment_loss_confirm_prompt`'s
+    pure-function pattern so both call sites share identical wording and
+    it is directly golden-testable (tasks.md 3.10)."""
+
+    return (
+        "The following flow(s) no longer exist under --flows-dir and will "
+        f"be removed: {', '.join(missing)} — continue?"
+    )
+
+
+def _render_prune_preview(missing: Sequence[str]) -> str:
+    """Non-interactive error BODY for the same guard — printed to stderr
+    (via `emit_error`, which owns the `Error:` prefix + color) when
+    `--prune-missing` found stale entries but `--yes` was not supplied and
+    there is no TTY to confirm in. Mirrors `_render_comment_loss_error`'s
+    "situation; pass --flag" shape (spec "Preview payload completeness")."""
+
+    return (
+        "the following flow(s) no longer exist under --flows-dir and would be "
+        f"removed: {', '.join(missing)}; pass --yes to prune them non-interactively"
+    )
+
+
 # ===== Pretty confirmation (design "Testing Strategy" — golden, Phase 3) =====
 
 _DIM = "\x1b[2m"
@@ -329,11 +387,17 @@ def _render_confirmation(
     bundle_id: str | None,
     bundle_id_source: str,
     color: bool,
+    flows_pruned: Sequence[str] = (),
 ) -> str:
     lines: list[str] = []
     lines.append(_style(f"✓ perf init wrote {config_path}", color=color, code=_GREEN))
     lines.append(f"  flows added: {', '.join(sorted(flows_added)) or '(none)'}")
     lines.append(f"  bundle_id:   {bundle_id or '(unset)'} ({bundle_id_source})")
+    # Conditional-render: only append when non-empty, so the 4 pre-existing
+    # golden fixtures (never pass `flows_pruned`) stay byte-identical
+    # (design "`flows_pruned` shape").
+    if flows_pruned:
+        lines.append(f"  flows pruned: {', '.join(sorted(flows_pruned))}")
     return "\n".join(lines) + "\n"
 
 
@@ -397,6 +461,14 @@ def init(
     ),
     yes: bool = typer.Option(
         False, "--yes", help="Force non-interactive mode even when stdin is a TTY"
+    ),
+    prune_missing: bool = typer.Option(
+        False,
+        "--prune-missing",
+        help=(
+            "Remove [flows.*] entries whose flow file is gone from "
+            "flows-dir (confirm-gated; needs --yes when non-interactive)"
+        ),
     ),
 ) -> None:
     """Scaffold or merge a `perf.toml` from a Maestro flows directory
@@ -514,8 +586,62 @@ def init(
             emit_error(output, _render_comment_loss_error(config_path))
             raise typer.Exit(code=2)
 
+    # Prune gate (spec "Stale Flow Pruning"): --prune-missing computes which
+    # existing [flows.*] entries no longer match a discovered flow name and
+    # confirm-gates their removal the SAME way the comment-loss guard does —
+    # NEVER silently delete, NEVER silently no-op when a preview was owed
+    # (spec "Preview payload completeness"). Slotted AFTER the comment-loss
+    # guard (a precondition on rewriting the file at all — no point
+    # previewing a prune we'd abort anyway) and BEFORE merge_config, since
+    # the confirm-gate must know the would-be-pruned set before the
+    # merge/write runs (design "Confirm-gate ordering").
+    prune = False
+    flows_pruned: list[str] = []
+    if prune_missing:
+        missing = compute_pruned_flows(existing_data, flows)
+        if missing:
+            if interactive:
+                try:
+                    confirmed = typer.confirm(_render_prune_confirm_prompt(missing), default=False)
+                except typer.Abort:
+                    emit_error(output, "aborted during interactive prompt")
+                    raise typer.Exit(code=3) from None
+                if not confirmed:
+                    emit_error(
+                        output,
+                        "aborted — re-run with `--yes` to prune non-interactively, "
+                        "or confirm interactively to remove the missing flow(s)",
+                    )
+                    raise typer.Exit(code=2)
+                prune, flows_pruned = True, missing
+            elif yes:
+                prune, flows_pruned = True, missing
+            else:
+                # Non-interactive without --yes: never silently prune, never
+                # silently no-op — preview the FULL would-be-written state
+                # (flows_added AND flows_pruned, not just the deletions —
+                # spec "Preview payload completeness") and exit 2 without
+                # writing.
+                preview_payload = build_init_payload(
+                    config_path=str(config_path),
+                    bundle_id=resolved_bundle_id,
+                    bundle_id_source=bundle_id_source,
+                    flows_added=sorted(flows),
+                    flows_skipped=[],
+                    flows_total=len(flows),
+                    flows_pruned=missing,
+                    appid_conflict=(
+                        list(reconciliation.conflict) if reconciliation.conflict else None
+                    ),
+                )
+                if output.json_mode:
+                    typer.echo(render_json(preview_payload))
+                else:
+                    emit_error(output, _render_prune_preview(missing))
+                raise typer.Exit(code=2)
+
     try:
-        merged = merge_config(existing_data, flows, resolved_bundle_id, force)
+        merged = merge_config(existing_data, flows, resolved_bundle_id, force, prune=prune)
     except FlowCollisionError as exc:
         emit_error(
             output,
@@ -552,6 +678,7 @@ def init(
         flows_added=flows_added,
         flows_skipped=[],
         flows_total=len(flows),
+        flows_pruned=flows_pruned,
         appid_conflict=list(reconciliation.conflict) if reconciliation.conflict else None,
     )
 
@@ -565,6 +692,7 @@ def init(
                 _render_confirmation(
                     config_path=config_path,
                     flows_added=flows_added,
+                    flows_pruned=flows_pruned,
                     bundle_id=resolved_bundle_id,
                     bundle_id_source=bundle_id_source,
                     color=output.color_enabled,
