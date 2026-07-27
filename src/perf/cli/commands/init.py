@@ -357,11 +357,16 @@ def _render_prune_confirm_prompt(missing: Sequence[str]) -> str:
 
 
 def _render_prune_preview(missing: Sequence[str]) -> str:
-    """Non-interactive stderr preview for the same guard — printed when
-    `--yes` was not supplied and there is no TTY to confirm in (spec
-    "Preview payload completeness")."""
+    """Non-interactive error BODY for the same guard — printed to stderr
+    (via `emit_error`, which owns the `Error:` prefix + color) when
+    `--prune-missing` found stale entries but `--yes` was not supplied and
+    there is no TTY to confirm in. Mirrors `_render_comment_loss_error`'s
+    "situation; pass --flag" shape (spec "Preview payload completeness")."""
 
-    return f"flows pruned (would remove): {', '.join(missing)}"
+    return (
+        "the following flow(s) no longer exist under --flows-dir and would be "
+        f"removed: {', '.join(missing)}; pass --yes to prune them non-interactively"
+    )
 
 
 # ===== Pretty confirmation (design "Testing Strategy" — golden, Phase 3) =====
@@ -599,14 +604,13 @@ def init(
                 try:
                     confirmed = typer.confirm(_render_prune_confirm_prompt(missing), default=False)
                 except typer.Abort:
-                    typer.echo("Error: aborted during interactive prompt", err=True)
+                    emit_error(output, "aborted during interactive prompt")
                     raise typer.Exit(code=3) from None
                 if not confirmed:
-                    typer.echo(
-                        "Error: aborted — re-run with --yes to prune "
-                        "non-interactively, or confirm interactively to "
-                        "remove the missing flow(s)",
-                        err=True,
+                    emit_error(
+                        output,
+                        "aborted — re-run with `--yes` to prune non-interactively, "
+                        "or confirm interactively to remove the missing flow(s)",
                     )
                     raise typer.Exit(code=2)
                 prune, flows_pruned = True, missing
@@ -633,7 +637,7 @@ def init(
                 if output.json_mode:
                     typer.echo(render_json(preview_payload))
                 else:
-                    typer.echo(_render_prune_preview(missing), err=True)
+                    emit_error(output, _render_prune_preview(missing))
                 raise typer.Exit(code=2)
 
     try:

@@ -275,3 +275,32 @@ def test_cli_no_ansi_bytes_on_comment_loss_error_path(monkeypatch, tmp_path):
 
     assert result.exit_code == 2, result.output
     assert _ANSI_ESCAPE not in result.output
+
+
+def test_cli_no_ansi_bytes_on_prune_error_path(monkeypatch, tmp_path):
+    # The non-interactive-without-`--yes` prune guard now routes through
+    # `emit_error` (merged from the red/bold error-output change); under
+    # CliRunner (non-TTY stderr) it must stay byte-clean — no ANSI leaks —
+    # exactly like the comment-loss error path above.
+    _patch_load_config(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+    config_path.write_text(
+        "bundle_id = 'com.example.app'\n\n[flows.stale]\nmaestro_path = 'gone.yaml'\n"
+    )
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--bundle-id",
+            "com.example.app",
+            "--prune-missing",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "stale" in result.output
+    assert _ANSI_ESCAPE not in result.output

@@ -1,1 +1,1 @@
-flows pruned (would remove): stale
+the following flow(s) no longer exist under --flows-dir and would be removed: stale; pass --yes to prune them non-interactively
