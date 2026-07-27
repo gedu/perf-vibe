@@ -25,6 +25,27 @@ from perf.domain.model import DriverCommand, DriverResult, ExecutionPlan, LoopMo
 from perf.domain.ports import ProgressReporter
 
 
+class _NoOpProgressReporter:
+    """Internal fallback when no `reporter` is injected — mirrors
+    `ManualDriver`'s private `_NoOpProgressReporter` (`driver_manual.py`).
+    Every event is a no-op. Kept private and minimal rather than importing
+    the concrete `NullProgressReporter` (`cli/output/progress.py`), which
+    would be a `cli/` dependency inside `adapters/` for the common case
+    (no reporter injected at all)."""
+
+    def iteration_started(self, index: int, total: int) -> None:
+        pass
+
+    def iteration_finished(self, index: int, total: int, *, ok: bool) -> None:
+        pass
+
+    def awaiting_user_input(self, prompt: str) -> None:
+        pass
+
+    def relayed_line(self, text: str) -> None:
+        pass
+
+
 class MaestroDriver:
     """`FlowDriver` (`domain/ports.py`) implementation."""
 
@@ -37,13 +58,15 @@ class MaestroDriver:
         reporter: ProgressReporter | None = None,
     ) -> None:
         # `reporter` joins the uniform driver-builder kwargs (mirrors
-        # `runner`) — Slice A wires it through unused; Slice B's
-        # DRIVER_MANAGED loop and Slice C's TOOL_MANAGED relay emit events
-        # through it (`run-live-progress` design, tasks B.6/C.2).
-        del reporter
+        # `runner`). Slice B's DRIVER_MANAGED loop emits iteration events +
+        # relayed lines through it; Slice C's TOOL_MANAGED relay does the
+        # same (`run-live-progress` design, tasks B.6/C.2).
         self._known_flows = dict(known_flows)
         self._device = device
         self._runner = runner if runner is not None else SubprocessRunner()
+        self._reporter: ProgressReporter = (
+            reporter if reporter is not None else _NoOpProgressReporter()
+        )
 
     def command(
         self,
@@ -133,14 +156,27 @@ class MaestroDriver:
         return [outcome] * plan.iterations, diagnostics
 
     def _drive_driver_managed(self, plan: ExecutionPlan) -> tuple[list[str], str | None]:
+        """Slice B (`run-live-progress` design): each iteration streams LIVE
+        through `run_streamed` (never `.run()` — that stays TOOL_MANAGED-
+        only) so the caller sees Maestro's own step output as it happens,
+        with `iteration_started`/`iteration_finished(ok=)` bracketing it for
+        the live per-iteration table."""
+
         if plan.inner.argv is None:
             raise RuntimeError("DRIVER_MANAGED plan requires an automated inner command")
         outcomes: list[str] = []
         diagnostics: str | None = None
-        for _ in range(plan.iterations):
-            result = self._runner.run(list(plan.inner.argv))
-            outcomes.append("ok" if result.returncode == 0 else "failed")
-            if result.returncode != 0 and diagnostics is None:
+        total = plan.iterations
+        for index in range(total):
+            iteration_number = index + 1
+            self._reporter.iteration_started(iteration_number, total)
+            result = self._runner.run_streamed(
+                list(plan.inner.argv), on_line=self._reporter.relayed_line
+            )
+            ok = result.returncode == 0
+            outcomes.append("ok" if ok else "failed")
+            self._reporter.iteration_finished(iteration_number, total, ok=ok)
+            if not ok and diagnostics is None:
                 # Keep the FIRST failure's stderr — enough to tell the user
                 # which tool/flow/device failed and why (WARNING fix).
                 diagnostics = bounded_diagnostics(result.stderr)

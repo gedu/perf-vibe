@@ -51,14 +51,15 @@ _Spec: perf-run/Composable Optional Sources (ManualDriver STDERR fix); run-progr
 
 _Spec: run-progress/Maestro markers-only, TTY-Aware Rendering, Secret Scrubbing._
 
-- [ ] B.1 RED `tests/unit/test_process.py` [threat-matrix]: `run_streamed` relays per-line; secrets scrubbed before relay AND in the bounded accumulator (leak test); argv always a list, `shell` never truthy.
-- [ ] B.2 GREEN `adapters/process.py`: add `SubprocessRunner.run_streamed(argv, *, env, cwd)` — Popen, `stderr=subprocess.STDOUT`, `encoding="utf-8", errors="replace"`, per-line `scrub_secrets`; same `CommandResult` shape; `.run()` untouched.
-- [ ] B.3 RED `tests/unit/test_progress.py`: TTY in-place ANSI redraw vs non-TTY sequential ⏳/✅/❌ lines; color-forced-off golden; `NullProgressReporter` emits nothing.
-- [ ] B.4 GREEN create `cli/output/progress.py`: `StderrProgressReporter` (local ANSI palette; `stderr_is_tty`/`error_color_enabled` only) + `NullProgressReporter`.
-- [ ] B.5 RED `tests/integration/test_driver_maestro.py`: DRIVER_MANAGED loop emits `iteration_started`/`iteration_finished(ok=)` + relayed lines, in order, per iteration.
-- [ ] B.6 GREEN `driver_maestro.py` `_drive_driver_managed`: call reporter events + `run_streamed` per iteration; relay each line.
-- [ ] B.7 `tests/fakes.py`: grow `_FakeRunner` with a `run_streamed` hook (records calls, feeds fixed lines); `.run()` fake untouched.
-- [ ] B.8 Verify: slice tests green; mypy+ruff clean; coverage threshold met; `--json` purity re-confirmed with the DRIVER_MANAGED path.
+- [x] B.1 RED `tests/unit/test_process.py` [threat-matrix]: `run_streamed` relays per-line; secrets scrubbed before relay AND in the bounded accumulator (leak test); argv always a list, `shell` never truthy.
+- [x] B.2 GREEN `adapters/process.py`: add `SubprocessRunner.run_streamed(argv, *, env, cwd)` — Popen, `stderr=subprocess.STDOUT`, `encoding="utf-8", errors="replace"`, per-line `scrub_secrets`; same `CommandResult` shape; `.run()` untouched.
+- [x] B.3 RED `tests/unit/test_progress.py`: append-only sequential ⏳/✅/❌ lines, identical in TTY and non-TTY (see B.9 — originally written against a TTY in-place ANSI redraw table, later replaced); color-forced-off/on goldens; `NullProgressReporter` emits nothing.
+- [x] B.4 GREEN create `cli/output/progress.py`: `StderrProgressReporter` (local ANSI palette; `stderr_is_tty`/`error_color_enabled` only) + `NullProgressReporter` (see B.9 — rendering model corrected post-review).
+- [x] B.5 RED `tests/integration/test_driver_maestro.py`: DRIVER_MANAGED loop emits `iteration_started`/`iteration_finished(ok=)` + relayed lines, in order, per iteration.
+- [x] B.6 GREEN `driver_maestro.py` `_drive_driver_managed`: call reporter events + `run_streamed` per iteration; relay each line.
+- [x] B.7 `tests/integration/test_driver_maestro.py`'s local `_FakeRunner` (the actual "fake runner" tests/fakes.py referred to — see Deviations): grew with a `run_streamed` hook (records calls, feeds fixed lines); `.run()` fake untouched.
+- [x] B.8 Verify: slice tests green; mypy+ruff clean; coverage threshold met; `--json` purity re-confirmed with the DRIVER_MANAGED path (new `test_driver_managed_maestro_relay_stays_on_stderr_json_purity_holds`, real registry-built `MaestroDriver`, only `SubprocessRunner` faked).
+- [x] B.9 CORRECTNESS FIX (post-review, before merge): the original TTY in-place redraw table tracked `_rendered_rows` but `relayed_line()` printed a line WITHOUT updating that count; in production (`driver_maestro.py` `_drive_driver_managed`) relayed step lines are emitted BETWEEN `iteration_started`/`iteration_finished`, so the next redraw's cursor-up count went stale and clobbered the wrong terminal rows on every driver-managed TTY run that relayed step output (the norm) — same desync on the manual driver's `awaiting_user_input` line. Locked decision: drop in-place redraw entirely; `StderrProgressReporter` is now append-only sequential (TTY and non-TTY render identically except for optional color, no cursor-control byte ever). Removed `_CURSOR_UP_FMT`/`_CLEAR_LINE`/`_rendered_rows`/`_redraw_table`/`_emit`/`_statuses`/`_total`. `relayed_line()` now writes 3-space-indented lines nested under the current iteration. Tests rewritten: removed the TTY-redraw/cursor-up tests, added a regression test for the exact interleave (`iteration_started` → `relayed_line` × 2 → `iteration_finished`, asserted in order with zero cursor bytes, both TTY and non-TTY) plus color on/off goldens for the finished line.
 
 ## Slice C — TOOL_MANAGED Relay, Recap, `--no-ansi`
 

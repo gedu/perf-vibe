@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 
@@ -58,6 +58,14 @@ def bounded_diagnostics(text: str, *, max_len: int = _MAX_DIAGNOSTICS_LENGTH) ->
     return stripped
 
 
+# `run_streamed`'s OWN defensive cap on its accumulated `CommandResult` text —
+# independent from (and much larger than) `bounded_diagnostics`' 2000-char
+# DISPLAY trim, which callers still apply on top for anything actually shown
+# to a user. This only guards against unbounded memory growth on a very
+# chatty/long-lived child process; it never changes the live per-line relay,
+# which sees every line regardless.
+_MAX_STREAM_BUFFER_CHARS = 50_000
+
 # Matches a forwarded `--env KEY=VALUE` secret assignment anywhere in the
 # joined argv — including when it is NESTED inside a single token such as
 # Flashlight's `--testCommand "maestro test <flow> --env PASSWORD=..."` string
@@ -83,8 +91,8 @@ def scrub_secrets(text: str, argv: Sequence[str]) -> str:
 
 class SubprocessRunner:
     """Default process runner — real `subprocess` calls. Tests inject a
-    fake runner exposing the same `run`/`start_capture`/`stop_capture`
-    surface instead of touching a live device."""
+    fake runner exposing the same `run`/`run_streamed`/`start_capture`/
+    `stop_capture` surface instead of touching a live device."""
 
     def run(
         self,
@@ -106,6 +114,72 @@ class SubprocessRunner:
             stdout=completed.stdout,
             stderr=completed.stderr,
         )
+
+    def run_streamed(
+        self,
+        argv: Sequence[str],
+        *,
+        env: Mapping[str, str] | None = None,
+        cwd: str | None = None,
+        on_line: Callable[[str], None] | None = None,
+    ) -> CommandResult:
+        """Like `run()`, but relays each output line to `on_line` LIVE as the
+        child produces it (`run-live-progress` design "Relay mechanism" —
+        drivers pass `on_line=reporter.relayed_line`), instead of buffering
+        everything until the process exits. `.run()` itself is left
+        completely untouched — its 10 existing buffered callers keep their
+        exact current behavior; this is a NEW, separate call site.
+
+        `stderr=subprocess.STDOUT` merges both streams into ONE pipe (same
+        choice as `start_capture`) so a single blocking read loop can never
+        deadlock on two undrained pipes, and so interleaving matches what a
+        user watching the terminal directly would see.
+
+        Every line is scrubbed with `scrub_secrets(line, argv)` BEFORE it
+        reaches `on_line` AND before it joins the accumulated buffer — a
+        forwarded secret (e.g. `--env PASSWORD=...`) must never reach the
+        live relay either (design threat matrix: "Secret in streamed
+        output").
+
+        Returns the SAME `CommandResult` shape as `.run()`, with the merged,
+        scrubbed, bounded text in BOTH `stdout` and `stderr` so a caller's
+        existing `bounded_diagnostics(result.stderr)` failure path keeps
+        working unchanged.
+        """
+
+        argv_list = list(argv)
+        process = subprocess.Popen(
+            argv_list,
+            env=dict(env) if env is not None else None,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+
+        accumulated: list[str] = []
+        accumulated_len = 0
+        assert process.stdout is not None  # guaranteed by stdout=PIPE above
+        for raw_line in process.stdout:
+            # `raw_line` keeps its trailing line terminator (or none, for a
+            # final partial line) — strip only the terminator so a `\r` used
+            # mid-line (e.g. a progress-bar redraw) is preserved verbatim
+            # rather than silently dropped.
+            line = raw_line.rstrip("\n")
+            scrubbed = scrub_secrets(line, argv_list)
+            if on_line is not None:
+                on_line(scrubbed)
+            if accumulated_len < _MAX_STREAM_BUFFER_CHARS:
+                accumulated.append(scrubbed)
+                accumulated_len += len(scrubbed) + 1
+        process.stdout.close()
+        returncode = process.wait()
+
+        merged = "\n".join(accumulated)
+        return CommandResult(returncode=returncode, stdout=merged, stderr=merged)
 
     def start_capture(self, argv: Sequence[str]) -> subprocess.Popen:
         """Start a long-running argv-list process (e.g. `adb logcat`)

@@ -45,17 +45,6 @@ def test_build_driver_accepts_uniform_cli_kwargs_for_every_driver():
     assert isinstance(registry.build_driver("manual", **common), ManualDriver)
 
 
-def test_build_progress_reporter_returns_a_concrete_reporter():
-    """RED (Slice A task A.7): `build_progress_reporter` returns a
-    CONCRETE `ProgressReporter` — every method callable without error."""
-    reporter = registry.build_progress_reporter()
-
-    reporter.iteration_started(1, 3)
-    reporter.iteration_finished(1, 3, ok=True)
-    reporter.awaiting_user_input("Perform the flow manually, then press Enter.")
-    reporter.relayed_line("some relayed tool output")
-
-
 def test_build_driver_threads_reporter_uniformly_into_every_driver(tmp_path):
     """RED (Slice A task A.7): `reporter` joins the uniform driver-builder
     kwargs (mirrors `runner`/`known_flows`/`device`/`flow_prompts`) —

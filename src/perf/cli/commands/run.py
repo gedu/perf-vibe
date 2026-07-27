@@ -15,7 +15,6 @@ from perf.adapters.registry import (
     build_context_provider,
     build_driver,
     build_marker_source,
-    build_progress_reporter,
     build_sampler,
     build_store,
 )
@@ -29,6 +28,7 @@ from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
 from perf.cli.output.errors import emit_error, hint_for_diagnostics, salient_tool_line
 from perf.cli.output.json_reporter import render_json
 from perf.cli.output.pretty import render_confirmation
+from perf.cli.output.progress import build_progress_reporter
 from perf.config.loader import PerfConfig
 from perf.contracts.json_v1 import build_run_payload
 
@@ -86,7 +86,10 @@ def run(
 
     store = None
     try:
-        reporter = build_progress_reporter()
+        reporter = build_progress_reporter(
+            stderr_is_tty=output.stderr_is_tty,
+            error_color_enabled=output.error_color_enabled,
+        )
         driver = build_driver(
             config.driver,
             known_flows=known_flows,

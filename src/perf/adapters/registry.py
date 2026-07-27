@@ -14,7 +14,6 @@ needed), so they are plain factory functions rather than name-keyed maps.
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TypeVar
@@ -162,36 +161,6 @@ def build_marker_source(name: str | None, **kwargs: object) -> MarkerSource | No
     """`None` -> no `MarkerSource` selected (spec: independently optional)."""
 
     return _build(MARKER_SOURCES, "marker source", name, **kwargs)
-
-
-class _StderrProgressReporter:
-    """Slice-A concrete `ProgressReporter` (`domain/ports.py`) — plain
-    STDERR text, NO TTY redraw/live table (Slice B's `StderrProgressReporter`
-    in `cli/output/progress.py`) and NO `recap()` (Slice C, concrete-only).
-    Exists only to give every driver a real STDERR sink for
-    `awaiting_user_input`, fixing the `ManualDriver` `--json`
-    STDOUT-corruption bug ahead of the full TTY-aware rendering."""
-
-    def iteration_started(self, index: int, total: int) -> None:
-        pass
-
-    def iteration_finished(self, index: int, total: int, *, ok: bool) -> None:
-        pass
-
-    def awaiting_user_input(self, prompt: str) -> None:
-        print(prompt, file=sys.stderr)
-
-    def relayed_line(self, text: str) -> None:
-        pass
-
-
-def build_progress_reporter() -> ProgressReporter:
-    """Composition-root factory for the `ProgressReporter` port. Slice A
-    returns the minimal `_StderrProgressReporter` above; Slice B swaps in
-    the TTY-aware `StderrProgressReporter` (`cli/output/progress.py`) and
-    Slice D adds a `quiet` path to `NullProgressReporter`."""
-
-    return _StderrProgressReporter()
 
 
 def build_context_provider(

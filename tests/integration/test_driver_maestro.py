@@ -5,6 +5,12 @@ existed. ALWAYS asserts the composed command is an argv LIST (never a
 shell string) and that `flow_name` is validated against the config-known
 flow set BEFORE any subprocess is spawned. A fake `SubprocessRunner`
 stands in for adb/maestro — no real device or Flashlight binary involved.
+
+`run-live-progress` Slice B (RED-before-GREEN for `run_streamed` +
+DRIVER_MANAGED live events): the DRIVER_MANAGED loop now drives each
+iteration through `run_streamed` (never `.run()`, which stays TOOL_MANAGED-
+only per design) and emits `iteration_started`/`iteration_finished(ok=)` +
+relayed lines through the injected `FakeProgressReporter`.
 """
 
 from __future__ import annotations
@@ -13,6 +19,7 @@ import inspect
 
 import pytest
 
+from fakes import FakeProgressReporter
 from perf.adapters.driver_maestro import MaestroDriver
 from perf.adapters.process import CaptureResult, CommandResult
 from perf.domain.model import CaptureSpec, DriverCommand, ExecutionPlan, LoopMode
@@ -21,16 +28,31 @@ _KNOWN_FLOWS = {"checkout": "flows/checkout.yaml"}
 
 
 class _FakeRunner:
-    def __init__(self, returncode: int = 0, stderr: str = "", capture_returncode: int = 0):
+    def __init__(
+        self,
+        returncode: int = 0,
+        stderr: str = "",
+        capture_returncode: int = 0,
+        streamed_lines: tuple[str, ...] = (),
+    ):
         self.run_calls: list[list[str]] = []
+        self.run_streamed_calls: list[list[str]] = []
         self.capture_started: list[list[str]] = []
         self.capture_stopped = 0
         self._returncode = returncode
         self._stderr = stderr
         self._capture_returncode = capture_returncode
+        self._streamed_lines = streamed_lines
 
     def run(self, argv, **kwargs):
         self.run_calls.append(list(argv))
+        return CommandResult(returncode=self._returncode, stdout="", stderr=self._stderr)
+
+    def run_streamed(self, argv, *, env=None, cwd=None, on_line=None):
+        self.run_streamed_calls.append(list(argv))
+        for line in self._streamed_lines:
+            if on_line is not None:
+                on_line(line)
         return CommandResult(returncode=self._returncode, stdout="", stderr=self._stderr)
 
     def start_capture(self, argv):
@@ -86,8 +108,9 @@ def test_drive_driver_managed_runs_inner_command_n_times_and_captures_logcat():
 
     result = driver.drive(plan)
 
-    assert len(runner.run_calls) == 3
-    assert all(call == list(inner.argv) for call in runner.run_calls)
+    assert len(runner.run_streamed_calls) == 3
+    assert all(call == list(inner.argv) for call in runner.run_streamed_calls)
+    assert runner.run_calls == []  # DRIVER_MANAGED never touches .run() (Slice B)
     assert runner.capture_started == [["adb", "logcat", "-s", "ReactNativeJS:V"]]
     assert runner.capture_stopped == 1
     assert result.ok is True
@@ -244,6 +267,106 @@ def test_password_secret_never_appears_in_diagnostics():
     assert result.diagnostics is not None
     assert "s3cr3t" not in result.diagnostics
     assert "***" in result.diagnostics
+
+
+def test_driver_managed_emits_iteration_events_and_relays_lines_in_order():
+    """RED (Slice B task B.5): `_drive_driver_managed` calls
+    `iteration_started`/`iteration_finished(ok=)` around EACH `run_streamed`
+    call, and every streamed line is relayed through the reporter — all in
+    order, per iteration."""
+    runner = _FakeRunner(streamed_lines=("step 1", "step 2"))
+    reporter = FakeProgressReporter()
+    driver = MaestroDriver(_KNOWN_FLOWS, runner=runner, reporter=reporter)
+    inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
+    plan = ExecutionPlan(
+        command=None,
+        inner=inner,
+        loop_mode=LoopMode.DRIVER_MANAGED,
+        iterations=2,
+        capture=None,
+        results_path=None,
+    )
+
+    result = driver.drive(plan)
+
+    assert result.ok is True
+    assert reporter.events == [
+        ("iteration_started", 1, 2),
+        ("relayed_line", "step 1"),
+        ("relayed_line", "step 2"),
+        ("iteration_finished", 1, 2, True),
+        ("iteration_started", 2, 2),
+        ("relayed_line", "step 1"),
+        ("relayed_line", "step 2"),
+        ("iteration_finished", 2, 2, True),
+    ]
+
+
+def test_driver_managed_reports_failed_iteration_via_reporter():
+    """A failed iteration still emits `iteration_finished(ok=False)` — the
+    live table must show ❌, not silently omit the row."""
+    runner = _FakeRunner(returncode=1, stderr="device offline")
+    reporter = FakeProgressReporter()
+    driver = MaestroDriver(_KNOWN_FLOWS, runner=runner, reporter=reporter)
+    inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
+    plan = ExecutionPlan(
+        command=None,
+        inner=inner,
+        loop_mode=LoopMode.DRIVER_MANAGED,
+        iterations=1,
+        capture=None,
+        results_path=None,
+    )
+
+    result = driver.drive(plan)
+
+    assert result.ok is False
+    finished = [event for event in reporter.events if event[0] == "iteration_finished"]
+    assert finished == [("iteration_finished", 1, 1, False)]
+
+
+def test_driver_managed_never_calls_reporter_when_none_injected():
+    """Mirrors `ManualDriver`'s `_NoOpProgressReporter` fallback — a
+    `MaestroDriver` built with no `reporter` kwarg must still drive
+    normally (no crash), matching every other driver's default-to-no-op
+    behavior."""
+    runner = _FakeRunner(streamed_lines=("step 1",))
+    driver = MaestroDriver(_KNOWN_FLOWS, runner=runner)
+    inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
+    plan = ExecutionPlan(
+        command=None,
+        inner=inner,
+        loop_mode=LoopMode.DRIVER_MANAGED,
+        iterations=1,
+        capture=None,
+        results_path=None,
+    )
+
+    result = driver.drive(plan)
+
+    assert result.ok is True
+
+
+def test_tool_managed_still_uses_run_not_run_streamed():
+    """Non-invasiveness guard (Slice C scope, not B): TOOL_MANAGED must stay
+    on `.run()` — Slice B never touches that path."""
+    runner = _FakeRunner()
+    driver = MaestroDriver(_KNOWN_FLOWS, runner=runner)
+    inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
+    wrapped_command = ["flashlight", "test", "--testCommand", "maestro test flows/checkout.yaml"]
+    plan = ExecutionPlan(
+        command=wrapped_command,
+        inner=inner,
+        loop_mode=LoopMode.TOOL_MANAGED,
+        iterations=1,
+        capture=None,
+        results_path=None,
+    )
+
+    driver.drive(plan)
+
+    assert runner.run_calls == [wrapped_command]
+    assert runner.run_streamed_calls == []
 
 
 def test_real_subprocess_runner_never_uses_shell_true():
