@@ -1,0 +1,4 @@
+✓ perf init wrote perf.toml
+  flows added: checkout
+  bundle_id:   com.example.app (detected)
+  flows pruned: stale

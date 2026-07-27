@@ -18,6 +18,7 @@ _REQUIRED_KEYS_AND_TYPES = {
     "bundle_id_source": str,
     "flows_added": list,
     "flows_skipped": list,
+    "flows_pruned": list,
     "flows_total": int,
     "appid_conflict": (list, type(None)),
 }
@@ -30,15 +31,34 @@ def _sample_payload() -> dict:
         bundle_id_source="detected",
         flows_added=["checkout", "login"],
         flows_skipped=[("existing", "exists")],
+        flows_pruned=["stale"],
         flows_total=3,
         appid_conflict=None,
     )
 
 
-def test_schema_version_is_1():
-    assert SCHEMA_VERSION == 1
+def test_schema_version_is_2():
+    assert SCHEMA_VERSION == 2
     payload = _sample_payload()
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
+
+
+def test_flows_pruned_round_trips():
+    payload = _sample_payload()
+    assert payload["flows_pruned"] == ["stale"]
+
+
+def test_flows_pruned_defaults_to_empty_list_when_omitted():
+    payload = build_init_payload(
+        config_path="perf.toml",
+        bundle_id=None,
+        bundle_id_source="none",
+        flows_added=[],
+        flows_skipped=[],
+        flows_total=0,
+        appid_conflict=None,
+    )
+    assert payload["flows_pruned"] == []
 
 
 def test_required_keys_present_with_correct_types():

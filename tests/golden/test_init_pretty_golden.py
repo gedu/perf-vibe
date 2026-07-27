@@ -30,6 +30,8 @@ from perf.cli.commands.init import (
     _render_comment_loss_error,
     _render_confirmation,
     _render_mismatch_conflict_message,
+    _render_prune_confirm_prompt,
+    _render_prune_preview,
 )
 from perf.config.loader import PerfConfig
 
@@ -112,6 +114,62 @@ def test_comment_loss_confirm_prompt_matches_golden(request):
 def test_comment_loss_error_matches_golden(request):
     actual = _render_comment_loss_error(Path("perf.toml"))
     _assert_or_update_golden(request, "init_comment_loss_error.txt", actual)
+
+
+# ===== (e) pruned-flows summary line (prune-missing, tasks.md 3.10) =====
+
+
+def test_pruned_flows_summary_matches_golden(request):
+    actual = _render_confirmation(
+        config_path=Path("perf.toml"),
+        flows_added=["checkout"],
+        flows_pruned=["stale"],
+        bundle_id="com.example.app",
+        bundle_id_source="detected",
+        color=False,
+    )
+    _assert_or_update_golden(request, "init_pruned_flows_summary.txt", actual)
+
+
+def test_prune_confirm_prompt_matches_golden(request):
+    actual = _render_prune_confirm_prompt(["stale"])
+    _assert_or_update_golden(request, "init_prune_confirm_prompt.txt", actual)
+
+
+def test_prune_preview_matches_golden(request):
+    actual = _render_prune_preview(["stale"])
+    _assert_or_update_golden(request, "init_prune_preview.txt", actual)
+
+
+# ===== regression guard: the 4 PRE-EXISTING golden fixtures stay untouched =====
+
+
+def test_existing_four_golden_fixtures_stay_byte_identical_without_flows_pruned():
+    """Regression guard for the conditional-render decision (design
+    "`_render_confirmation` gains a `flows_pruned` param and appends a
+    `flows pruned: ...` line ONLY when non-empty") — calling
+    `_render_confirmation` WITHOUT `flows_pruned` must render byte-identical
+    output to before this change existed."""
+
+    fresh = _render_confirmation(
+        config_path=Path("perf.toml"),
+        flows_added=["checkout", "login"],
+        bundle_id="com.example.app",
+        bundle_id_source="detected",
+        color=False,
+    )
+    assert "pruned" not in fresh
+    assert fresh == (_FIXTURES_DIR / "init_fresh_create_summary.txt").read_text()
+
+    merged = _render_confirmation(
+        config_path=Path("perf.toml"),
+        flows_added=["checkout"],
+        bundle_id=None,
+        bundle_id_source="none",
+        color=False,
+    )
+    assert "pruned" not in merged
+    assert merged == (_FIXTURES_DIR / "init_merge_added_flows_summary.txt").read_text()
 
 
 # ===== no ANSI bytes under color-off, regardless of source =====
