@@ -42,6 +42,7 @@ fails, that is host load, not a regression — re-run idle or set
 | Add a class, abstraction or pattern; decide where code goes | `+ python-architecture` |
 | Write or change tests | `+ python-testing` |
 | Format, type, or touch lint/tooling config | `+ python-style` |
+| Touch user-facing terminal output (errors, warnings, colors) | `+ perf-cli-output` |
 
 All four live in `.claude/skills/<name>/SKILL.md`. They are complementary, not
 overlapping — one contract plus three craft guides:
@@ -61,6 +62,10 @@ overlapping — one contract plus three craft guides:
 - `.claude/skills/python-style/SKILL.md` — **style & tooling**: ruff + mypy,
   typing, docstrings-explain-why, stdlib-first. Load when formatting or setting
   up lint/type-check.
+- `.claude/skills/perf-cli-output/SKILL.md` — **terminal output contract**:
+  every error via `emit_error` (red `Error:` + `cause:`/`hint:`), stdout vs
+  stderr color decisions, backtick highlighting, warnings-are-non-fatal, exit
+  codes. Load before touching any user-facing CLI output.
 
 ## Dev environment
 

@@ -218,9 +218,16 @@ class RunFlowUseCase:
         # reserved for the case it was designed for: the flow ran fine but the
         # logcat capture itself died.
         if not driver_result.ok:
+            # Summarize as a COUNT, never the raw per-iteration list: a run
+            # of N iterations that all fail (e.g. no device) dumped
+            # `['failed', 'failed', … xN]` — pure noise. `succeeded/total`
+            # tells the user exactly how far it got.
+            outcomes = driver_result.iteration_outcomes
+            total = len(outcomes)
+            succeeded = sum(1 for outcome in outcomes if outcome == "ok")
             raise RunFailedError(
                 f"flow {request.flow_name!r} did not complete successfully "
-                f"(iteration outcomes: {list(driver_result.iteration_outcomes)!r}).",
+                f"— {succeeded}/{total} iterations succeeded.",
                 diagnostics=driver_result.diagnostics,
             )
         if driver_result.capture_failed:
