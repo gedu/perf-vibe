@@ -249,6 +249,34 @@ def test_driver_reports_failed_iterations_raises_run_failed():
     assert not store.saved_runs
 
 
+def test_flow_failure_is_blamed_over_capture_when_both_fail():
+    """Attribution fix: when the flow's OWN command failed (e.g. Flashlight
+    aborting because adb is unauthorized), it usually ALSO drags the parallel
+    logcat down (`capture_failed=True`). The root cause is the flow/tool, so
+    the error must say the FLOW did not complete — never misattribute it to a
+    'dead/failed logcat capture' — and must carry the tool's diagnostics."""
+    driver = FakeDriver(
+        drive_result=DriverResult(
+            ok=False,
+            iteration_outcomes=("failed",),
+            logcat_lines=(),
+            capture_failed=True,
+            diagnostics="adb: device unauthorized",
+        )
+    )
+    store = FakeStore()
+    use_case = _use_case(driver=driver, store=store)
+
+    with pytest.raises(RunFailedError) as excinfo:
+        use_case.execute(_request())
+
+    message = str(excinfo.value)
+    assert "did not complete successfully" in message
+    assert "logcat capture" not in message  # NOT misattributed to the capture
+    assert "device unauthorized" in (excinfo.value.diagnostics or "")
+    assert not store.saved_runs
+
+
 def test_capture_failed_raises_run_failed_even_when_ok():
     driver = FakeDriver(
         drive_result=DriverResult(
