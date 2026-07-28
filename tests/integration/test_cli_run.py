@@ -235,6 +235,225 @@ def test_run_never_exits_1(monkeypatch, tmp_path: Path, args):
     assert result.exit_code != 1
 
 
+# ===== results_dir creation (BUG 1) =====
+#
+# The 4 tests below drive the REAL, registry-built `MaestroDriver` +
+# `FlashlightSampler` TOOL_MANAGED path (`build_driver`/`build_sampler` are
+# NEVER monkeypatched — python-testing rule 3) with only
+# `SubprocessRunner.run_streamed` faked. Critically, the fake DOES NOT stub
+# out the filesystem write the way `FakeSystemSampler` would: it performs a
+# REAL `Path.write_text` into `--resultsFilePath`, exactly mirroring how the
+# real Flashlight binary `writeFileSync`s its report. That makes the
+# `results_dir` `mkdir` guard in `run.py` load-bearing — comment it out and
+# case (a) goes RED with a genuine `FileNotFoundError`, not a mocked one.
+
+
+def _make_writing_run_streamed(*, success: bool):
+    """Builds a fake `SubprocessRunner.run_streamed` that behaves like the
+    REAL Flashlight binary: on success it parses `--resultsFilePath` out of
+    the composed argv and `Path(...).write_text()`s a Flashlight-shaped
+    SUCCESS report there (using the real `Path`/`open` — a missing parent
+    directory raises a genuine `FileNotFoundError`, never mocked/swallowed).
+    On failure it mimics a hard Flashlight crash: a non-zero exit with
+    NO report written at all (the real binary's own documented failure mode
+    for a fatal crash) — `RunFlowUseCase` maps that straight to
+    `RunFailedError` before ever touching `sampler.parse()`."""
+    from perf.adapters.process import CommandResult
+
+    def fake_run_streamed(self, argv, *, env=None, cwd=None, on_line=None):
+        if not success:
+            if on_line is not None:
+                on_line("RUN Checkout Flow")
+                on_line("Error: flashlight test run crashed")
+            return CommandResult(returncode=1, stdout="", stderr="flashlight: iteration 1 crashed")
+
+        results_path = argv[argv.index("--resultsFilePath") + 1]
+        report = {
+            "name": "Results",
+            "status": "SUCCESS",
+            "iterations": [
+                {
+                    "time": 900.0,
+                    "startTime": 0.0,
+                    "status": "SUCCESS",
+                    "measures": [{"fps": 60.0, "ram": 100.0, "cpu": {"perName": {"UI": 5.0}}}],
+                },
+            ],
+        }
+        # Real write — NOT mocked. Mirrors Flashlight's own `writeFileSync`:
+        # a missing parent directory raises a genuine `FileNotFoundError`.
+        Path(results_path).write_text(json.dumps(report))
+        if on_line is not None:
+            on_line("RUN Checkout Flow")
+            on_line("  COMPLETED")
+        return CommandResult(returncode=0, stdout="", stderr="")
+
+    return fake_run_streamed
+
+
+def _flashlight_config(*, results_dir: str, db_path: str) -> PerfConfig:
+    return PerfConfig(
+        db_path=db_path,
+        no_color=True,
+        driver="maestro",
+        sampler="flashlight",
+        marker_source=None,
+        bundle_id="com.example.app",
+        results_dir=results_dir,
+        default_iterations=1,
+        flows={"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
+    )
+
+
+def test_missing_results_dir_success_report_is_actually_written(monkeypatch, tmp_path: Path):
+    """(a) LOAD-BEARING — supersedes the old indirect "dir exists after the
+    run" check: `results_dir` does NOT exist beforehand, and the fake
+    performs a REAL filesystem write into it. This passes ONLY because
+    `run.py` creates `results_dir` (`mkdir(parents=True, exist_ok=True)`)
+    BEFORE `execute()` runs — delete that guard and this test goes RED with
+    a genuine `FileNotFoundError`, never a mocked/swallowed one."""
+    from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
+
+    results_dir = tmp_path / "results"
+    assert not results_dir.exists()
+    monkeypatch.setattr(
+        RealSubprocessRunner, "run_streamed", _make_writing_run_streamed(success=True)
+    )
+    config = _flashlight_config(results_dir=str(results_dir), db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["--json", "run", "checkout"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["flow"] == "checkout"
+    written = list(results_dir.glob("*.json"))
+    assert len(written) == 1, "the fake's real write must have landed inside results_dir"
+    assert json.loads(written[0].read_text())["status"] == "SUCCESS"
+
+
+def test_missing_results_dir_failed_flow_exits_3_never_1(monkeypatch, tmp_path: Path):
+    """(b) `results_dir` missing + the flow itself fails (non-zero exit, no
+    report ever written) — must still exit 3 with a meaningful cause, and
+    must NEVER let an unhandled `FileNotFoundError`/ENOENT crash bubble out
+    (there is nothing to write here, so this path never even reaches the
+    parent-dir question — it proves the failure branch stays clean
+    regardless)."""
+    from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
+
+    results_dir = tmp_path / "results"
+    assert not results_dir.exists()
+    monkeypatch.setattr(
+        RealSubprocessRunner, "run_streamed", _make_writing_run_streamed(success=False)
+    )
+    config = _flashlight_config(results_dir=str(results_dir), db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["run", "checkout"])
+
+    assert result.exit_code == 3, result.output
+    assert result.exit_code != 1
+    assert "did not complete successfully" in result.output
+    assert "FileNotFoundError" not in result.output
+    assert "ENOENT" not in result.output
+
+
+def test_existing_results_dir_success_report_is_actually_written(monkeypatch, tmp_path: Path):
+    """(c) No regression: pre-existing `results_dir` + a successful flow —
+    the `exist_ok=True` mkdir must not raise, and the real write still lands
+    (supersedes the old indirect "succeeds when dir already exists" check)."""
+    from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
+
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    monkeypatch.setattr(
+        RealSubprocessRunner, "run_streamed", _make_writing_run_streamed(success=True)
+    )
+    config = _flashlight_config(results_dir=str(results_dir), db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["run", "checkout"])
+
+    assert result.exit_code == 0, result.output
+    assert len(list(results_dir.glob("*.json"))) == 1
+
+
+def test_existing_results_dir_failed_flow_exits_3(monkeypatch, tmp_path: Path):
+    """(d) Pre-existing `results_dir` + a failed flow — still exit 3, same
+    as (b), proving the dir's pre-existence is orthogonal to the failure
+    path."""
+    from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
+
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    monkeypatch.setattr(
+        RealSubprocessRunner, "run_streamed", _make_writing_run_streamed(success=False)
+    )
+    config = _flashlight_config(results_dir=str(results_dir), db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["run", "checkout"])
+
+    assert result.exit_code == 3, result.output
+    assert result.exit_code != 1
+
+
+def test_nested_missing_results_dir_created_with_parents_true(monkeypatch, tmp_path: Path):
+    """Proves `parents=True`: a multi-segment missing path (`a/b/results`,
+    where not even the intermediate `a/b` exists) is created in one shot."""
+    from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
+
+    results_dir = tmp_path / "a" / "b" / "results"
+    assert not results_dir.parent.exists()
+    monkeypatch.setattr(
+        RealSubprocessRunner, "run_streamed", _make_writing_run_streamed(success=True)
+    )
+    config = _flashlight_config(results_dir=str(results_dir), db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["run", "checkout"])
+
+    assert result.exit_code == 0, result.output
+    assert len(list(results_dir.glob("*.json"))) == 1
+
+
+def test_run_exits_3_never_1_when_results_dir_creation_fails(monkeypatch, tmp_path: Path):
+    """The mkdir guard itself must never let an `OSError` (e.g. permission
+    denied) escape as Python's default exit 1 (SKILL rule 7) — it must map
+    to exit 3 via the existing `emit_error` path, exactly once (never
+    double-reported by falling through to the generic exception handler)."""
+
+    def _boom(self: Path, *, parents: bool = False, exist_ok: bool = False) -> None:
+        raise OSError("Permission denied")
+
+    monkeypatch.setattr(run_module.Path, "mkdir", _boom)
+
+    config = PerfConfig(
+        db_path=str(tmp_path / "perf.db"),
+        no_color=True,
+        driver="maestro",
+        sampler="flashlight",
+        marker_source="adb-logcat",
+        bundle_id="com.example.app",
+        results_dir=str(tmp_path / "results"),
+        default_iterations=2,
+        flows={"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
+    )
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_registry(
+        monkeypatch,
+        sampler_factory=FakeSystemSampler,
+        marker_factory=_happy_marker_factory,
+    )
+
+    result = runner.invoke(main_module.app, ["run", "checkout"])
+
+    assert result.exit_code == 3, result.output
+    assert result.exit_code != 1
+    assert result.output.count("Error:") == 1  # never double-reported
+    assert "failed to create results directory" in result.output
+
+
 def test_bare_perf_shows_banner_on_tty_and_help(monkeypatch, tmp_path: Path):
     config = _config(db_path=str(tmp_path / "perf.db"))
     monkeypatch.setattr(main_module, "load_config", lambda **kw: config)

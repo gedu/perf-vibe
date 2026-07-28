@@ -82,11 +82,30 @@ _NOISE_RE = re.compile(
 )
 
 
+# Real failure signals to look for AFTER the `adb:`/specific-`Error:` tiers
+# and BEFORE falling back to line one — most tools' verbose framing (a
+# Maestro step-by-step log, a device-info banner) sorts earlier than the
+# line that actually says what broke. Order is most-specific-first; the
+# first pattern with a match wins.
+_FAILURE_SIGNAL_RES: tuple[re.Pattern[str], ...] = (
+    re.compile(r"ENOENT|no such file", re.IGNORECASE),
+    re.compile(r"exited with code"),
+    re.compile(r"Iteration\s+\d+/\d+\s+failed|🚨"),
+    re.compile(r"Assertion\b.*failed", re.IGNORECASE),
+    re.compile(r"\.\.\.\s*FAILED\b|\bFAILED\b"),
+)
+
+
 def salient_tool_line(diagnostics: str | None) -> str | None:
     """Pick the single most meaningful line out of a (possibly huge,
     multi-line) tool stderr. Prefers an explicit `adb:` line, then a
-    specific `Error:` line, skipping Node/JS stack frames and the binary
-    Buffer dump. Returns `None` when there is nothing meaningful to show."""
+    specific `Error:` line, then a recognized failure signal (`ENOENT`,
+    `exited with code`, `Iteration N/M failed`/🚨, `Assertion ... failed`,
+    `... FAILED`), skipping Node/JS stack frames and the binary Buffer
+    dump. Falls back to the first meaningful line only when nothing more
+    specific is found — a device-info banner ("Running on Pixel_8_Pro")
+    must never win over a real failure line further down. Returns `None`
+    when there is nothing meaningful to show."""
 
     if not diagnostics:
         return None
@@ -106,6 +125,10 @@ def salient_tool_line(diagnostics: str | None) -> str | None:
         # A specific error beats the generic "Error: Command failed: <cmd>".
         if line.startswith("Error:") and "Command failed" not in line:
             return line[len("Error:") :].strip() or line
+    for pattern in _FAILURE_SIGNAL_RES:
+        for line in meaningful:
+            if pattern.search(line):
+                return line
     return meaningful[0]
 
 
@@ -132,7 +155,18 @@ _HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
         "no usable device detected — connect one and check `adb devices`",
     ),
     (
-        re.compile(r"command not found|ENOENT|no such file", re.IGNORECASE),
+        # `command not found` (shell) OR a missing-BINARY-style ENOENT: a
+        # Python subprocess-spawn `FileNotFoundError` reads
+        # `No such file or directory: '<name>'` where the quoted target has
+        # NO `/` path separator (e.g. `'flashlight'`). Deliberately does NOT
+        # match a generic file/dir ENOENT (e.g. `open 'results/foo.json'`,
+        # quoted target HAS a `/`) — that is a real path problem, not a
+        # missing tool, and the "missing from PATH" hint would be actively
+        # misleading there (no hint is better than a wrong one).
+        re.compile(
+            r"command not found|no such file or directory:\s*'[^'/]*'",
+            re.IGNORECASE,
+        ),
         "a required tool (maestro / flashlight / adb) is missing from PATH — install it and retry",
     ),
 )

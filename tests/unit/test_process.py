@@ -13,10 +13,11 @@ about avoiding a real, local, throwaway Python child process).
 from __future__ import annotations
 
 import inspect
+import re
 import sys
 import time
 
-from perf.adapters.process import CommandResult, SubprocessRunner
+from perf.adapters.process import CommandResult, SubprocessRunner, bounded_diagnostics
 
 _PASSWORD = "s3cr3t-value"
 
@@ -167,3 +168,64 @@ def test_per_line_secret_scrubbing_before_relay_and_in_accumulator():
     assert _PASSWORD not in result.stdout
     assert _PASSWORD not in result.stderr
     assert "***" in "".join(relayed)
+
+
+# ===== bounded_diagnostics =====
+
+
+def test_bounded_diagnostics_returns_none_for_empty_or_blank():
+    assert bounded_diagnostics("") is None
+    assert bounded_diagnostics("   \n  \n") is None
+
+
+def test_bounded_diagnostics_passes_short_text_through_unchanged():
+    assert bounded_diagnostics("device offline") == "device offline"
+
+
+def test_bounded_diagnostics_keeps_head_and_tail_not_just_head():
+    """Regression: the real failure line (e.g. an `ENOENT` from Flashlight's
+    `writeReport`, or a Maestro assertion) is very often at the TAIL of a
+    verbose tool's output — a head-only trim silently dropped it. Both the
+    head AND the tail must survive bounding, with a truncation marker
+    identifying how much was omitted in between."""
+    head_marker = "HEAD-START-MARKER"
+    tail_marker = "TAIL-END-MARKER"
+    filler = "x" * 5000
+    text = f"{head_marker}\n{filler}\n{tail_marker}"
+
+    result = bounded_diagnostics(text)
+
+    assert result is not None
+    assert result.startswith(head_marker)
+    assert result.endswith(tail_marker)
+    assert "truncated" in result
+    assert len(result) < len(text)
+
+
+def test_bounded_diagnostics_honors_a_small_max_len():
+    """Regression: `max_len` must be honored for ANY caller, not just the
+    module's default (where head+tail happens to equal 2000). A small
+    `max_len` must still yield a result no longer than `max_len` (marker
+    included), with an accurate, non-negative "truncated N chars" count —
+    previously the head/tail sizes were fixed module constants that ignored
+    the caller-supplied `max_len` entirely."""
+    stripped_text = "H" * 5 + "x" * 300 + "T" * 5
+    max_len = 40
+
+    result = bounded_diagnostics(stripped_text, max_len=max_len)
+
+    assert result is not None
+    assert len(result) <= max_len, f"result length {len(result)} exceeds max_len {max_len}"
+
+    match = re.search(r"truncated (\d+) chars\) \.\.\.", result)
+    assert match is not None, "expected a truncation marker with a chars count"
+    omitted = int(match.group(1))
+    assert omitted >= 0
+
+    marker_start = result.index("\n... (truncated")
+    marker_end = result.index("...\n") + len("...\n")
+    head_survived = result[:marker_start]
+    tail_survived = result[marker_end:]
+    assert stripped_text.startswith(head_survived)
+    assert stripped_text.endswith(tail_survived)
+    assert omitted == len(stripped_text) - len(head_survived) - len(tail_survived)

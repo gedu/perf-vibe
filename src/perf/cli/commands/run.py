@@ -7,6 +7,7 @@ lets an exception escape as Python's default exit code `1`."""
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import typer
 
@@ -125,6 +126,25 @@ def run(
             replay_flashlight=config.replay_flashlight,
         )
         sampler = build_sampler(config.sampler, bundle_id=config.bundle_id)
+        if sampler is not None:
+            # `RunFlowUseCase`/the sampler adapter only ever compose the
+            # results path as a PURE string (application layer does no I/O)
+            # and Flashlight itself `writeFileSync`s straight into it — if
+            # `results_dir` doesn't exist yet, that write crashes with
+            # `ENOENT`, on BOTH a failing and a successful run. This CLI
+            # composition root already owns `config.results_dir` I/O
+            # elsewhere, so it creates the directory here, before any device
+            # interaction. A failure to create it (e.g. permissions) is a
+            # runtime/tooling failure — exit 3, never Python's default
+            # exit 1 (SKILL rule 7) — not a usage error.
+            try:
+                Path(config.results_dir).mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                emit_error(
+                    output,
+                    f"failed to create results directory `{config.results_dir}`: {exc}",
+                )
+                raise typer.Exit(code=3) from None
         marker_source = build_marker_source(config.marker_source, device=resolved_device)
         context_provider = build_context_provider(
             build_variant=config.build_variant,
@@ -188,6 +208,13 @@ def run(
             hint=hint_for_diagnostics(exc.diagnostics),
         )
         raise typer.Exit(code=3) from None
+    except typer.Exit:
+        # `typer.Exit` is (via `RuntimeError`) an `Exception` subclass, so
+        # without this it would fall into the generic handler below and be
+        # double-reported. Only code raised INSIDE this try body deliberately
+        # (e.g. the results-directory mkdir guard above, which already
+        # called `emit_error` itself) reaches here — let it propagate as-is.
+        raise
     except Exception as exc:
         # NEVER exit 1 (SKILL rule 7). Any unexpected exception (a bug, an
         # adapter surprise) is still a runtime/tooling failure, not a usage

@@ -90,6 +90,41 @@ def test_salient_line_falls_back_to_first_meaningful_line_without_adb():
     assert salient_tool_line("boom happened\nmore detail") == "boom happened"
 
 
+def test_salient_line_finds_enoent_tail_over_generic_command_failed_error():
+    """Regression: a Flashlight `writeReport` crash on a missing `results/`
+    dir surfaces the real cause on a line further down than the generic
+    `Error: Command failed: ...` line (which is deliberately excluded by the
+    `Error:` tier) — the ENOENT signal must still be picked, not line one."""
+    diagnostics = (
+        "Running on Pixel_8_Pro\n"
+        "Error: Command failed with exit code 1: flashlight test\n"
+        "    at ChildProcess.exithandler (node:child_process:400:5)\n"
+        "Caused by: ENOENT: no such file or directory, open "
+        "'results/prestamos-warm-warm-1699999999.json'\n"
+    )
+    line = salient_tool_line(diagnostics)
+    assert line is not None
+    assert "ENOENT" in line
+    assert line != "Running on Pixel_8_Pro"
+
+
+def test_salient_line_finds_maestro_assertion_failed():
+    diagnostics = (
+        "Running on Pixel_8_Pro\n"
+        "Maestro test run failed\n"
+        'Assertion failed: element "Login button" not found\n'
+    )
+    line = salient_tool_line(diagnostics)
+    assert line == 'Assertion failed: element "Login button" not found'
+
+
+def test_salient_line_finds_iteration_failed_exited_with_code():
+    diagnostics = "Running on Pixel_8_Pro\n🚨 Iteration 1/1 failed: maestro exited with code 1\n"
+    line = salient_tool_line(diagnostics)
+    assert line == "🚨 Iteration 1/1 failed: maestro exited with code 1"
+    assert line != "Running on Pixel_8_Pro"
+
+
 # ===== hint_for_diagnostics =====
 
 
@@ -123,3 +158,22 @@ def test_hint_maps_no_device_across_adb_variants():
 def test_hint_none_when_signature_unrecognized():
     assert hint_for_diagnostics("some unrelated failure") is None
     assert hint_for_diagnostics(None) is None
+
+
+def test_hint_maps_missing_binary_style_enoent_to_missing_tool():
+    """A Python spawn `FileNotFoundError` on a missing binary reads
+    `No such file or directory: '<name>'` — the quoted target has NO `/`
+    path separator. That IS a missing-tool-from-PATH situation."""
+    hint = hint_for_diagnostics("No such file or directory: 'flashlight'")
+    assert hint is not None
+    assert "missing from PATH" in hint
+
+
+def test_hint_does_not_map_generic_path_enoent_to_missing_tool():
+    """Regression: a file/dir ENOENT (e.g. a missing `results/` output path)
+    is NOT a missing-tool situation — the quoted target has a `/` path
+    separator. Emitting the "missing tool" hint here is actively misleading;
+    no hint (None) is better than a wrong one."""
+    diagnostics = "ENOENT: no such file or directory, open 'results/foo.json'"
+    hint = hint_for_diagnostics(diagnostics)
+    assert hint is None or "missing from PATH" not in hint
