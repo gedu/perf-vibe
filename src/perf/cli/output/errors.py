@@ -32,12 +32,15 @@ if TYPE_CHECKING:
 
 __all__ = [
     "emit_error",
+    "emit_warning",
     "hint_for_diagnostics",
     "render_error",
+    "render_warning",
     "salient_tool_line",
 ]
 
 _RED_BOLD = "\x1b[1;31m"
+_YELLOW_BOLD = "\x1b[1;33m"
 _BOLD = "\x1b[1m"
 _DIM = "\x1b[2m"
 _RESET = "\x1b[0m"
@@ -72,6 +75,17 @@ def render_error(
         label = f"{_DIM}hint:{_RESET}" if color else "hint:"
         lines.append(f"  {label} {_emphasize(hint, color=color)}")
     return "\n".join(lines)
+
+
+def render_warning(message: str, *, color: bool) -> str:
+    """One-line `warning:` block (yellow when color is on) for a NON-fatal
+    issue the user should still SEE — e.g. a run that persisted samples but a
+    configured marker source captured zero/partial markers. Distinct from
+    `render_error`: it never implies failure and never changes the exit code.
+    Backtick spans are emphasized/unwrapped exactly like errors."""
+
+    prefix = f"{_YELLOW_BOLD}warning:{_RESET}" if color else "warning:"
+    return f"{prefix} {_emphasize(message, color=color)}"
 
 
 # Lines we never want to surface as the human-facing "cause": Node/JS stack
@@ -198,3 +212,12 @@ def emit_error(
         render_error(message, color=output.error_color_enabled, cause=cause, hint=hint),
         err=True,
     )
+
+
+def emit_warning(output: OutputContext, message: str) -> None:
+    """`typer.echo` a `warning:` block to stderr, colored per the resolved
+    STDERR decision. NEVER affects the exit code — a warning is not a
+    failure. Shown regardless of `--quiet` (a warning is not progress chrome
+    the user asked to silence)."""
+
+    typer.echo(render_warning(message, color=output.error_color_enabled), err=True)

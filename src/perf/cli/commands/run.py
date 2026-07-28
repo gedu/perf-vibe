@@ -26,7 +26,12 @@ from perf.application.run_flow import (
     UsageError,
 )
 from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
-from perf.cli.output.errors import emit_error, hint_for_diagnostics, salient_tool_line
+from perf.cli.output.errors import (
+    emit_error,
+    emit_warning,
+    hint_for_diagnostics,
+    salient_tool_line,
+)
 from perf.cli.output.json_reporter import render_json
 from perf.cli.output.pretty import render_confirmation
 from perf.cli.output.progress import build_progress_reporter
@@ -241,6 +246,13 @@ def run(
         # unexpected recap failure maps to exit 3 like any other output
         # failure, never Python's default exit 1 (SKILL rule 7).
         reporter.recap(result)
+        # A configured marker source that captured zero/partial markers is
+        # surfaced as a WARNING (never silently) so the user can dig — on
+        # STDERR (stdout stays byte-pure for --json), shown even under
+        # --quiet since a warning is not progress chrome. The run still
+        # succeeded (samples persisted), so this never changes the exit code.
+        if result.marker_diagnostic:
+            emit_warning(output, f"markers: {result.marker_diagnostic}")
         if output.json_mode:
             payload = build_run_payload(result)
             typer.echo(render_json(payload))

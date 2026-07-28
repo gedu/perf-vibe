@@ -69,6 +69,7 @@ class AdbLogcatMarkerSource:
 
     def parse(self, lines: Sequence[str], *, iterations: int) -> MarkerParseResult:
         markers: list[Marker] = []
+        perf_lines_seen = 0  # lines carrying a `[PERF]` tag (whether or not they completed)
 
         for raw_line in lines:
             if len(raw_line) > _MAX_LINE_LENGTH:
@@ -85,6 +86,7 @@ class AdbLogcatMarkerSource:
             payload = line[tag_index + len(_PERF_TAG) :].strip()
             if not payload:
                 continue
+            perf_lines_seen += 1
 
             if payload.startswith("{"):
                 marker = self._parse_json_payload(payload)
@@ -99,7 +101,47 @@ class AdbLogcatMarkerSource:
                 markers.append(marker)
 
         partial_coverage = len(markers) < iterations
-        return MarkerParseResult(markers=tuple(markers), partial_coverage=partial_coverage)
+        diagnostic = self._build_diagnostic(
+            lines_scanned=len(lines),
+            perf_lines_seen=perf_lines_seen,
+            markers_found=len(markers),
+            iterations=iterations,
+        )
+        return MarkerParseResult(
+            markers=tuple(markers),
+            partial_coverage=partial_coverage,
+            diagnostic=diagnostic,
+        )
+
+    @staticmethod
+    def _build_diagnostic(
+        *, lines_scanned: int, perf_lines_seen: int, markers_found: int, iterations: int
+    ) -> str | None:
+        """Explain WHY marker coverage was zero/partial so a silent run is
+        never a mystery. `None` when coverage is full (markers_found >=
+        iterations) — nothing to explain. Narrows the cause by what was
+        actually observed at each stage: no log output at all -> log output
+        but no `[PERF]` lines -> `[PERF]` lines but incomplete markStart/
+        markEnd."""
+
+        if markers_found >= iterations and markers_found > 0:
+            return None
+        if lines_scanned == 0:
+            return (
+                "no logcat output was captured at all — check the device is connected "
+                "(`adb devices`) and streaming logs, and that the flow actually ran."
+            )
+        if perf_lines_seen == 0:
+            return (
+                f"captured {lines_scanned} logcat line(s) but NONE carried a `[PERF]` marker "
+                "(tag filter `ReactNativeJS:V`) — the app may not be emitting `[PERF]` "
+                "markers, or they are logged under a different tag."
+            )
+        return (
+            f"saw {perf_lines_seen} `[PERF]` line(s) but only {markers_found} of {iterations} "
+            "iteration(s) produced a COMPLETED marker — a `markStart` without a matching "
+            "`markEnd` is skipped (a crash or early exit mid-flow?)."
+        )
 
     @staticmethod
     def _parse_text_payload(payload: str) -> Marker | None:

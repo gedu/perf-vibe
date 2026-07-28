@@ -6,10 +6,24 @@ from __future__ import annotations
 from perf.cli.output.errors import (
     hint_for_diagnostics,
     render_error,
+    render_warning,
     salient_tool_line,
 )
 
 _ANSI = "\x1b["
+
+
+def test_render_warning_plain_has_prefix_and_unwrapped_backticks():
+    out = render_warning("markers: no `[PERF]` lines seen", color=False)
+    assert out == "warning: markers: no [PERF] lines seen"  # backticks unwrapped
+    assert _ANSI not in out  # no color codes when color is off
+
+
+def test_render_warning_color_bolds_prefix_and_backtick_spans():
+    out = render_warning("saw `markEnd`", color=True)
+    assert out.startswith("\x1b[1;33mwarning:\x1b[0m ")  # yellow-bold `warning:` prefix
+    assert "\x1b[1mmarkEnd\x1b[0m" in out  # only the backtick span is bolded, not the whole message
+
 
 # A realistic Flashlight-on-adb-failure blob: a one-line real cause buried
 # in ~15 lines of Node/JS stack frames and a raw byte-Buffer dump.
