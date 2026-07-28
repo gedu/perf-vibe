@@ -3,7 +3,7 @@
 Reuses `examples/demo-compare/seed.py`'s `seed_into()` function AND its
 recorded fixture files verbatim — the SAME regression story (`checkout`
 ~800ms baseline -> ~1300ms on `head`, `ttfp`/Flashlight aggregates stable)
-replayed into budget-check's OWN local `perf.db` so the two demos never
+replayed into budget-check's OWN local `perfvibe.db` so the two demos never
 share mutable state (each can be re-seeded independently).
 
 Run directly: `python examples/demo-budget-check/seed.py` (from anywhere —
@@ -27,7 +27,7 @@ from seed import seed_into  # noqa: E402  (examples/demo-compare/seed.py)
 from fakes import SequentialClock  # noqa: E402
 from perf.adapters.store_sqlite import SqliteStore  # noqa: E402
 
-DEFAULT_DB_PATH = _DEMO_DIR / "perf.db"
+DEFAULT_DB_PATH = _DEMO_DIR / "perfvibe.db"
 DEFAULT_RESULTS_DIR = _DEMO_DIR / ".demo-results"
 
 

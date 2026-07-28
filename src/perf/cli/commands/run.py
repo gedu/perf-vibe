@@ -192,7 +192,7 @@ def run(
         raise typer.Exit(code=2) from None
     except ValueError as exc:
         # An unknown/invalid adapter name from the registry (e.g. a typo in
-        # perf.toml `driver = "maestr"`) is a configuration/usage error →
+        # perfvibe.toml `driver = "maestr"`) is a configuration/usage error →
         # exit 2, NOT a runtime/tooling failure (exit 3).
         emit_error(output, str(exc))
         raise typer.Exit(code=2) from None

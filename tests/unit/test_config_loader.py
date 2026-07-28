@@ -27,7 +27,7 @@ def _write(path: Path, content: str) -> Path:
 
 def test_defaults_when_nothing_configured(tmp_path):
     cfg = load_config(env={}, project_dir=tmp_path)
-    assert cfg.db_path == "perf.db"
+    assert cfg.db_path == "perfvibe.db"
     assert cfg.driver == "maestro"
     assert cfg.sampler == "flashlight"
     assert cfg.marker_source == "adb-logcat"
@@ -38,7 +38,7 @@ def test_defaults_when_nothing_configured(tmp_path):
 
 def test_base_dir_anchors_db_and_results_but_not_flows(tmp_path):
     _write(
-        tmp_path / "perf.toml",
+        tmp_path / "perfvibe.toml",
         """
         base_dir = "e2e"
         db_path = "localdata/perfvibe.db"
@@ -63,7 +63,7 @@ def test_base_dir_anchors_db_and_results_but_not_flows(tmp_path):
 def test_base_dir_leaves_absolute_paths_untouched(tmp_path):
     abs_db = tmp_path / "elsewhere" / "x.db"
     _write(
-        tmp_path / "perf.toml",
+        tmp_path / "perfvibe.toml",
         f"""
         base_dir = "e2e"
         db_path = "{abs_db}"
@@ -75,7 +75,7 @@ def test_base_dir_leaves_absolute_paths_untouched(tmp_path):
 
 def test_no_base_dir_leaves_every_path_relative_and_unchanged(tmp_path):
     _write(
-        tmp_path / "perf.toml",
+        tmp_path / "perfvibe.toml",
         """
         [flows]
         checkout = "flows/checkout.yaml"
@@ -83,14 +83,14 @@ def test_no_base_dir_leaves_every_path_relative_and_unchanged(tmp_path):
     )
     cfg = load_config(env={}, project_dir=tmp_path)
     assert cfg.base_dir is None
-    assert cfg.db_path == "perf.db"
+    assert cfg.db_path == "perfvibe.db"
     assert cfg.results_dir == "results"
     assert cfg.flows["checkout"].maestro_path == "flows/checkout.yaml"
 
 
 def test_project_toml_is_applied(tmp_path):
     _write(
-        tmp_path / "perf.toml",
+        tmp_path / "perfvibe.toml",
         """
         driver = "manual"
         sampler = "flashlight"
@@ -116,7 +116,7 @@ def test_project_toml_is_applied(tmp_path):
 
 
 def test_env_overrides_project(tmp_path):
-    _write(tmp_path / "perf.toml", 'db_path = "project.db"\n')
+    _write(tmp_path / "perfvibe.toml", 'db_path = "project.db"\n')
     cfg = load_config(
         env={"PERF_DB": "/env/path.db", "NO_COLOR": "1", "MAESTRO_DEVICE": "emulator-5554"},
         project_dir=tmp_path,
@@ -127,7 +127,7 @@ def test_env_overrides_project(tmp_path):
 
 
 def test_cli_overrides_env_and_project(tmp_path):
-    _write(tmp_path / "perf.toml", 'db_path = "project.db"\n')
+    _write(tmp_path / "perfvibe.toml", 'db_path = "project.db"\n')
     cfg = load_config(
         cli_db="/cli/path.db",
         cli_no_color=True,
@@ -141,7 +141,7 @@ def test_cli_overrides_env_and_project(tmp_path):
 
 
 def test_explicit_config_path_wins_over_directory_scan(tmp_path):
-    _write(tmp_path / "perf.toml", 'driver = "maestro"\n')
+    _write(tmp_path / "perfvibe.toml", 'driver = "maestro"\n')
     explicit = _write(tmp_path / "custom.toml", 'driver = "manual"\n')
     cfg = load_config(cli_config_path=str(explicit), env={}, project_dir=tmp_path)
     assert cfg.driver == "manual"
@@ -168,7 +168,7 @@ def test_compare_tuning_defaults_when_nothing_configured(tmp_path):
 
 def test_perf_toml_overrides_threshold_and_partial_floor(tmp_path):
     _write(
-        tmp_path / "perf.toml",
+        tmp_path / "perfvibe.toml",
         """
         threshold_pct = 8.0
         min_baseline_commits = 5
@@ -196,18 +196,18 @@ def test_baseline_n_zero_or_negative_clamps_to_one(tmp_path):
     UNBOUNDED — silently loading the ENTIRE history and defeating the
     bounded-window guarantee (spec 'Bounded Compare Performance'). A
     non-positive `baseline_n` must clamp to a minimum of 1."""
-    _write(tmp_path / "perf.toml", "baseline_n = 0\n")
+    _write(tmp_path / "perfvibe.toml", "baseline_n = 0\n")
     cfg = load_config(env={}, project_dir=tmp_path)
     assert cfg.baseline_n == 1
 
-    _write(tmp_path / "perf.toml", "baseline_n = -5\n")
+    _write(tmp_path / "perfvibe.toml", "baseline_n = -5\n")
     cfg = load_config(env={}, project_dir=tmp_path)
     assert cfg.baseline_n == 1
 
 
 def test_full_floors_override_replaces_all_units(tmp_path):
     _write(
-        tmp_path / "perf.toml",
+        tmp_path / "perfvibe.toml",
         """
         [floors]
         ms = 10.0

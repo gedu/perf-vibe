@@ -4,6 +4,6 @@
 # needs `db_path` and a config-known `[flows.demo]` entry (matching what
 # `seed.py` persisted).
 
-db_path = "examples/demo-budget-check/perf.db"
+db_path = "examples/demo-budget-check/perfvibe.db"
 
 [flows.demo]

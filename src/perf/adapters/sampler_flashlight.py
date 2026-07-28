@@ -47,7 +47,7 @@ class FlashlightSampler:
     """`SystemSampler` (`domain/ports.py`) implementation.
 
     `bundle_id` is Flashlight's REQUIRED `--bundleId` — the app under
-    measurement. It is threaded from `perf.toml`'s `bundle_id` key (written
+    measurement. It is threaded from `perfvibe.toml`'s `bundle_id` key (written
     by `perf init`, resolved by `config/loader.py`) at composition time.
     Kept `Optional` at construction so parse-only uses need not supply it,
     but `wrap()` refuses to build an invalid Flashlight command without it
@@ -81,7 +81,7 @@ class FlashlightSampler:
             raise ValueError(
                 "flashlight sampler requires a bundle_id (Flashlight's "
                 "--bundleId, the app under measurement); run `perfvibe init` "
-                "to detect it or set bundle_id in perf.toml"
+                "to detect it or set bundle_id in perfvibe.toml"
             )
 
         # `shlex.join` (stdlib) safely quotes each already-validated argv

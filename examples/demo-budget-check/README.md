@@ -7,7 +7,7 @@ physical or emulated device**, exactly like `examples/demo-compare/`.
 
 `seed.py` reuses `examples/demo-compare/seed.py`'s recorded fixtures and
 `seed_into()` function verbatim (the SAME regression story), replayed into
-this demo's OWN local `perf.db` file:
+this demo's OWN local `perfvibe.db` file:
 
 - 4 baseline commits (`c1`..`c4`) — a stable, low-noise history (`checkout`
   ~800ms, `ttfp` ~410-430ms).
@@ -24,8 +24,8 @@ python examples/demo-budget-check/seed.py
 ```
 
 (Or `./.venv/bin/python examples/demo-budget-check/seed.py` from the dev
-venv.) This (re)creates `examples/demo-budget-check/perf.db` from scratch —
-safe to re-run any time, and independent of `examples/demo-compare/perf.db`.
+venv.) This (re)creates `examples/demo-budget-check/perfvibe.db` from scratch —
+safe to re-run any time, and independent of `examples/demo-compare/perfvibe.db`.
 
 ## Run it
 
@@ -34,23 +34,23 @@ Note the global flags (`--config`, `--json`, `--no-color`) go **before** the
 
 ```sh
 # Pretty (human) output — the gate banner, default fail-open mode
-perfvibe --config examples/demo-budget-check/perf.toml budget-check demo
+perfvibe --config examples/demo-budget-check/perfvibe.toml budget-check demo
 echo "exit code: $?"    # -> 1 (a confirmed regression FAILS the gate)
 
 # --strict: the SAME confirmed regression still fails (strict never changes
 # an already-confirmed regression or a clean pass — it only flips the
 # insufficient-data-class fail-open default to fail-closed)
-perfvibe --config examples/demo-budget-check/perf.toml budget-check demo --strict
+perfvibe --config examples/demo-budget-check/perfvibe.toml budget-check demo --strict
 
 # Machine --json contract (budget_check_v1, schema_version=1)
-perfvibe --json --config examples/demo-budget-check/perf.toml budget-check demo
+perfvibe --json --config examples/demo-budget-check/perfvibe.toml budget-check demo
 
 # Single-metric detail view (larger chart, git context on the regression)
-perfvibe --config examples/demo-budget-check/perf.toml budget-check demo --metric checkout
+perfvibe --config examples/demo-budget-check/perfvibe.toml budget-check demo --metric checkout
 ```
 
 (Not installed yet? Use `python perfvibe-cli.py --config
-examples/demo-budget-check/perf.toml budget-check demo` from the repo root,
+examples/demo-budget-check/perfvibe.toml budget-check demo` from the repo root,
 or `./.venv/bin/perfvibe ...` from the dev venv.)
 
 ## What you should see

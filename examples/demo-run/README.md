@@ -13,30 +13,30 @@ other driver uses:
 
 ## Run it
 
-From the repo root (paths in `perf.toml` are relative to the current
+From the repo root (paths in `perfvibe.toml` are relative to the current
 working directory). Note the global flags (`--config`, `--json`, `--db`) go
 **before** the `run` subcommand:
 
 ```sh
 # Pretty (human) output
-perfvibe --config examples/demo-run/perf.toml run demo
+perfvibe --config examples/demo-run/perfvibe.toml run demo
 
 # Machine --json contract
-perfvibe --json --config examples/demo-run/perf.toml run demo
+perfvibe --json --config examples/demo-run/perfvibe.toml run demo
 ```
 
-(Not installed yet? Use `python perfvibe-cli.py --config examples/demo-run/perf.toml run demo`
+(Not installed yet? Use `python perfvibe-cli.py --config examples/demo-run/perfvibe.toml run demo`
 from the repo root, or `./.venv/bin/perfvibe ...` from the dev venv.)
 
 Both commands exit `0` and persist exactly one run into
-`examples/demo-run/perf.db` (the config's `db_path`, unless overridden with
+`examples/demo-run/perfvibe.db` (the config's `db_path`, unless overridden with
 `--db`).
 
 ## Inspect the persisted run
 
 ```sh
-sqlite3 examples/demo-run/perf.db "SELECT * FROM run;"
-sqlite3 examples/demo-run/perf.db "SELECT * FROM measure;"
+sqlite3 examples/demo-run/perfvibe.db "SELECT * FROM run;"
+sqlite3 examples/demo-run/perfvibe.db "SELECT * FROM measure;"
 ```
 
 No device, no `adb`, no `maestro`, no `flashlight` binary is invoked — only

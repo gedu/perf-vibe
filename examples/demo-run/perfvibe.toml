@@ -10,7 +10,7 @@ bundle_id = "com.example.demo"
 marker_source = "adb-logcat"
 
 default_iterations = 2
-db_path = "examples/demo-run/perf.db"
+db_path = "examples/demo-run/perfvibe.db"
 results_dir = "examples/demo-run/.demo-results"
 
 # Paths are resolved relative to the CURRENT WORKING DIRECTORY the CLI is

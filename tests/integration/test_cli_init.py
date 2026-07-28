@@ -66,7 +66,7 @@ def _patch_load_config(monkeypatch, **overrides) -> PerfConfig:
 
 def test_fresh_config_created_and_round_trips_through_load_config_and_driver(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
 
     result = runner.invoke(
         main_module.app,
@@ -109,7 +109,7 @@ def test_fresh_config_created_and_round_trips_through_load_config_and_driver(mon
 
 def test_fresh_config_pretty_output_exits_0(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
 
     result = runner.invoke(
         main_module.app,
@@ -126,7 +126,7 @@ def test_fresh_config_pretty_output_exits_0(monkeypatch, tmp_path):
 
 def test_zero_flows_dir_exits_2_and_writes_nothing(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
 
     result = runner.invoke(
         main_module.app, ["--config", str(config_path), "init", str(FLOWS_EMPTY_DIR)]
@@ -138,7 +138,7 @@ def test_zero_flows_dir_exits_2_and_writes_nothing(monkeypatch, tmp_path):
 
 def test_mismatch_non_interactive_without_bundle_id_exits_2(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
 
     result = runner.invoke(
         main_module.app, ["--config", str(config_path), "init", str(FLOWS_MISMATCH_DIR)]
@@ -151,7 +151,7 @@ def test_mismatch_non_interactive_without_bundle_id_exits_2(monkeypatch, tmp_pat
 
 def test_mismatch_non_interactive_with_bundle_id_resolves_exit_0(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
 
     result = runner.invoke(
         main_module.app,
@@ -179,7 +179,7 @@ def test_mismatch_non_interactive_with_bundle_id_resolves_exit_0(monkeypatch, tm
 
 def test_merge_new_flow_names_leaves_existing_entries_untouched(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     config_path.write_text(
         "bundle_id = 'com.existing.app'\n\n[flows.existing]\nmaestro_path = 'existing.yaml'\n"
     )
@@ -205,7 +205,7 @@ def test_merge_new_flow_names_leaves_existing_entries_untouched(monkeypatch, tmp
 
 def test_colliding_flow_name_without_force_exits_2_file_untouched(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     original_text = "[flows.login]\nmaestro_path = 'old/login.yaml'\n"
     config_path.write_text(original_text)
 
@@ -227,7 +227,7 @@ def test_colliding_flow_name_without_force_exits_2_file_untouched(monkeypatch, t
 
 def test_colliding_flow_name_with_force_overwrites_exit_0(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     config_path.write_text("[flows.login]\nmaestro_path = 'old/login.yaml'\n")
 
     result = runner.invoke(
@@ -254,7 +254,7 @@ def test_colliding_flow_name_with_force_overwrites_exit_0(monkeypatch, tmp_path)
 
 def test_comment_guard_requires_force_non_interactively(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     original_text = "# hand-written note, please keep me\nbundle_id = 'com.existing.app'\n"
     config_path.write_text(original_text)
 
@@ -278,7 +278,7 @@ def test_comment_guard_requires_force_non_interactively(monkeypatch, tmp_path):
 
 def test_comment_guard_force_proceeds_and_overwrites(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     config_path.write_text("# hand-written note, please keep me\nbundle_id = 'com.existing.app'\n")
 
     result = runner.invoke(
@@ -305,7 +305,7 @@ def test_comment_guard_force_proceeds_and_overwrites(monkeypatch, tmp_path):
 
 def test_driver_and_db_written_verbatim_only_when_supplied(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
 
     result = runner.invoke(
         main_module.app,
@@ -331,7 +331,7 @@ def test_driver_and_db_written_verbatim_only_when_supplied(monkeypatch, tmp_path
 
 def test_driver_and_db_omitted_entirely_when_not_supplied(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
 
     result = runner.invoke(
         main_module.app,
@@ -354,7 +354,7 @@ def test_driver_and_db_omitted_entirely_when_not_supplied(monkeypatch, tmp_path)
 # ===== 3.6: output path resolution (tasks.md decision #2) =====
 
 
-def test_output_path_defaults_to_cwd_perf_toml_when_config_omitted(monkeypatch, tmp_path):
+def test_output_path_defaults_to_cwd_perfvibe_toml_when_config_omitted(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
     monkeypatch.chdir(tmp_path)
 
@@ -364,7 +364,7 @@ def test_output_path_defaults_to_cwd_perf_toml_when_config_omitted(monkeypatch, 
     )
 
     assert result.exit_code == 0, result.output
-    default_path = tmp_path / "perf.toml"
+    default_path = tmp_path / "perfvibe.toml"
     assert default_path.is_file()
     payload = json.loads(result.stdout)
     assert payload["config_path"] == str(default_path)
@@ -393,7 +393,7 @@ def test_explicit_config_path_used_verbatim(monkeypatch, tmp_path):
     assert payload["config_path"] == str(explicit_path)
     assert explicit_path.is_file()
     # Default CWD path must NOT have been touched.
-    assert not (tmp_path / "perf.toml").exists()
+    assert not (tmp_path / "perfvibe.toml").exists()
 
 
 # ===== 3.7: exit-code sweep — never 1; unwritable target exits 3 =====
@@ -406,7 +406,7 @@ def test_explicit_config_path_used_verbatim(monkeypatch, tmp_path):
 )
 def test_init_never_exits_1(monkeypatch, tmp_path, flows_dir):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
 
     result = runner.invoke(main_module.app, ["--config", str(config_path), "init", str(flows_dir)])
 
@@ -423,7 +423,7 @@ def test_init_never_exits_1(monkeypatch, tmp_path, flows_dir):
 )
 def test_init_never_exits_1_on_flows_dir_with_flags(monkeypatch, tmp_path, extra_args):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
 
     result = runner.invoke(
         main_module.app,
@@ -441,7 +441,7 @@ def test_unwritable_target_dir_exits_3(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
     readonly_dir = tmp_path / "readonly"
     readonly_dir.mkdir()
-    config_path = readonly_dir / "perf.toml"
+    config_path = readonly_dir / "perfvibe.toml"
     readonly_dir.chmod(0o500)  # read + execute only — no write permission
     try:
         result = runner.invoke(
@@ -475,7 +475,7 @@ _STALE_ENTRY_TOML = (
 
 def test_non_interactive_yes_prunes_immediately_exit_0(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     config_path.write_text(_STALE_ENTRY_TOML)
 
     result = runner.invoke(
@@ -503,7 +503,7 @@ def test_non_interactive_yes_prunes_immediately_exit_0(monkeypatch, tmp_path):
 
 def test_non_interactive_no_yes_json_previews_full_state_and_exits_2(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     original_text = _STALE_ENTRY_TOML
     config_path.write_text(original_text)
 
@@ -531,7 +531,7 @@ def test_non_interactive_no_yes_json_previews_full_state_and_exits_2(monkeypatch
 
 def test_non_interactive_no_yes_no_json_previews_to_stderr_and_exits_2(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     original_text = _STALE_ENTRY_TOML
     config_path.write_text(original_text)
 
@@ -555,7 +555,7 @@ def test_non_interactive_no_yes_no_json_previews_to_stderr_and_exits_2(monkeypat
 
 def test_zero_missing_set_is_a_no_op_exit_0(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     config_path.write_text("bundle_id = 'com.existing.app'\n")
 
     result = runner.invoke(
@@ -579,7 +579,7 @@ def test_zero_missing_set_is_a_no_op_exit_0(monkeypatch, tmp_path):
 
 def test_zero_missing_set_is_a_no_op_with_yes_too(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     config_path.write_text("bundle_id = 'com.existing.app'\n")
 
     result = runner.invoke(
@@ -604,7 +604,7 @@ def test_zero_missing_set_is_a_no_op_with_yes_too(monkeypatch, tmp_path):
 
 def test_plain_init_without_prune_missing_leaves_stale_entry_untouched(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     config_path.write_text(_STALE_ENTRY_TOML)
 
     result = runner.invoke(
@@ -629,7 +629,7 @@ def test_plain_init_without_prune_missing_leaves_stale_entry_untouched(monkeypat
 
 def test_composes_with_force_collision_and_prune_in_one_write(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     config_path.write_text(
         "bundle_id = 'com.existing.app'\n\n"
         "[flows.login]\nmaestro_path = 'old/login.yaml'\n\n"
@@ -668,7 +668,7 @@ def test_p9_zero_discovered_flows_wins_over_prune_missing(monkeypatch, tmp_path)
     used to empty a flows table via an empty/wrong glob."""
 
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     original_text = _STALE_ENTRY_TOML
     config_path.write_text(original_text)
 
@@ -695,7 +695,7 @@ def test_p10_comment_loss_guard_fires_first_with_only_yes(monkeypatch, tmp_path)
     before the prune gate is ever reached; nothing is pruned."""
 
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     original_text = "# keep me\n" + _STALE_ENTRY_TOML
     config_path.write_text(original_text)
 
@@ -723,7 +723,7 @@ def test_p11_force_and_yes_together_drop_comments_and_prune_in_one_write(monkeyp
     comments dropped AND the missing entry pruned in the SAME write, exit 0."""
 
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     config_path.write_text("# keep me\n" + _STALE_ENTRY_TOML)
 
     result = runner.invoke(
@@ -756,7 +756,7 @@ def test_p12_preview_shows_both_flows_added_and_flows_pruned_populated(monkeypat
     state), plus `bundle_id`/`flows_total`, with NO write."""
 
     _patch_load_config(monkeypatch)
-    config_path = tmp_path / "perf.toml"
+    config_path = tmp_path / "perfvibe.toml"
     original_text = _STALE_ENTRY_TOML
     config_path.write_text(original_text)
 

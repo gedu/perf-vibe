@@ -2,7 +2,7 @@
 """Run perfvibe from a source checkout WITHOUT installing.
 
     python perfvibe-cli.py --help
-    python perfvibe-cli.py --config examples/demo-run/perf.toml run demo
+    python perfvibe-cli.py --config examples/demo-run/perfvibe.toml run demo
 
 Puts `src/` on the import path so the `perf` package resolves even when the
 project has not been `pip install`-ed. For a normal install use the `perfvibe`

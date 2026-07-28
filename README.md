@@ -57,11 +57,11 @@ run it straight from a source checkout with the venv from the previous section:
 
 ```bash
 # globals (--config/--json) go BEFORE the subcommand
-perfvibe --config examples/demo-run/perf.toml run demo          # pretty output
-perfvibe --json --config examples/demo-run/perf.toml run demo   # machine contract
+perfvibe --config examples/demo-run/perfvibe.toml run demo          # pretty output
+perfvibe --json --config examples/demo-run/perfvibe.toml run demo   # machine contract
 
 # no install? from a source checkout, same thing via the launcher:
-./.venv/bin/python perfvibe-cli.py --config examples/demo-run/perf.toml run demo
+./.venv/bin/python perfvibe-cli.py --config examples/demo-run/perfvibe.toml run demo
 ```
 
 There is a second, seeded demo that shows `compare` computing a real regression
@@ -96,7 +96,7 @@ regression exits `0`; `budget-check` is what spends the CI-gating exit `1`.
 ## Configuring flows
 
 `perfvibe` reads which Maestro flows exist and where their `.yaml` files live
-from a `perf.toml` config file's `[flows]` table — one `[flows.<name>]`
+from a `perfvibe.toml` config file's `[flows]` table — one `[flows.<name>]`
 sub-table per flow, pointing at that flow's `maestro_path`:
 
 ```toml
@@ -113,13 +113,13 @@ Hand-writing this table works, but `perfvibe init <flows-dir>` scaffolds or
 merges it for you: it recursively scans a Maestro flows directory (skipping
 any `subflows/` — those are `runFlow` utilities, never top-level flows),
 detects a single consistent `appId:` header across the flows as your
-`bundle_id`, and writes (or safely merges into) `perf.toml`.
+`bundle_id`, and writes (or safely merges into) `perfvibe.toml`.
 
 ```bash
 perfvibe init tests/fixtures/flows --yes --bundle-id com.example.app
 ```
 
-Add `--force` to overwrite a colliding flow name or a `perf.toml` that
+Add `--force` to overwrite a colliding flow name or a `perfvibe.toml` that
 contains hand-written comments (re-serializing always drops comments — this
 tool refuses to do that silently). See `perfvibe init --help` for the full
 flag list (`--driver`, `--db`, `--bundle-id`, `--force`, `--yes`,
@@ -127,8 +127,8 @@ flag list (`--driver`, `--db`, `--bundle-id`, `--force`, `--yes`,
 
 **Adding flows later?** Re-run the same `perfvibe init <flows-dir>` command —
 it re-scans the whole directory and merges in any genuinely new flow names,
-leaving existing entries untouched. Since `perf.toml` is a plain committed
-file, `git diff perf.toml` right after running it is your review of what
+leaving existing entries untouched. Since `perfvibe.toml` is a plain committed
+file, `git diff perfvibe.toml` right after running it is your review of what
 changed. Note this is add-only: if an *existing* flow's file moved or you
 want to update its `maestro_path`, a plain re-run won't touch that entry —
 pass `--force` to overwrite it (which overwrites every colliding name in
@@ -145,7 +145,7 @@ would-be-pruned names (to stdout as `--json`, else to stderr) and exits `2`
 without writing, so it never silently deletes and never silently no-ops.
 It composes with `--force` (a name can be simultaneously new/colliding and a
 different name simultaneously missing, in the same run) and with the
-comment-loss guard (a commented `perf.toml` pruned non-interactively needs
+comment-loss guard (a commented `perfvibe.toml` pruned non-interactively needs
 BOTH `--force` and `--yes`, since each guard is waived independently). It
 also can never empty the flows table down to zero: if `--flows-dir` itself
 discovers no flows, the pre-existing "no candidate flows discovered" usage
@@ -156,9 +156,9 @@ wrong-path mistake, not an intent to delete everything.
 perfvibe init tests/fixtures/flows --yes --prune-missing
 ```
 
-**CI should read a committed `perf.toml`, not regenerate one at CI time.**
+**CI should read a committed `perfvibe.toml`, not regenerate one at CI time.**
 Run `perfvibe init` locally once, review the diff, and commit the resulting
-`perf.toml` alongside your Maestro flows — the same way you'd commit any
+`perfvibe.toml` alongside your Maestro flows — the same way you'd commit any
 other config file. `run`/`compare`/`budget-check` in CI then read that
 committed file directly; there is no `init` step in the CI pipeline itself.
 This keeps the set of flows CI measures explicit and reviewable in the PR
