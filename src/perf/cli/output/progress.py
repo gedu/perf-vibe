@@ -57,17 +57,34 @@ reported count — never the separately-tracked REQUESTED count
 iteration from the report), the header says so honestly ("N requested · M
 reported") instead of showing a number that would contradict the rows
 below it.
+
+`--quiet`/`-q` (Slice D, LOCKED decision: ONE flag = fully silent):
+`build_progress_reporter(quiet=True)` returns `NullProgressReporter`
+instead of `StderrProgressReporter` — mirrors `build_sampler` returning
+`None` for "not selected" (design "`--quiet`" decision). Because
+`cli/commands/run.py` calls `.recap()`/`.run_header()` on whatever this
+factory returns, `NullProgressReporter` now ALSO implements both as true
+no-ops (a full structural drop-in), and the factory's return type is
+narrowed to the `CliProgressReporter` Protocol below — NOT the concrete
+`StderrProgressReporter` it returned before Slice D — so mypy proves both
+branches safe to call `.recap()`/`.run_header()` on without `run.py`
+needing an `isinstance` guard or a `# type: ignore`.
 """
 
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING, TextIO
+from typing import TYPE_CHECKING, Protocol, TextIO
 
 if TYPE_CHECKING:
     from perf.application.run_flow import RunFlowResult
 
-__all__ = ["NullProgressReporter", "StderrProgressReporter", "build_progress_reporter"]
+__all__ = [
+    "CliProgressReporter",
+    "NullProgressReporter",
+    "StderrProgressReporter",
+    "build_progress_reporter",
+]
 
 _PENDING = "⏳"
 _OK = "✅"
@@ -78,10 +95,41 @@ _BOLD_RED = "\x1b[1;31m"
 _RESET = "\x1b[0m"
 
 
+class CliProgressReporter(Protocol):
+    """Composition-root typing seam (Slice D): the domain `ProgressReporter`
+    Protocol's 4 primitives PLUS the 2 concrete-only methods (`recap`,
+    `run_header`) that `cli/commands/run.py` calls on whatever
+    `build_progress_reporter` returns. Lives HERE, not `domain/ports.py` —
+    `recap` needs `RunFlowResult`, an `application/` type the pure domain
+    Protocol must never see (design "recap() placement").
+
+    `StderrProgressReporter` and `NullProgressReporter` both satisfy this
+    structurally; `build_progress_reporter`'s return type is THIS Protocol
+    (not a `Union[...]`, not `# type: ignore`) so mypy proves both branches
+    safe for `run.py` to call `.recap()`/`.run_header()` on without any
+    `isinstance` guard."""
+
+    def iteration_started(self, index: int, total: int) -> None: ...
+
+    def iteration_finished(self, index: int, total: int, *, ok: bool) -> None: ...
+
+    def awaiting_user_input(self, prompt: str) -> None: ...
+
+    def relayed_line(self, text: str) -> None: ...
+
+    def recap(self, result: RunFlowResult) -> None: ...
+
+    def run_header(self, flow_name: str, iterations: int) -> None: ...
+
+
 class NullProgressReporter:
     """`ProgressReporter` (`domain/ports.py`) no-op — the `--quiet`/`-q`
     reporter (Slice D) and a safe silent default. Every event is a no-op;
-    it never touches any stream."""
+    it never touches any stream.
+
+    Also implements `recap`/`run_header` (Slice D) as no-ops so it is a
+    FULL drop-in for `StderrProgressReporter` from `run.py`'s point of
+    view — a full structural match for `CliProgressReporter` above."""
 
     def iteration_started(self, index: int, total: int) -> None:
         pass
@@ -93,6 +141,12 @@ class NullProgressReporter:
         pass
 
     def relayed_line(self, text: str) -> None:
+        pass
+
+    def recap(self, result: RunFlowResult) -> None:
+        pass
+
+    def run_header(self, flow_name: str, iterations: int) -> None:
         pass
 
 
@@ -205,9 +259,10 @@ class StderrProgressReporter:
 
 def build_progress_reporter(
     *,
+    quiet: bool = False,
     stderr_is_tty: bool = False,
     error_color_enabled: bool = False,
-) -> StderrProgressReporter:
+) -> CliProgressReporter:
     """Composition-root factory for the live `ProgressReporter` port.
 
     Lives in the CLI/presentation layer (NOT `adapters/registry.py`): a
@@ -217,17 +272,25 @@ def build_progress_reporter(
     adapters->cli inversion + circular-import that a registry-side factory
     forced). `stderr_is_tty`/`error_color_enabled` mirror the SAME
     `OutputContext` fields resolved once by `resolve_output_context`, never
-    re-derived from `isatty()` here. Slice D adds a `quiet` path returning
-    `NullProgressReporter` (mirrors `build_sampler` returning `None`).
+    re-derived from `isatty()` here.
 
-    Returns the CONCRETE `StderrProgressReporter` (not the `ProgressReporter`
-    Protocol) — Slice C's design ("recap() placement": "CLI holds the
-    concrete reporter and calls it") needs `cli/commands/run.py` to keep a
-    reference typed narrowly enough to call `.recap()` after `execute()`
-    returns; the Protocol-typed `reporter` parameter that `build_driver`
-    accepts is structurally satisfied by this same concrete instance
-    either way."""
+    `quiet=True` (Slice D, LOCKED decision: ONE flag = fully silent) returns
+    `NullProgressReporter` — mirrors `build_sampler` returning `None` for
+    "not selected"; `stderr_is_tty`/`error_color_enabled` are simply unused
+    in that branch, never threaded through.
 
+    Returns the `CliProgressReporter` Protocol (this module's typing seam),
+    NOT the concrete `StderrProgressReporter` it returned before Slice D:
+    `cli/commands/run.py` calls `.recap()`/`.run_header()` on WHICHEVER
+    reporter this returns, and since Slice D gives `NullProgressReporter`
+    true no-op implementations of both, this Protocol is what proves both
+    branches structurally safe to call — without an `isinstance` guard in
+    `run.py` or a `# type: ignore` here. The narrower `ProgressReporter`
+    Protocol (`domain/ports.py`) that `build_driver` accepts is still
+    structurally satisfied by either concrete instance either way."""
+
+    if quiet:
+        return NullProgressReporter()
     return StderrProgressReporter(
         stderr_is_tty=stderr_is_tty,
         error_color_enabled=error_color_enabled,

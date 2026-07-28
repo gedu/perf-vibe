@@ -335,10 +335,53 @@ def test_run_header_writes_a_non_indented_top_level_line():
     assert stream.getvalue() == "🎯 checkout · 2 iterations via Flashlight\n"
 
 
-def test_run_header_is_not_on_the_progress_reporter_protocol():
-    """`run_header()` lives ONLY on the concrete `StderrProgressReporter` —
-    same placement rule as `recap()` — never on the pure `ProgressReporter`
-    Protocol (`domain/ports.py`), and `NullProgressReporter` never needs
-    one either since `run.py` only calls it on the concrete reporter it
-    already retained."""
-    assert not hasattr(NullProgressReporter(), "run_header")
+def test_run_header_and_recap_stay_off_the_domain_progress_reporter_protocol():
+    """`run_header()`/`recap()` live ONLY on concrete CLI-layer reporters —
+    never on the pure `ProgressReporter` Protocol (`domain/ports.py`, which
+    stays primitives-only, design "recap() placement"). Slice D gives
+    `NullProgressReporter` its OWN no-op `run_header`/`recap` (see
+    `test_null_progress_reporter_recap_and_run_header_are_true_no_ops`) so
+    it is a full drop-in for `StderrProgressReporter` from `run.py`'s point
+    of view — but the domain Protocol itself is unchanged by that."""
+    from perf.domain.ports import ProgressReporter
+
+    assert not hasattr(ProgressReporter, "recap")
+    assert not hasattr(ProgressReporter, "run_header")
+
+
+# ===== run-live-progress Slice D: --quiet =====
+
+
+def test_build_progress_reporter_quiet_returns_null_progress_reporter():
+    """D.2 (RED) — LOCKED decision: ONE flag = fully silent.
+    `build_progress_reporter(quiet=True)` returns `NullProgressReporter`,
+    mirroring `build_sampler` returning `None` for "not selected".
+
+    Deviation from tasks.md D.2/D.3 wording ("adapters/registry.py"): this
+    test (and the `quiet` branch itself) lives in `cli/output/progress.py`
+    instead, because `build_progress_reporter` itself was already moved out
+    of `adapters/registry.py` in Slice A/B to avoid an adapters->cli import
+    inversion (see this module's docstring, "Lives in the CLI/presentation
+    layer... keeps the adapter layer free of any `cli/` import") — adding a
+    quiet path in the registry would reintroduce exactly that inversion."""
+    reporter = build_progress_reporter(quiet=True)
+    assert isinstance(reporter, NullProgressReporter)
+
+
+def test_build_progress_reporter_not_quiet_returns_concrete_reporter():
+    reporter = build_progress_reporter(quiet=False)
+    assert isinstance(reporter, StderrProgressReporter)
+
+
+def test_null_progress_reporter_recap_and_run_header_are_true_no_ops():
+    """Slice D scope #3: `NullProgressReporter` MUST be a full drop-in for
+    `StderrProgressReporter` from `run.py`'s point of view — it needs
+    `recap(result)`/`run_header(flow_name, iterations)` too, so `run.py`
+    never has to guard those calls behind a quiet check. Both are true
+    no-ops: no stream is touched (there is none to touch) and neither
+    raises."""
+    reporter = NullProgressReporter()
+    result = _result()
+
+    reporter.recap(result)
+    reporter.run_header("checkout", 2)

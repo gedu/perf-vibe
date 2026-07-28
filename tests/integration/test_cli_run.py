@@ -15,6 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 import perf.cli.commands.run as run_module
+from perf.cli.output.context import NON_TTY_NUDGE
 from perf.config.loader import FlowConfig, PerfConfig
 
 # `perf/cli/__init__.py` intentionally does `from perf.cli.main import main`
@@ -560,3 +561,221 @@ def test_tool_managed_flashlight_relay_stays_on_stderr_json_purity_holds_with_re
     assert "✅ iteration 1/2" in result.stderr
     assert "❌ iteration 2/2" in result.stderr
     assert "Recap" not in result.stdout
+
+
+# ===== run-live-progress Slice D: --quiet =====
+
+
+def test_quiet_flag_zero_stderr_bytes_driver_managed(monkeypatch, tmp_path: Path):
+    """D.1 (RED): `--quiet` yields ZERO stderr progress bytes even with a
+    REAL, registry-built `MaestroDriver` DRIVER_MANAGED path relaying live
+    tool output (`build_driver` is never monkeypatched — python-testing
+    rule 3). Mirrors
+    `test_driver_managed_maestro_relay_stays_on_stderr_json_purity_holds`
+    with `--quiet` added; only `SubprocessRunner.run_streamed`/
+    `start_capture`/`stop_capture` (the process boundary) are faked."""
+    from perf.adapters.process import CaptureResult, CommandResult
+    from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
+
+    def fake_run_streamed(self, argv, *, env=None, cwd=None, on_line=None):
+        if on_line is not None:
+            on_line("RUN Checkout Flow")
+            on_line("[PERF] checkout: 900ms")
+        return CommandResult(returncode=0, stdout="", stderr="")
+
+    def fake_start_capture(self, argv):
+        return object()
+
+    def fake_stop_capture(self, process):
+        return CaptureResult(lines=["[PERF] checkout: 900ms"], returncode=0)
+
+    monkeypatch.setattr(RealSubprocessRunner, "run_streamed", fake_run_streamed)
+    monkeypatch.setattr(RealSubprocessRunner, "start_capture", fake_start_capture)
+    monkeypatch.setattr(RealSubprocessRunner, "stop_capture", fake_stop_capture)
+
+    config = PerfConfig(
+        db_path=str(tmp_path / "perf.db"),
+        no_color=True,
+        driver="maestro",
+        sampler=None,
+        marker_source="adb-logcat",
+        default_iterations=1,
+        flows={"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
+    )
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["--json", "run", "checkout", "--quiet"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)  # raises if any stray byte reached stdout
+    assert payload["schema_version"] == 1
+    assert payload["flow"] == "checkout"
+    assert result.stderr == ""
+
+
+def test_quiet_flag_zero_stderr_bytes_tool_managed_with_recap(monkeypatch, tmp_path: Path):
+    """D.1: same scenario as
+    `test_tool_managed_flashlight_relay_stays_on_stderr_json_purity_holds_with_recap`
+    with `--quiet` added — the framing header, the live relay, AND the
+    recap must ALL go silent; stdout stays byte-pure JSON."""
+    from perf.adapters.process import CommandResult
+    from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
+
+    def fake_run_streamed(self, argv, *, env=None, cwd=None, on_line=None):
+        results_path = argv[argv.index("--resultsFilePath") + 1]
+        report = {
+            "name": "Results",
+            "status": "SUCCESS",
+            "iterations": [
+                {
+                    "time": 900.0,
+                    "startTime": 0.0,
+                    "status": "SUCCESS",
+                    "measures": [{"fps": 60.0, "ram": 100.0, "cpu": {"perName": {"UI": 5.0}}}],
+                },
+                {"time": 500.0, "startTime": 0.0, "status": "FAILURE", "measures": []},
+            ],
+        }
+        Path(results_path).write_text(json.dumps(report))
+        if on_line is not None:
+            on_line("RUN Checkout Flow")
+            on_line("  COMPLETED")
+        return CommandResult(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(RealSubprocessRunner, "run_streamed", fake_run_streamed)
+
+    config = PerfConfig(
+        db_path=str(tmp_path / "perf.db"),
+        no_color=True,
+        driver="maestro",
+        sampler="flashlight",
+        marker_source=None,
+        bundle_id="com.example.app",
+        results_dir=str(tmp_path),
+        default_iterations=2,
+        flows={"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
+    )
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["--json", "run", "checkout", "--quiet"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)  # raises if any stray byte reached stdout
+    assert payload["schema_version"] == 1
+    assert payload["flow"] == "checkout"
+    assert payload["partial_coverage"] is True
+    assert result.stderr == ""
+
+
+def test_quiet_short_flag_suppresses_stderr_progress(monkeypatch, tmp_path: Path):
+    """D.1 corner case: `-q` (short form) behaves identically to `--quiet`.
+    Uses `--json` (like the other quiet tests) so the assertion isolates
+    PROGRESS bytes specifically — the pre-existing, unrelated non-TTY
+    `--json` nudge (`NON_TTY_NUDGE`) only fires on the pretty path and is
+    out of this change's scope."""
+    config = _config(sampler=None, marker_source="adb-logcat", db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_registry(monkeypatch, marker_factory=_happy_marker_factory)
+
+    result = runner.invoke(main_module.app, ["--json", "run", "checkout", "-q"])
+
+    assert result.exit_code == 0, result.output
+    assert result.stderr == ""
+    payload = json.loads(result.stdout)
+    assert payload["flow"] == "checkout"
+
+
+def test_quiet_does_not_change_exit_code_on_failure(monkeypatch, tmp_path: Path):
+    """Corner case: `--quiet` suppresses OUTPUT only, never the exit-code
+    gate — a failed run still exits 3 with `--quiet` active."""
+    config = _config(sampler=None, marker_source="adb-logcat", db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_registry(
+        monkeypatch,
+        driver=FakeDriver(drive_error=OSError("device offline")),
+        marker_factory=_happy_marker_factory,
+    )
+
+    result = runner.invoke(main_module.app, ["run", "checkout", "--quiet"])
+
+    assert result.exit_code == 3, result.output
+
+
+def test_run_help_documents_quiet_flag_and_short_form(monkeypatch, tmp_path: Path):
+    """Sanity check: `--quiet`/`-q` are discoverable via `--help` (same
+    pattern as the existing `--restart`/`--device` options)."""
+    config = _config(db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["run", "--help"])
+
+    assert result.exit_code == 0
+    assert "--quiet" in result.stdout
+    assert "-q" in result.stdout
+
+
+# ===== run-live-progress Slice D post-review FIX 1: --quiet must silence
+# NON_TTY_NUDGE too =====
+
+
+def test_quiet_flag_suppresses_non_tty_nudge_on_pretty_path(monkeypatch, tmp_path: Path):
+    """FIX 1 (RED before the fix): a pretty (non `--json`), non-TTY-stdout
+    run with `--quiet` must emit NO nudge (and no progress) on stderr.
+    Before the fix, `NON_TTY_NUDGE` was gated ONLY on
+    `output.should_nudge_stderr`, never on `quiet`, so it leaked through
+    even with `--quiet` active — contradicting the flag's own help text."""
+    config = _config(sampler=None, marker_source="adb-logcat", db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_registry(monkeypatch, marker_factory=_happy_marker_factory)
+
+    result = runner.invoke(main_module.app, ["run", "checkout", "--quiet"])
+
+    assert result.exit_code == 0, result.output
+    assert result.stderr == ""
+    assert NON_TTY_NUDGE not in result.stderr
+
+
+def test_non_quiet_non_tty_pretty_run_still_emits_nudge(monkeypatch, tmp_path: Path):
+    """Regression guard for FIX 1: WITHOUT `--quiet`, the same non-TTY
+    pretty-path run must still emit `NON_TTY_NUDGE` on stderr — the fix
+    must gate the nudge on `quiet`, not remove it unconditionally."""
+    config = _config(sampler=None, marker_source="adb-logcat", db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_registry(monkeypatch, marker_factory=_happy_marker_factory)
+
+    result = runner.invoke(main_module.app, ["run", "checkout"])
+
+    assert result.exit_code == 0, result.output
+    assert NON_TTY_NUDGE in result.stderr
+
+
+# ===== run-live-progress Slice D post-review FIX 2: --quiet + manual driver
+# must be a clean usage error, never a silent stdin hang =====
+
+
+def test_quiet_with_manual_driver_exits_2_before_any_prompt(monkeypatch, tmp_path: Path):
+    """FIX 2 (RED before the fix): `perfvibe run <manual-flow> --quiet`
+    must exit 2 with a clear message on stderr and never block on stdin.
+    Before the fix, `ManualDriver.drive()` surfaces its prompt ONLY via
+    `reporter.awaiting_user_input(...)`, a no-op under
+    `NullProgressReporter` (what `--quiet` wires up) — so the run would
+    block on `input()` with NO visible prompt. `build_driver` is never
+    monkeypatched here (python-testing rule 3): the guard must reject the
+    combination BEFORE any driver is even built, so a real `ManualDriver`
+    is never constructed and `input()` is never reached."""
+    config = PerfConfig(
+        db_path=str(tmp_path / "perf.db"),
+        no_color=True,
+        driver="manual",
+        sampler=None,
+        marker_source="adb-logcat",
+        default_iterations=1,
+        flows={"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
+    )
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["run", "checkout", "--quiet"])
+
+    assert result.exit_code == 2, result.output
+    assert "--quiet" in result.stderr
+    assert "manual" in result.stderr.lower()
