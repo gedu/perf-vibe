@@ -129,10 +129,18 @@ class FlashlightSampler:
 
         samples: list[SystemSample] = []
         partial_coverage = False
+        # `run-live-progress` Slice C: the FULL per-iteration ok/not-ok list,
+        # index-aligned with `iterations[]` — unlike `samples`, a failed
+        # iteration still gets an entry here (as `False`) rather than being
+        # dropped, so the CLI recap can show a TRUE per-iteration status
+        # instead of fabricating one.
+        iteration_statuses: list[bool] = []
 
         for idx, iteration in enumerate(raw.get("iterations", [])):
             iter_status = iteration.get("status")
-            if iter_status is not None and iter_status != "SUCCESS":
+            ok = iter_status is None or iter_status == "SUCCESS"
+            iteration_statuses.append(ok)
+            if not ok:
                 # Exclude the failed iteration from aggregation entirely —
                 # it never becomes a normal-looking SystemSample — and
                 # surface the gap as partial coverage.
@@ -163,4 +171,8 @@ class FlashlightSampler:
                 )
             )
 
-        return SystemSampleParseResult(samples=samples, partial_coverage=partial_coverage)
+        return SystemSampleParseResult(
+            samples=samples,
+            partial_coverage=partial_coverage,
+            iteration_statuses=iteration_statuses,
+        )

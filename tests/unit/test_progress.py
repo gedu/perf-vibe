@@ -19,11 +19,32 @@ from __future__ import annotations
 
 import io
 
+from perf.application.run_flow import RunFlowResult
 from perf.cli.output.progress import (
     NullProgressReporter,
     StderrProgressReporter,
     build_progress_reporter,
 )
+
+
+def _result(**overrides) -> RunFlowResult:
+    defaults: dict = {
+        "run_id": 1,
+        "flow_name": "checkout",
+        "device_key": "Pixel-Fake|14|physical",
+        "git_commit": "abc123",
+        "is_dev_bundle": None,
+        "source": "local:test",
+        "mode": "warm",
+        "iterations": 2,
+        "markers": (),
+        "samples": (),
+        "raw_report_path": None,
+        "partial_coverage": False,
+        "iteration_statuses": None,
+    }
+    defaults.update(overrides)
+    return RunFlowResult(**defaults)
 
 
 def _make(*, stderr_is_tty: bool, error_color_enabled: bool = False) -> tuple:
@@ -168,3 +189,156 @@ def test_default_stream_is_sys_stderr(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert captured.err.strip() == "hello from stderr"
     assert captured.out == ""
+
+
+# ===== run-live-progress Slice C: recap() =====
+
+
+def test_recap_renders_true_per_iteration_table_when_iteration_statuses_available():
+    """C.3 (RED): with `iteration_statuses` populated (Flashlight sampler),
+    `recap()` renders a TRUE per-iteration ✅/❌ row per entry — including a
+    row for a failed/excluded iteration (partial coverage), never
+    fabricating an all-✅ table."""
+    reporter, stream = _make(stderr_is_tty=False)
+    result = _result(
+        iterations=3,
+        partial_coverage=True,
+        iteration_statuses=[True, False, True],
+    )
+
+    reporter.recap(result)
+
+    lines = stream.getvalue().splitlines()
+    assert lines == [
+        "Recap · checkout · 3 iteration(s)",
+        "✅ iteration 1/3",
+        "❌ iteration 2/3",
+        "✅ iteration 3/3",
+    ]
+
+
+def test_recap_honest_coverage_summary_when_no_iteration_statuses_and_partial():
+    """When the active sampler/marker-source never surfaced per-iteration
+    status (`iteration_statuses is None`), `recap()` must NOT fabricate a
+    per-iteration ✅ — it renders an honest coarse summary instead, using
+    `partial_coverage` for the partial case. FIX 3 (correctness/cleanup):
+    the coarse summary uses ONLY the locked ⏳/✅/❌ vocabulary + plain
+    words — never a 4th glyph (the ⚠️ this branch used to emit)."""
+    reporter, stream = _make(stderr_is_tty=False)
+    result = _result(iterations=4, partial_coverage=True, iteration_statuses=None)
+
+    reporter.recap(result)
+
+    output = stream.getvalue()
+    assert "Recap · checkout · 4 iteration(s)" in output
+    assert "❌" in output
+    assert "partial coverage" in output
+    assert "⚠️" not in output
+    # Never a fabricated per-iteration ✅/❌ row when there is no real
+    # per-iteration data to draw one from.
+    assert "iteration 1/4" not in output
+
+
+def test_recap_honest_coverage_summary_when_no_iteration_statuses_and_complete():
+    reporter, stream = _make(stderr_is_tty=False)
+    result = _result(iterations=2, partial_coverage=False, iteration_statuses=None)
+
+    reporter.recap(result)
+
+    output = stream.getvalue()
+    assert "Recap · checkout · 2 iteration(s)" in output
+    assert "✅" in output
+    assert "complete" in output
+    assert "⚠️" not in output
+
+
+def test_recap_empty_iteration_statuses_falls_back_to_honest_coverage_line():
+    """FIX 1 (correctness): `FlashlightSampler.parse()` returns
+    `iteration_statuses=[]` (an EMPTY list, NOT `None`) when the results
+    JSON has zero `iterations[]` entries. An empty list must be treated the
+    SAME as `None` — falling through to the honest coarse summary — never
+    silently skipping the per-iteration loop and rendering NO coverage
+    line at all (just the header, in silence)."""
+    reporter, stream = _make(stderr_is_tty=False)
+    result = _result(iterations=3, partial_coverage=True, iteration_statuses=[])
+
+    reporter.recap(result)
+
+    lines = stream.getvalue().splitlines()
+    assert lines[0] == "Recap · checkout · 3 iteration(s)"
+    # A real, honest coverage line MUST follow the header — never silence.
+    assert len(lines) >= 2
+    assert any("partial coverage" in line for line in lines[1:])
+    assert not any(
+        line.startswith("✅ iteration") or line.startswith("❌ iteration") for line in lines
+    )
+
+
+def test_recap_reports_requested_vs_reported_when_counts_disagree():
+    """FIX 2 (correctness): the header must never contradict the rendered
+    per-iteration rows. When the REQUESTED count (`result.iterations`)
+    disagrees with the ACTUAL reported count (`len(iteration_statuses)`),
+    the header surfaces BOTH numbers honestly instead of picking the
+    requested count and rendering rows that visibly disagree with it."""
+    reporter, stream = _make(stderr_is_tty=False)
+    result = _result(iterations=5, partial_coverage=True, iteration_statuses=[True, False, True])
+
+    reporter.recap(result)
+
+    lines = stream.getvalue().splitlines()
+    assert lines[0] == "Recap · checkout · 5 requested · 3 reported"
+    assert lines[1:] == [
+        "✅ iteration 1/3",
+        "❌ iteration 2/3",
+        "✅ iteration 3/3",
+    ]
+
+
+def test_recap_header_and_rows_share_the_same_count_when_they_agree():
+    """FIX 2 companion: when requested == reported, the header stays the
+    simple `N iteration(s)` form (no "requested/reported" noise) and every
+    row denominator matches it."""
+    reporter, stream = _make(stderr_is_tty=False)
+    result = _result(iterations=3, partial_coverage=True, iteration_statuses=[True, False, True])
+
+    reporter.recap(result)
+
+    lines = stream.getvalue().splitlines()
+    assert lines[0] == "Recap · checkout · 3 iteration(s)"
+    assert all(line.endswith("/3") for line in lines[1:])
+
+
+def test_recap_never_emits_pending_glyph():
+    """Recap renders ONCE after completion — every iteration is already
+    resolved, so the ⏳ (pending) glyph must never appear in a recap."""
+    reporter, stream = _make(stderr_is_tty=False)
+    result = _result(iterations=2, partial_coverage=False, iteration_statuses=[True, True])
+
+    reporter.recap(result)
+
+    assert "⏳" not in stream.getvalue()
+
+
+# ===== run-live-progress Slice C fix: run_header() (FIX 4) =====
+
+
+def test_run_header_writes_a_non_indented_top_level_line():
+    """FIX 4 (cleanup): the TOOL_MANAGED framing header used to be emitted
+    via `relayed_line` inside `driver_maestro.py` — 3-space indented, so it
+    read like a nested relayed tool line. `run_header()` is a dedicated,
+    concrete-only method (mirrors `recap()`) that writes a DISTINCT
+    top-level line — never indented."""
+    reporter, stream = _make(stderr_is_tty=False)
+
+    reporter.run_header("checkout", 2)
+
+    assert stream.getvalue() == "🎯 checkout · 2 iterations via Flashlight\n"
+
+
+def test_run_header_is_not_on_the_progress_reporter_protocol():
+    """`run_header()` lives ONLY on the concrete `StderrProgressReporter` —
+    same placement rule as `recap()` — never on the pure `ProgressReporter`
+    Protocol (`domain/ports.py`), and `NullProgressReporter` never needs
+    one either since `run.py` only calls it on the concrete reporter it
+    already retained."""
+    assert not hasattr(NullProgressReporter(), "run_header")

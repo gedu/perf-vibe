@@ -31,6 +31,10 @@ def test_parse_aggregates_per_iteration_from_fixture():
 
     assert len(samples) == 2
     assert result.partial_coverage is False
+    # `run-live-progress` Slice C: FULL per-iteration status list (index-
+    # aligned with `iterations[]`), used by the CLI-side `recap()` for a
+    # TRUE per-iteration table.
+    assert result.iteration_statuses == [True, True]
 
     first, second = samples
     assert first.iteration_idx == 0
@@ -91,8 +95,15 @@ def test_parse_empty_measures_still_records_iteration_time(tmp_path):
 
 
 def test_wrap_builds_flashlight_argv_wrapping_the_inner_maestro_command(tmp_path):
+    """`inner` mirrors what `MaestroDriver.command()` actually composes
+    (`run-live-progress` Slice C: `--no-ansi` is always present, BEFORE any
+    `--env` secret) — this fixture embeds it verbatim so the wrapped
+    `--testCommand` string proves the whole inner argv, `--no-ansi`
+    included, survives `shlex.join` unchanged."""
     sampler = FlashlightSampler(bundle_id="com.example.app")
-    inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
+    inner = DriverCommand(
+        argv=["maestro", "test", "flows/checkout.yaml", "--no-ansi"], automated=True
+    )
     results_path = tmp_path / "run1.json"
 
     wrapped = sampler.wrap(inner, iterations=5, restart=False, results_path=str(results_path))
@@ -104,7 +115,7 @@ def test_wrap_builds_flashlight_argv_wrapping_the_inner_maestro_command(tmp_path
     assert wrapped.argv[bundle_id_idx] == "com.example.app"
     assert "--testCommand" in wrapped.argv
     test_command_idx = wrapped.argv.index("--testCommand") + 1
-    assert wrapped.argv[test_command_idx] == "maestro test flows/checkout.yaml"
+    assert wrapped.argv[test_command_idx] == "maestro test flows/checkout.yaml --no-ansi"
     assert "--iterationCount" in wrapped.argv
     assert "5" in wrapped.argv
     assert "--resultsFilePath" in wrapped.argv
@@ -203,3 +214,7 @@ def test_one_failed_iteration_among_successes_yields_only_success_sample_and_par
     assert result.samples[0].iteration_idx == 0
     assert result.samples[0].fps_avg == 59.28
     assert result.partial_coverage is True
+    # The FAILURE iteration still gets an entry (as `False`) — it is only
+    # excluded from `samples`, never from `iteration_statuses` — so the CLI
+    # recap can show it as ❌ rather than silently vanishing.
+    assert result.iteration_statuses == [True, False]

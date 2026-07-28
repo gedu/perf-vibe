@@ -96,6 +96,14 @@ class MaestroDriver:
         if self._device is not None:
             argv += ["--device", self._device]
         argv += ["test", flow_path]
+        # Slice C (`run-live-progress`, real-binary-confirmed): piped Maestro
+        # output is already clean plain text with no ANSI/cursor bytes, but
+        # `--no-ansi` is passed explicitly anyway for a stable, tool-
+        # guaranteed contract rather than relying on Maestro's own pipe
+        # auto-detection. Placed BEFORE any `--env` secret flags. Because
+        # Flashlight wraps this argv verbatim via `--testCommand` (design
+        # §3), this also reaches the TOOL_MANAGED path automatically.
+        argv.append("--no-ansi")
         if env:
             for key, value in env.items():
                 # secret forwarding (e.g. PASSWORD) as an argv flag —
@@ -148,9 +156,28 @@ class MaestroDriver:
         )
 
     def _drive_tool_managed(self, plan: ExecutionPlan) -> tuple[list[str], str | None]:
+        """Slice C (`run-live-progress` design): the single Flashlight-
+        wrapped subprocess now streams LIVE through `run_streamed` (never
+        `.run()`) so Flashlight's own stdout/stderr — and the nested Maestro
+        output it wraps — relays to STDERR as it happens, exactly like
+        `_drive_driver_managed`. Flashlight owns the iteration loop here
+        (`--iterationCount`), so NO `iteration_started`/`iteration_finished`
+        events are synthesized — there is exactly one subprocess and no
+        real per-iteration boundary to bracket; every relayed line is
+        treated as OPAQUE text, never parsed to fabricate one (design open
+        item, confirmed against a live piped Maestro binary: plain text,
+        no ANSI/cursor bytes).
+
+        Cleanup fix (post-review): the framing header this method used to
+        emit via `relayed_line` (indented like a nested tool line, and
+        requiring a `_last_flow_name` field on this class to remember the
+        flow name) moved OUT to `StderrProgressReporter.run_header()`
+        (`cli/output/progress.py`), called by `cli/commands/run.py` BEFORE
+        `execute()` — that call site already knows the flow name and
+        iteration count without any adapter-side state."""
         if plan.command is None:
             raise RuntimeError("TOOL_MANAGED plan requires a composed command")
-        result = self._runner.run(list(plan.command))
+        result = self._runner.run_streamed(list(plan.command), on_line=self._reporter.relayed_line)
         outcome = "ok" if result.returncode == 0 else "failed"
         diagnostics = bounded_diagnostics(result.stderr) if result.returncode != 0 else None
         return [outcome] * plan.iterations, diagnostics

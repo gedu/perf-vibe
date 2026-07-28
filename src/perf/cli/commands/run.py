@@ -126,6 +126,21 @@ def run(
             results_dir=config.results_dir if sampler is not None else None,
         )
 
+        # `run-live-progress` cleanup fix (post-review): the TOOL_MANAGED
+        # framing header used to be emitted from inside
+        # `MaestroDriver._drive_tool_managed` via `relayed_line` (indented
+        # like a nested tool line, and requiring a mutable `_last_flow_name`
+        # field on the driver just to remember the flow name). This CLI
+        # layer already holds the concrete reporter and knows `flow`/
+        # `resolved_iterations`/`config.sampler` — so it calls the new,
+        # non-indented `reporter.run_header(...)` directly, guarded to only
+        # the Flashlight-sampler (TOOL_MANAGED) path, and only inside this
+        # SAME try block so an unexpected failure still maps to exit 3,
+        # never Python's default exit 1 (SKILL rule 7), and never touches
+        # stdout.
+        if config.sampler == "flashlight":
+            reporter.run_header(flow, resolved_iterations)
+
         result = use_case.execute(request)
     except UsageError as exc:
         emit_error(output, str(exc))
@@ -165,6 +180,15 @@ def run(
                 typer.echo(f"warning: failed to close store: {close_exc}", err=True)
 
     try:
+        # Slice C (`run-live-progress`): recap renders ONCE, on the success
+        # path only, straight after `execute()` returned — a failure never
+        # reaches here (the earlier `except RunFailedError`/`except
+        # Exception` blocks already exited). STDERR-only, so it is
+        # orthogonal to the `--json`/pretty STDOUT payload rendered right
+        # after it; guarded in the SAME try/except as that rendering so an
+        # unexpected recap failure maps to exit 3 like any other output
+        # failure, never Python's default exit 1 (SKILL rule 7).
+        reporter.recap(result)
         if output.json_mode:
             payload = build_run_payload(result)
             typer.echo(render_json(payload))

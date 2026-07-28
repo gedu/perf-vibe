@@ -11,6 +11,15 @@ DRIVER_MANAGED live events): the DRIVER_MANAGED loop now drives each
 iteration through `run_streamed` (never `.run()`, which stays TOOL_MANAGED-
 only per design) and emits `iteration_started`/`iteration_finished(ok=)` +
 relayed lines through the injected `FakeProgressReporter`.
+
+`run-live-progress` Slice C: `command()` now composes `--no-ansi` into the
+maestro argv (real-binary-confirmed: piped Maestro is already clean plain
+text, but `--no-ansi` is passed anyway for a tool-guaranteed contract) —
+every existing argv-asserting test below is updated to expect it. Slice C
+ALSO switches TOOL_MANAGED (`_drive_tool_managed`) from `.run()` to
+`run_streamed`, so the old `test_tool_managed_still_uses_run_not_run_streamed`
+non-invasiveness guard is now the OPPOSITE of current behavior and has been
+replaced by `test_tool_managed_relays_via_run_streamed_unparsed_no_fake_iteration_events`.
 """
 
 from __future__ import annotations
@@ -68,20 +77,42 @@ def test_command_is_an_argv_list_not_a_string():
     driver = MaestroDriver(_KNOWN_FLOWS, runner=_FakeRunner())
     cmd = driver.command("checkout", mode="warm", restart=False)
     assert isinstance(cmd.argv, list)
-    assert cmd.argv == ["maestro", "test", "flows/checkout.yaml"]
+    assert cmd.argv == ["maestro", "test", "flows/checkout.yaml", "--no-ansi"]
 
 
 def test_command_includes_device_pinning_when_configured():
     driver = MaestroDriver(_KNOWN_FLOWS, device="emulator-5554", runner=_FakeRunner())
     cmd = driver.command("checkout", mode="warm", restart=False)
-    assert cmd.argv == ["maestro", "--device", "emulator-5554", "test", "flows/checkout.yaml"]
+    assert cmd.argv == [
+        "maestro",
+        "--device",
+        "emulator-5554",
+        "test",
+        "flows/checkout.yaml",
+        "--no-ansi",
+    ]
 
 
 def test_command_forwards_env_secrets_as_maestro_env_flags_never_a_shell_string():
     driver = MaestroDriver(_KNOWN_FLOWS, runner=_FakeRunner())
     cmd = driver.command("checkout", mode="warm", restart=False, env={"PASSWORD": "s3cr3t"})
-    assert cmd.argv == ["maestro", "test", "flows/checkout.yaml", "--env", "PASSWORD=s3cr3t"]
+    assert cmd.argv == [
+        "maestro",
+        "test",
+        "flows/checkout.yaml",
+        "--no-ansi",
+        "--env",
+        "PASSWORD=s3cr3t",
+    ]
     assert isinstance(cmd.argv, list)
+
+
+def test_command_no_ansi_precedes_env_secrets():
+    """Slice C task explicit requirement: `--no-ansi` must be composed
+    BEFORE any `--env` secret flag."""
+    driver = MaestroDriver(_KNOWN_FLOWS, runner=_FakeRunner())
+    cmd = driver.command("checkout", mode="warm", restart=False, env={"PASSWORD": "s3cr3t"})
+    assert cmd.argv.index("--no-ansi") < cmd.argv.index("--env")
 
 
 def test_unknown_flow_is_rejected_before_any_subprocess_spawn():
@@ -118,6 +149,9 @@ def test_drive_driver_managed_runs_inner_command_n_times_and_captures_logcat():
 
 
 def test_drive_tool_managed_spawns_the_composed_command_once():
+    """Slice C: TOOL_MANAGED now streams through `run_streamed` (never the
+    buffered `.run()`), so the composed command is spawned exactly once via
+    the STREAMING call, not the buffered one."""
     runner = _FakeRunner()
     driver = MaestroDriver(_KNOWN_FLOWS, runner=runner)
     inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
@@ -125,7 +159,7 @@ def test_drive_tool_managed_spawns_the_composed_command_once():
         "flashlight",
         "test",
         "--testCommand",
-        "maestro test flows/checkout.yaml",
+        "maestro test flows/checkout.yaml --no-ansi",
         "--iterationCount",
         "3",
         "--resultsFilePath",
@@ -143,9 +177,65 @@ def test_drive_tool_managed_spawns_the_composed_command_once():
 
     result = driver.drive(plan)
 
-    assert runner.run_calls == [wrapped_command]
+    assert runner.run_streamed_calls == [wrapped_command]
+    assert runner.run_calls == []
     assert result.ok is True
     assert runner.capture_started == []  # no MarkerSource active -> no logcat capture
+
+
+def test_tool_managed_relays_via_run_streamed_unparsed_no_fake_iteration_events():
+    """C.1 (RED, threat-matrix): the single TOOL_MANAGED subprocess relays
+    LIVE through `run_streamed`, every line reaching the reporter verbatim
+    (opaque — never parsed to synthesize per-iteration events, since
+    Flashlight owns the loop and there is exactly one subprocess). Also
+    asserts the composed inner command (what Flashlight wraps via
+    `--testCommand`) includes `--no-ansi`."""
+    runner = _FakeRunner(streamed_lines=("RUN Checkout Flow", "  COMPLETED"))
+    reporter = FakeProgressReporter()
+    driver = MaestroDriver(_KNOWN_FLOWS, runner=runner, reporter=reporter)
+    inner_cmd = driver.command("checkout", mode="warm", restart=False)
+    assert "--no-ansi" in inner_cmd.argv
+
+    wrapped_command = [
+        "flashlight",
+        "test",
+        "--testCommand",
+        " ".join(inner_cmd.argv),
+        "--iterationCount",
+        "2",
+        "--resultsFilePath",
+        "r.json",
+        "--skipRestart",
+    ]
+    plan = ExecutionPlan(
+        command=wrapped_command,
+        inner=inner_cmd,
+        loop_mode=LoopMode.TOOL_MANAGED,
+        iterations=2,
+        capture=None,
+        results_path="r.json",
+    )
+
+    result = driver.drive(plan)
+
+    assert result.ok is True
+    assert runner.run_calls == []
+    assert runner.run_streamed_calls == [wrapped_command]
+    # No synthesized iteration_started/iteration_finished events — Flashlight
+    # owns the loop, not this driver — only relayed_line events for the two
+    # streamed lines, unparsed, in order. FIX 4 (cleanup, post-review): the
+    # driver no longer emits its own framing header via `relayed_line` — that
+    # moved to `StderrProgressReporter.run_header()` (`cli/output/progress.py`),
+    # called by `cli/commands/run.py` BEFORE `execute()` — so relayed_line
+    # events here are ONLY the tool's own streamed output.
+    event_kinds = [event[0] for event in reporter.events]
+    assert "iteration_started" not in event_kinds
+    assert "iteration_finished" not in event_kinds
+    relayed = [event[1] for event in reporter.events if event[0] == "relayed_line"]
+    assert relayed == [
+        "RUN Checkout Flow",
+        "  COMPLETED",
+    ]
 
 
 def test_drive_failure_is_reported_not_swallowed():
@@ -347,9 +437,11 @@ def test_driver_managed_never_calls_reporter_when_none_injected():
     assert result.ok is True
 
 
-def test_tool_managed_still_uses_run_not_run_streamed():
-    """Non-invasiveness guard (Slice C scope, not B): TOOL_MANAGED must stay
-    on `.run()` — Slice B never touches that path."""
+def test_tool_managed_now_uses_run_streamed_not_run():
+    """Slice C flips the Slice-B-era guard: TOOL_MANAGED now streams via
+    `run_streamed`, never the buffered `.run()` (superseded
+    `test_tool_managed_still_uses_run_not_run_streamed`, whose assertion was
+    the exact opposite of Slice C's design)."""
     runner = _FakeRunner()
     driver = MaestroDriver(_KNOWN_FLOWS, runner=runner)
     inner = DriverCommand(argv=["maestro", "test", "flows/checkout.yaml"], automated=True)
@@ -365,8 +457,8 @@ def test_tool_managed_still_uses_run_not_run_streamed():
 
     driver.drive(plan)
 
-    assert runner.run_calls == [wrapped_command]
-    assert runner.run_streamed_calls == []
+    assert runner.run_calls == []
+    assert runner.run_streamed_calls == [wrapped_command]
 
 
 def test_real_subprocess_runner_never_uses_shell_true():
