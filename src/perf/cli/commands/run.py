@@ -49,6 +49,13 @@ def run(
     device: str | None = typer.Option(
         None, "--device", help="Pin a device serial (overrides MAESTRO_DEVICE/config)"
     ),
+    quiet: bool = typer.Option(
+        False,
+        "--quiet",
+        "-q",
+        help="Suppress all progress, relayed tool output, and the end recap "
+        "on stderr (errors are still reported).",
+    ),
 ) -> None:
     """Drive a config-known flow N times, capture measurements, and
     persist exactly one run."""
@@ -70,6 +77,23 @@ def run(
         )
         raise typer.Exit(code=2)
 
+    # FIX 2 (`run-live-progress` Slice D post-review): a fully-silent
+    # `--quiet` manual driver is contradictory — `ManualDriver.drive()`
+    # surfaces its per-iteration prompt ONLY via
+    # `reporter.awaiting_user_input(...)`, which `NullProgressReporter`
+    # (what `--quiet` wires up) makes a no-op, so the run would block on
+    # `input()` with NO visible prompt: a silent, undiagnosable hang. Reject
+    # this combination up front as a usage error (exit 2, never 1 — SKILL
+    # rule 7), before any driver is built or interacted with, rather than
+    # let it hang.
+    if config.driver == "manual" and quiet:
+        emit_error(
+            output,
+            "--quiet cannot be used with the manual driver: it must prompt "
+            "you before each iteration. Re-run without --quiet.",
+        )
+        raise typer.Exit(code=2)
+
     resolved_device = device or config.device
     resolved_iterations = iterations if iterations is not None else config.default_iterations
 
@@ -87,6 +111,7 @@ def run(
     store = None
     try:
         reporter = build_progress_reporter(
+            quiet=quiet,
             stderr_is_tty=output.stderr_is_tty,
             error_color_enabled=output.error_color_enabled,
         )
@@ -193,7 +218,12 @@ def run(
             payload = build_run_payload(result)
             typer.echo(render_json(payload))
         else:
-            if output.should_nudge_stderr:
+            # FIX 1 (`run-live-progress` Slice D post-review): this nudge is
+            # progress-class chrome, not an error/warning — `--quiet` must
+            # suppress it too, same as it suppresses the header/relay/recap
+            # above. `emit_error`/the store-close warning are UNCHANGED —
+            # only progress-class output + this nudge are gated on `quiet`.
+            if output.should_nudge_stderr and not quiet:
                 typer.echo(NON_TTY_NUDGE, err=True)
             typer.echo(render_confirmation(result, color=output.color_enabled))
     except Exception as exc:

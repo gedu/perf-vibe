@@ -119,16 +119,75 @@ _Spec: run-progress/Maestro+Flashlight scenario; perf-run/Exit-Code Discipline._
 
 _Spec: perf-run/CLI Options and Configuration Surface, --quiet scenario._
 
-- [ ] D.1 RED `tests/integration/test_cli_run.py`: `--quiet`/`-q` yields zero stderr progress bytes (chrome + relay); exit code/final output unaffected; non-TTY auto-degrade (sequential lines) still works WITHOUT the flag.
-- [ ] D.2 RED `tests/integration/test_registry.py`: `build_progress_reporter(quiet=True, ...)` returns `NullProgressReporter`.
-- [ ] D.3 GREEN `adapters/registry.py`: `quiet=True` path returns `NullProgressReporter` (mirrors `build_sampler` returning `None`).
-- [ ] D.4 GREEN `cli/commands/run.py`: add `--quiet`/`-q` typer option; no second `--full-quiet` flag.
-- [ ] D.5 Verify: full suite green (`./.venv/bin/pytest -q --cov=perf`); mypy+ruff clean; coverage threshold met.
+- [x] D.1 RED `tests/integration/test_cli_run.py`: `--quiet`/`-q` yields zero stderr progress bytes (chrome + relay); exit code/final output unaffected; non-TTY auto-degrade (sequential lines) still works WITHOUT the flag.
+- [x] D.2 RED — DEVIATION: implemented in `tests/unit/test_progress.py`, not `tests/integration/test_registry.py` — see "Deviations from Design" below. `build_progress_reporter(quiet=True, ...)` returns `NullProgressReporter`.
+- [x] D.3 GREEN — DEVIATION: implemented in `cli/output/progress.py`, not `adapters/registry.py` (see below). `quiet=True` path returns `NullProgressReporter` (mirrors `build_sampler` returning `None`).
+- [x] D.4 GREEN `cli/commands/run.py`: add `--quiet`/`-q` typer option; no second `--full-quiet` flag.
+- [x] D.5 Verify: full suite green (`./.venv/bin/pytest -q --cov=perf` → 609 passed, 95.03% coverage vs 93.0% threshold); mypy (`./.venv/bin/mypy src/perf` → no issues in 47 files) + ruff (`./.venv/bin/ruff check .` → all checks passed; `./.venv/bin/ruff format --check .` → 104 files formatted) clean; coverage threshold met.
+
+### Slice D — Deviations from tasks.md wording (D.2/D.3)
+
+`build_progress_reporter` does not live in `adapters/registry.py` — Slice
+A/B already moved it to `cli/output/progress.py` to avoid an adapters->cli
+import inversion + circular import (documented in that module's docstring
+and in the Slice A/B/C apply-progress notes). Adding the `quiet=True`
+branch to `adapters/registry.py` as D.3 literally says would reintroduce
+that exact inversion, so the branch (and its RED test) were added to
+`cli/output/progress.py`/`tests/unit/test_progress.py` instead, keeping
+the established architecture consistent. `cli/commands/run.py` still owns
+the `--quiet`/`-q` CLI option (D.4) and threads `quiet=quiet` into the
+(unchanged-location) factory.
+
+Also, `NullProgressReporter` now implements `recap(result)` and
+`run_header(flow_name, iterations)` as true no-ops (full drop-in for
+`StderrProgressReporter`), and `build_progress_reporter`'s return type is
+narrowed to a new `CliProgressReporter` Protocol (`cli/output/progress.py`)
+— the domain-pure 4 methods plus `recap`/`run_header` — instead of the
+concrete `StderrProgressReporter` type it returned after Slice C. This is
+the typing seam that lets `run.py` call `.recap()`/`.run_header()` on
+whichever reporter the factory returns without an `isinstance` guard or a
+`# type: ignore`.
+
+### Slice D — Post-Review Correctness Fixes (adversarial review, before merge)
+
+- [x] FIX 1 (correctness): `NON_TTY_NUDGE` in `cli/commands/run.py` was gated
+  ONLY on `output.should_nudge_stderr`, never on `quiet` — so
+  `perfvibe run <flow> --quiet > out.txt` (pretty, non-`--json`, non-TTY
+  stdout) still printed the nudge to stderr, contradicting `--quiet`'s own
+  help text ("only the final result remains"). Fixed: the nudge is now
+  gated on `output.should_nudge_stderr and not quiet`. `emit_error` and the
+  store-close warning are UNCHANGED — errors/warnings always surface, even
+  under `--quiet`; only progress-class output + this nudge are suppressed.
+  Also reworded the `--quiet` help text to be honest about what survives:
+  "Suppress all progress, relayed tool output, and the end recap on stderr
+  (errors are still reported)." Tests:
+  `test_quiet_flag_suppresses_non_tty_nudge_on_pretty_path` (RED confirmed
+  by temporarily reverting the gate before reapplying it — pretty,
+  non-TTY, `--quiet` → zero stderr bytes) and
+  `test_non_quiet_non_tty_pretty_run_still_emits_nudge` (regression guard —
+  same scenario WITHOUT `--quiet` still emits `NON_TTY_NUDGE`).
+- [x] FIX 2 (correctness): `ManualDriver.drive()` surfaces its per-iteration
+  prompt ONLY via `reporter.awaiting_user_input(...)`; under `--quiet`,
+  `build_progress_reporter(quiet=True)` returns `NullProgressReporter`,
+  whose `awaiting_user_input` is a no-op — so `--quiet` + `driver = "manual"`
+  blocked on `input()` with NO visible prompt (a silent, undiagnosable
+  hang). Fixed: `cli/commands/run.py` now rejects `config.driver == "manual"
+  and quiet` as a clean usage error (`emit_error` + `typer.Exit(code=2)`),
+  placed right after the existing unknown-flow guard and BEFORE any driver
+  is built or interacted with. Test:
+  `test_quiet_with_manual_driver_exits_2_before_any_prompt` (RED confirmed
+  the same way — reverting the guard reproduced a real `input()` call
+  raising `EOFError` inside the CLI, mapped to exit 3, not the intended
+  exit 2 — before reapplying the guard).
+- [x] Gates: `./.venv/bin/pytest -q --cov=perf` → 612 passed, 95.07% coverage
+  (threshold 93.0%); `./.venv/bin/mypy src/perf` → no issues in 47 files;
+  `./.venv/bin/ruff check .` → all checks passed; `./.venv/bin/ruff format
+  --check .` → 104 files formatted.
 
 ## Cross-Cutting Acceptance Checklist (verify at each slice's `Verify` task)
 
-- [ ] `--json` stdout stays byte-pure; every progress byte goes to STDERR.
-- [ ] Exit codes unchanged: `run` never exits `1`; rendering/relay failure -> exit `3`.
-- [ ] Emoji vocabulary locked to exactly ⏳/✅/❌, uniform across drivers.
-- [ ] No `rich` dependency introduced; hand-rolled ANSI only.
-- [ ] mypy + ruff clean; coverage meets project threshold, each slice.
+- [x] `--json` stdout stays byte-pure; every progress byte goes to STDERR.
+- [x] Exit codes unchanged: `run` never exits `1`; rendering/relay failure -> exit `3`.
+- [x] Emoji vocabulary locked to exactly ⏳/✅/❌, uniform across drivers.
+- [x] No `rich` dependency introduced; hand-rolled ANSI only.
+- [x] mypy + ruff clean; coverage meets project threshold, each slice.
