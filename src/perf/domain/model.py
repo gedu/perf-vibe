@@ -387,6 +387,13 @@ class MarkerParseResult:
 
     markers: Sequence[Marker]
     partial_coverage: bool
+    # A short, actionable human explanation set by the `MarkerSource` when
+    # coverage is zero or partial — WHY no/few markers came back (no log
+    # output at all, log output but no `[PERF]` lines, or `[PERF]` lines but
+    # incomplete markStart/markEnd). `None` when coverage is full (nothing to
+    # explain). Surfaced by the CLI so a silent zero-marker run is never a
+    # mystery.
+    diagnostic: str | None = None
 
 
 @dataclass(frozen=True)

@@ -117,6 +117,12 @@ class RunFlowResult:
     # (`cli/output/progress.py`) can render a TRUE per-iteration table
     # instead of fabricating ✅ for iterations it never actually observed.
     iteration_statuses: Sequence[bool] | None = None
+    # A short, actionable explanation from the active `MarkerSource` when a
+    # marker source was configured but coverage came back zero/partial — so
+    # the CLI can WARN (never silently) about a run that persisted samples
+    # yet captured no/few markers. `None` when no marker source is active or
+    # coverage was full.
+    marker_diagnostic: str | None = None
 
 
 class RunFlowUseCase:
@@ -268,19 +274,24 @@ class RunFlowUseCase:
 
         markers: Sequence[Marker] = ()
         markers_partial = False
+        marker_diagnostic: str | None = None
         if self._marker_source is not None:
             marker_result = self._marker_source.parse(
                 driver_result.logcat_lines, iterations=request.iterations
             )
             markers = marker_result.markers
             markers_partial = marker_result.partial_coverage
+            marker_diagnostic = marker_result.diagnostic
 
         # Step 10: no data captured -> runtime/tooling failure, no run row.
+        # Prefer the marker source's actionable "why zero markers" explanation
+        # as the surfaced cause (the driver's own diagnostics is often empty on
+        # a flow that otherwise ran fine) so the user can actually dig.
         if not samples and not markers:
             raise RunFailedError(
                 f"No measurements captured for flow {request.flow_name!r} — "
                 "both configured sources yielded zero data.",
-                diagnostics=driver_result.diagnostics,
+                diagnostics=marker_diagnostic or driver_result.diagnostics,
             )
 
         # Step 11: run context (bash-owned facts + app-owned [PERF-META]).
@@ -326,6 +337,7 @@ class RunFlowUseCase:
             raw_report_path=raw_report_path,
             partial_coverage=bool(samples_partial or markers_partial),
             iteration_statuses=iteration_statuses,
+            marker_diagnostic=marker_diagnostic,
         )
 
     def _get_context(self, logcat_lines: Sequence[str]) -> RunContext:

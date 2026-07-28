@@ -332,6 +332,47 @@ def test_missing_results_dir_success_report_is_actually_written(monkeypatch, tmp
     assert json.loads(written[0].read_text())["status"] == "SUCCESS"
 
 
+def test_zero_markers_with_valid_samples_persists_and_warns(monkeypatch, tmp_path: Path):
+    """A configured marker source that captures ZERO markers (logcat had no
+    `[PERF]` lines) but valid Flashlight samples must PERSIST (exit 0) and
+    surface a WARNING explaining why — never silently swallow the gap. The
+    warning goes to STDERR so `--json` stdout stays byte-pure."""
+    from perf.adapters.process import CaptureResult
+    from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
+
+    results_dir = tmp_path / "results"
+    monkeypatch.setattr(
+        RealSubprocessRunner, "run_streamed", _make_writing_run_streamed(success=True)
+    )
+    monkeypatch.setattr(RealSubprocessRunner, "start_capture", lambda self, argv: object())
+    monkeypatch.setattr(
+        RealSubprocessRunner,
+        "stop_capture",
+        lambda self, process: CaptureResult(lines=["--------- beginning of main"], returncode=None),
+    )
+    config = PerfConfig(
+        db_path=str(tmp_path / "perfvibe.db"),
+        no_color=True,
+        driver="maestro",
+        sampler="flashlight",
+        marker_source="adb-logcat",
+        bundle_id="com.example.app",
+        results_dir=str(results_dir),
+        default_iterations=1,
+        flows={"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
+    )
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["--json", "run", "checkout"])
+
+    assert result.exit_code == 0, result.output  # samples persisted -> success, NOT a failure
+    payload = json.loads(result.stdout)  # stdout stays byte-pure JSON
+    assert payload["flow"] == "checkout"
+    assert "warning:" in result.stderr  # the gap is surfaced, never silent
+    assert "markers:" in result.stderr
+    assert "[PERF]" in result.stderr  # actionable: says no [PERF] lines were seen
+
+
 def test_missing_results_dir_failed_flow_exits_3_never_1(monkeypatch, tmp_path: Path):
     """(b) `results_dir` missing + the flow itself fails (non-zero exit, no
     report ever written) — must still exit 3 with a meaningful cause, and

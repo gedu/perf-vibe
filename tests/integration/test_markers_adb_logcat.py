@@ -55,6 +55,41 @@ def test_malformed_json_marker_line_is_skipped_not_crashed():
     assert result.partial_coverage is True
 
 
+# ===== marker diagnostics (why zero/partial coverage) =====
+
+
+def test_diagnostic_is_none_when_coverage_is_full():
+    source = AdbLogcatMarkerSource()
+    result = source.parse(_load_lines(), iterations=2)  # 2 completed >= 2 iterations
+    assert result.diagnostic is None  # full coverage -> nothing to explain
+
+
+def test_diagnostic_explains_no_logcat_output_at_all():
+    source = AdbLogcatMarkerSource()
+    result = source.parse([], iterations=3)
+    assert result.diagnostic is not None
+    assert "no logcat output" in result.diagnostic.lower()
+
+
+def test_diagnostic_explains_lines_but_no_perf_markers():
+    source = AdbLogcatMarkerSource()
+    lines = ["--------- beginning of main", "some app log line", "another line"]
+    result = source.parse(lines, iterations=3)
+    assert result.markers == ()
+    assert result.diagnostic is not None
+    assert "[PERF]" in result.diagnostic
+    assert "3" in result.diagnostic  # reports the 3 captured-but-unmatched lines
+
+
+def test_diagnostic_explains_perf_lines_but_partial_coverage():
+    source = AdbLogcatMarkerSource()
+    result = source.parse(["[PERF] checkout: 900ms"], iterations=3)  # 1 completed, 3 expected
+    assert len(result.markers) == 1
+    assert result.diagnostic is not None
+    assert "1 of 3" in result.diagnostic
+    assert "markEnd" in result.diagnostic  # points at the likely cause
+
+
 def test_arbitrary_metric_names_no_hardcoded_route():
     source = AdbLogcatMarkerSource()
     result = source.parse(["[PERF] some_totally_arbitrary_metric_name: 42ms"], iterations=1)
