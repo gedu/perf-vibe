@@ -45,17 +45,53 @@ class CaptureResult:
 # unbounded subprocess stderr/output blob).
 _MAX_DIAGNOSTICS_LENGTH = 2000
 
+# When bounding exceeds the limit, split the AVAILABLE budget between head
+# and tail rather than keeping only the head. A verbose tool's real failure
+# line (a Maestro assertion, an `ENOENT`, `exited with code 1`) is very often
+# at the TAIL of its output — a head-only trim (the previous behavior)
+# silently dropped it, leaving `salient_tool_line` nothing to find but the
+# first, usually boring, line (e.g. "Running on Pixel_8_Pro"). The head/tail
+# sizes are DERIVED from the caller's `max_len` (see `bounded_diagnostics`
+# below) rather than fixed constants, so the bound is actually honored for
+# any `max_len`, not just the module default.
+_TRUNCATION_MARKER_HEAD = "\n... (truncated "
+_TRUNCATION_MARKER_TAIL = " chars) ...\n"
+
 
 def bounded_diagnostics(text: str, *, max_len: int = _MAX_DIAGNOSTICS_LENGTH) -> str | None:
     """Trim/bound raw stderr or captured-output text into a diagnostics
-    string, or `None` when there is nothing to say."""
+    string, or `None` when there is nothing to say.
+
+    When the text exceeds `max_len`, keeps BOTH the head and the tail (with a
+    `... (truncated N chars) ...` marker in between) instead of dropping the
+    tail entirely — the tail is where a real tool failure line usually lives
+    (see the module comment above). The head/tail sizes are DERIVED from
+    `max_len` itself (split the remaining budget after reserving room for the
+    marker) so the returned text — marker included — never exceeds `max_len`,
+    and the "truncated N chars" count is always accurate and non-negative,
+    for ANY `max_len`."""
 
     stripped = text.strip()
     if not stripped:
         return None
-    if len(stripped) > max_len:
-        stripped = stripped[:max_len] + "... (truncated)"
-    return stripped
+    if len(stripped) <= max_len:
+        return stripped
+
+    # Reserve room for the marker using the WORST-CASE digit count the
+    # omitted-chars number could ever need: `omitted` is always <=
+    # len(stripped), so it can never need more digits than len(stripped)
+    # itself does.
+    max_digits = len(str(len(stripped)))
+    marker_overhead = len(_TRUNCATION_MARKER_HEAD) + max_digits + len(_TRUNCATION_MARKER_TAIL)
+    body_budget = max(0, max_len - marker_overhead)
+    head_len = body_budget // 2
+    tail_len = body_budget - head_len
+
+    head = stripped[:head_len]
+    tail = stripped[-tail_len:] if tail_len else ""
+    omitted = len(stripped) - head_len - tail_len
+    marker = f"{_TRUNCATION_MARKER_HEAD}{omitted}{_TRUNCATION_MARKER_TAIL}"
+    return f"{head}{marker}{tail}"
 
 
 # `run_streamed`'s OWN defensive cap on its accumulated `CommandResult` text —
