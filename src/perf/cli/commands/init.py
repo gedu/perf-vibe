@@ -14,6 +14,7 @@ dependency, composed together by the `init` command at the bottom.
 
 from __future__ import annotations
 
+import os
 import sys
 import tomllib
 from collections.abc import Mapping, Sequence
@@ -415,6 +416,16 @@ def _prompt_bundle_id(candidate: str | None, *, color: bool) -> str | None:
     return raw.strip() or None
 
 
+def _prompt_base_dir(candidate: str, *, color: bool) -> str | None:
+    """Dim, pre-filled placeholder default (mirrors `_prompt_bundle_id`):
+    Enter accepts the inferred base_dir as-is; typed input overrides it. An
+    empty value clears it (no base_dir written)."""
+
+    styled_default = _style(candidate, color=color, code=_DIM)
+    raw = typer.prompt(f"base_dir [{styled_default}]", default=candidate, show_default=False)
+    return raw.strip() or None
+
+
 def _render_mismatch_conflict_message(conflict: Sequence[str], *, color: bool) -> str:
     """Text shown before the interactive mismatch-resolution prompt (spec
     "Mismatch — interactive prompt"). Extracted as a pure function (mirrors
@@ -453,6 +464,14 @@ def init(
         None,
         "--db",
         help='Write a literal db_path = "..." key verbatim (no detection, decision #1)',
+    ),
+    base_dir: str | None = typer.Option(
+        None,
+        "--base-dir",
+        help=(
+            "Directory perfvibe writes its artifacts (db + results) under. "
+            "Wins over the wizard's inferred default (the flows dir's parent)"
+        ),
     ),
     force: bool = typer.Option(
         False,
@@ -640,6 +659,32 @@ def init(
                     emit_error(output, _render_prune_preview(missing))
                 raise typer.Exit(code=2)
 
+    # base_dir auto-complete (mirrors the bundle_id wizard). perfvibe's OUTPUT
+    # artifacts (db, results) live UNDER base_dir, so its natural default is
+    # the flows dir's PARENT, expressed relative to the config file's own
+    # directory so the written value stays portable. An explicit --base-dir
+    # wins in EITHER mode; a base_dir already in the config is offered as the
+    # default on a re-run so it is never clobbered. Non-interactive with no
+    # flag writes NOTHING new — any existing base_dir is preserved by
+    # merge_config (which copies every existing key through).
+    existing_base_dir = existing_data.get("base_dir")
+    resolved_base_dir: str | None
+    if base_dir is not None:
+        resolved_base_dir = base_dir
+    elif interactive:
+        default_base_dir = (
+            str(existing_base_dir)
+            if existing_base_dir
+            else os.path.relpath(flows_path.resolve().parent, config_path.resolve().parent)
+        )
+        try:
+            resolved_base_dir = _prompt_base_dir(default_base_dir, color=output.color_enabled)
+        except typer.Abort:
+            emit_error(output, "aborted during interactive prompt")
+            raise typer.Exit(code=3) from None
+    else:
+        resolved_base_dir = None
+
     try:
         merged = merge_config(existing_data, flows, resolved_bundle_id, force, prune=prune)
     except FlowCollisionError as exc:
@@ -656,6 +701,8 @@ def init(
         merged["driver"] = driver
     if db is not None:
         merged["db_path"] = db
+    if resolved_base_dir is not None:
+        merged["base_dir"] = resolved_base_dir
 
     try:
         config_path.write_text(serialize_toml(merged))
