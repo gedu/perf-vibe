@@ -36,6 +36,58 @@ def test_defaults_when_nothing_configured(tmp_path):
     assert cfg.flows == {}
 
 
+def test_base_dir_anchors_db_and_results_but_not_flows(tmp_path):
+    _write(
+        tmp_path / "perf.toml",
+        """
+        base_dir = "e2e"
+        db_path = "localdata/perfvibe.db"
+        results_dir = "results"
+
+        [flows]
+        checkout = "flows/checkout.yaml"
+        """,
+    )
+    cfg = load_config(env={}, project_dir=tmp_path)
+    base = tmp_path / "e2e"
+    # base_dir resolves relative to the config file's own directory (tmp_path);
+    # the OUTPUT paths (db, results) anchor UNDER it...
+    assert cfg.base_dir == str(base)
+    assert cfg.db_path == str(base / "localdata" / "perfvibe.db")
+    assert cfg.results_dir == str(base / "results")
+    # ...but a flow's maestro_path is an INPUT and is left exactly as written
+    # (never re-anchored — it would double-resolve what init already recorded).
+    assert cfg.flows["checkout"].maestro_path == "flows/checkout.yaml"
+
+
+def test_base_dir_leaves_absolute_paths_untouched(tmp_path):
+    abs_db = tmp_path / "elsewhere" / "x.db"
+    _write(
+        tmp_path / "perf.toml",
+        f"""
+        base_dir = "e2e"
+        db_path = "{abs_db}"
+        """,
+    )
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.db_path == str(abs_db)  # already absolute -> never re-anchored
+
+
+def test_no_base_dir_leaves_every_path_relative_and_unchanged(tmp_path):
+    _write(
+        tmp_path / "perf.toml",
+        """
+        [flows]
+        checkout = "flows/checkout.yaml"
+        """,
+    )
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.base_dir is None
+    assert cfg.db_path == "perf.db"
+    assert cfg.results_dir == "results"
+    assert cfg.flows["checkout"].maestro_path == "flows/checkout.yaml"
+
+
 def test_project_toml_is_applied(tmp_path):
     _write(
         tmp_path / "perf.toml",
