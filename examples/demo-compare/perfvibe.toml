@@ -3,6 +3,6 @@
 # it only reads the local store — so this config only needs `db_path` and
 # a config-known `[flows.demo]` entry (matching what `seed.py` persisted).
 
-db_path = "examples/demo-compare/perf.db"
+db_path = "examples/demo-compare/perfvibe.db"
 
 [flows.demo]

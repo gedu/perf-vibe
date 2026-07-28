@@ -25,7 +25,7 @@ python examples/demo-compare/seed.py
 ```
 
 (Or `./.venv/bin/python examples/demo-compare/seed.py` from the dev venv.)
-This (re)creates `examples/demo-compare/perf.db` from scratch — safe to
+This (re)creates `examples/demo-compare/perfvibe.db` from scratch — safe to
 re-run any time.
 
 ## Run it
@@ -35,14 +35,14 @@ the `compare` subcommand — same convention as `perf run`:
 
 ```sh
 # Pretty (human) output — sparklines + the config sanity label
-perfvibe --config examples/demo-compare/perf.toml compare demo
+perfvibe --config examples/demo-compare/perfvibe.toml compare demo
 
 # Machine --json contract (schema_version=1)
-perfvibe --json --config examples/demo-compare/perf.toml compare demo
+perfvibe --json --config examples/demo-compare/perfvibe.toml compare demo
 ```
 
 (Not installed yet? Use `python perfvibe-cli.py --config
-examples/demo-compare/perf.toml compare demo` from the repo root, or
+examples/demo-compare/perfvibe.toml compare demo` from the repo root, or
 `./.venv/bin/perfvibe ...` from the dev venv.)
 
 Both commands exit `0` — a regression verdict is INFORMATIONAL in this

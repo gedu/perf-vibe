@@ -1,4 +1,4 @@
-"""`perf init <flows-dir>` — typer command that scaffolds/merges a `perf.toml`
+"""`perf init <flows-dir>` — typer command that scaffolds/merges a `perfvibe.toml`
 `[flows]` table plus a detected `bundle_id` from a Maestro flows directory
 (spec `docs/specs/init-command/spec.md`, design
 `docs/specs/init-command/design.md`). Pure CLI-adjacent scaffolding: local
@@ -214,7 +214,7 @@ def serialize_toml(data: Mapping[str, object]) -> str:
     return "\n".join(lines) + ("\n" if lines else "")
 
 
-# ===== Merge semantics (spec "perf.toml Writing and Merge Semantics") =====
+# ===== Merge semantics (spec "perfvibe.toml Writing and Merge Semantics") =====
 
 
 class FlowCollisionError(Exception):
@@ -230,8 +230,8 @@ class FlowCollisionError(Exception):
 def has_comments(raw_toml_text: str) -> bool:
     """Detects a `#` outside any string literal — used to gate a
     comment-loss confirmation before re-serializing an existing
-    `perf.toml` (tasks.md decision #3). Tracks single/basic-string quoting
-    only; perf.toml is a small, tool-managed/hand-written file, never a
+    `perfvibe.toml` (tasks.md decision #3). Tracks single/basic-string quoting
+    only; perfvibe.toml is a small, tool-managed/hand-written file, never a
     multi-line-string-heavy document."""
 
     in_single = False
@@ -286,7 +286,7 @@ def merge_config(
     """Deep-merges `new_flows` into `existing`'s `[flows]` table, leaving
     every other existing entry/key untouched. A colliding flow NAME is
     refused via `FlowCollisionError` unless `force=True`, in which case it
-    is overwritten (spec "perf.toml Writing and Merge Semantics").
+    is overwritten (spec "perfvibe.toml Writing and Merge Semantics").
 
     `prune=True` additionally drops every existing `[flows.*]` entry
     `compute_pruned_flows` determines is missing this run (spec "Stale Flow
@@ -323,7 +323,7 @@ def merge_config(
 
 def _render_comment_loss_confirm_prompt(config_path: Path) -> str:
     """Interactive confirm-gate text — shown before overwriting an existing
-    `perf.toml` that contains a hand-written `#` comment (decision #3).
+    `perfvibe.toml` that contains a hand-written `#` comment (decision #3).
     Extracted as a pure function so both call sites share identical wording
     and it is directly golden-testable (tasks.md 3.10)."""
 
@@ -476,7 +476,7 @@ def init(
     force: bool = typer.Option(
         False,
         "--force",
-        help="Overwrite a colliding flow name or a perf.toml containing hand-written comments",
+        help="Overwrite a colliding flow name or a perfvibe.toml containing hand-written comments",
     ),
     yes: bool = typer.Option(
         False, "--yes", help="Force non-interactive mode even when stdin is a TTY"
@@ -490,7 +490,7 @@ def init(
         ),
     ),
 ) -> None:
-    """Scaffold or merge a `perf.toml` from a Maestro flows directory
+    """Scaffold or merge a `perfvibe.toml` from a Maestro flows directory
     (spec `docs/specs/init-command/spec.md`). Local fs I/O only — no
     device, subprocess, git, or DB access. Exit `0` success; `2` usage
     error; `3` runtime/tooling failure — NEVER `1` (that code is reserved
@@ -568,10 +568,10 @@ def init(
         raise typer.Exit(code=3) from None
 
     # Output path resolution (tasks.md decision #2): reuse the global
-    # `--config` option; default to `./perf.toml` in CWD when omitted,
+    # `--config` option; default to `./perfvibe.toml` in CWD when omitted,
     # matching `_find_project_config`'s CWD-only discovery.
     raw_config_path = state.get("config_path")
-    config_path = Path(raw_config_path) if raw_config_path else Path.cwd() / "perf.toml"
+    config_path = Path(raw_config_path) if raw_config_path else Path.cwd() / "perfvibe.toml"
 
     try:
         if config_path.is_file():

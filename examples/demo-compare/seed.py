@@ -51,7 +51,7 @@ from perf.application.run_flow import RunFlowRequest, RunFlowUseCase  # noqa: E4
 from perf.domain.model import RunContext  # noqa: E402
 
 FIXTURES_DIR = _DEMO_DIR / "fixtures"
-DEFAULT_DB_PATH = _DEMO_DIR / "perf.db"
+DEFAULT_DB_PATH = _DEMO_DIR / "perfvibe.db"
 DEFAULT_RESULTS_DIR = _DEMO_DIR / ".demo-results"
 
 FLOW = "demo"

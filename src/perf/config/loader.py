@@ -2,7 +2,7 @@
 Configuration Surface").
 
 Precedence, highest to lowest: CLI flags > env (`PERF_DB`, `NO_COLOR`,
-`MAESTRO_DEVICE`) > project flow config (`perf.toml`/`.perf.toml` in the
+`MAESTRO_DEVICE`) > project flow config (`perfvibe.toml`/`.perfvibe.toml` in the
 current/given directory) > global `~/.config/perf/config.toml` > built-in
 defaults. `BUNDLE_ID` and flow definitions are ALWAYS sourced from this
 layered config — NEVER hardcoded anywhere in source (SKILL rule 9 /
@@ -36,14 +36,14 @@ __all__ = [
 ]
 
 DEFAULT_ITERATIONS = 10
-DEFAULT_DB_PATH = "perf.db"
+DEFAULT_DB_PATH = "perfvibe.db"
 DEFAULT_RESULTS_DIR = "results"
 DEFAULT_MODE = "warm"
 DEFAULT_TOOL_VERSION = "0.1.0"
 
 # Compare tuning defaults (design Rev 2 "Tuning defaults", decision #58):
 # conservative/low-noise so the tool doesn't cry wolf — all overridable
-# via `perf.toml` / CLI flags.
+# via `perfvibe.toml` / CLI flags.
 DEFAULT_THRESHOLD_PCT = 5.0
 DEFAULT_FLOORS: Mapping[str, float] = {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 2.0}
 DEFAULT_MIN_BASELINE_COMMITS = 3
@@ -51,7 +51,7 @@ DEFAULT_WARMUP_K = 1
 DEFAULT_BASELINE_N = 10
 
 GLOBAL_CONFIG_PATH = Path.home() / ".config" / "perf" / "config.toml"
-PROJECT_CONFIG_FILENAMES: tuple[str, ...] = ("perf.toml", ".perf.toml")
+PROJECT_CONFIG_FILENAMES: tuple[str, ...] = ("perfvibe.toml", ".perfvibe.toml")
 
 
 @dataclass(frozen=True)

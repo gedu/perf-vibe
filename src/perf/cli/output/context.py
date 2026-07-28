@@ -51,7 +51,7 @@ def resolve_output_context(
 ) -> OutputContext:
     # Precedence (SKILL rule 6): CLI flag > NO_COLOR env > project/global config
     # > TTY default. `no_color_config` carries the resolved project/global
-    # `no_color` setting so a `perf.toml` `no_color = true` actually disables
+    # `no_color` setting so a `perfvibe.toml` `no_color = true` actually disables
     # color (previously ignored). `stderr` defaults to `sys.stderr` so callers
     # that only care about stdout need not pass it.
     env = env if env is not None else os.environ

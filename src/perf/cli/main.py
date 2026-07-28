@@ -56,7 +56,7 @@ def main_callback(
         None, "--db", help="Path to the local SQLite store (also honors PERF_DB env)."
     ),
     config: str | None = typer.Option(
-        None, "--config", help="Path to a project perf.toml config file."
+        None, "--config", help="Path to a project perfvibe.toml config file."
     ),
 ) -> None:
     # Load config FIRST so the resolved project/global `no_color` can feed the
@@ -76,7 +76,7 @@ def main_callback(
     # `config_path` carries the RAW `--config` CLI string (or `None`) —
     # distinct from `perf_config` (the fully layered/merged result) —
     # so `init` can resolve its OWN write target per tasks.md decision #2
-    # ("reuse the global --config option; default to ./perf.toml in CWD
+    # ("reuse the global --config option; default to ./perfvibe.toml in CWD
     # when omitted"), without every other command needing to care.
     ctx.obj = {"output": output, "config": perf_config, "config_path": config}
 
