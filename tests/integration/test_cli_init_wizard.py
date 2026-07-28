@@ -77,7 +77,7 @@ def test_wizard_prompt_shown_and_blank_enter_accepts_dim_placeholder_default(mon
     result = runner.invoke(
         main_module.app,
         ["--no-color", "--json", "--config", str(config_path), "init", str(FLOWS_DIR)],
-        input="\n",  # blank Enter — accept the detected default as-is
+        input="\n\n",  # blank Enter for bundle_id, then blank Enter for base_dir
     )
 
     assert result.exit_code == 0, result.output
@@ -100,7 +100,7 @@ def test_wizard_typed_input_overrides_detected_default(monkeypatch, tmp_path):
     result = runner.invoke(
         main_module.app,
         ["--no-color", "--json", "--config", str(config_path), "init", str(FLOWS_DIR)],
-        input="com.overridden.app\n",
+        input="com.overridden.app\n\n",  # typed bundle_id, then blank Enter for base_dir
     )
 
     assert result.exit_code == 0, result.output
@@ -122,7 +122,7 @@ def test_wizard_mismatch_prompt_shown_and_resolves_via_typed_input(monkeypatch, 
     result = runner.invoke(
         main_module.app,
         ["--no-color", "--json", "--config", str(config_path), "init", str(FLOWS_MISMATCH_DIR)],
-        input="com.example.app\n",
+        input="com.example.app\n\n",  # conflict-resolve bundle_id, then blank Enter for base_dir
     )
 
     assert result.exit_code == 0, result.output
@@ -213,7 +213,7 @@ def test_prune_interactive_confirm_accepted_removes_stale_entry(monkeypatch, tmp
             "com.example.app",
             "--prune-missing",
         ],
-        input="y\n",
+        input="y\n\n",  # confirm prune, then blank Enter for base_dir (bundle_id via flag)
     )
 
     assert result.exit_code == 0, result.output
@@ -280,3 +280,63 @@ def test_prune_composes_with_comment_loss_guard_declining_first_gate_aborts(monk
     assert result.exit_code == 2, result.output
     assert "comment" in result.output.lower()
     assert config_path.read_text() == original_text
+
+
+# ===== base_dir wizard auto-complete + --base-dir flag =====
+
+
+def test_wizard_base_dir_prompt_writes_typed_value(monkeypatch, tmp_path):
+    _patch_load_config(monkeypatch)
+    _simulate_tty(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+
+    result = runner.invoke(
+        main_module.app,
+        ["--no-color", "--config", str(config_path), "init", str(FLOWS_DIR)],
+        input="com.example.app\napps/shell-app/e2e\n",  # bundle_id, then a typed base_dir
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "base_dir [" in result.output  # the base_dir prompt was shown
+    merged = tomllib.loads(config_path.read_text())
+    assert merged["base_dir"] == "apps/shell-app/e2e"
+
+
+def test_base_dir_flag_wins_and_skips_the_prompt(monkeypatch, tmp_path):
+    _patch_load_config(monkeypatch)
+    _simulate_tty(monkeypatch)
+    config_path = tmp_path / "perf.toml"
+
+    result = runner.invoke(
+        main_module.app,
+        [
+            "--no-color",
+            "--config",
+            str(config_path),
+            "init",
+            str(FLOWS_DIR),
+            "--base-dir",
+            "custom/out",
+        ],
+        input="com.example.app\n",  # only the bundle_id prompt — the flag skips base_dir's
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "base_dir [" not in result.output  # flag supplied -> no base_dir prompt
+    merged = tomllib.loads(config_path.read_text())
+    assert merged["base_dir"] == "custom/out"
+
+
+def test_non_interactive_without_flag_writes_no_base_dir(monkeypatch, tmp_path):
+    _patch_load_config(monkeypatch)
+    # No _simulate_tty -> non-interactive; no --base-dir flag.
+    config_path = tmp_path / "perf.toml"
+
+    result = runner.invoke(
+        main_module.app,
+        ["--no-color", "--config", str(config_path), "init", str(FLOWS_DIR)],
+    )
+
+    assert result.exit_code == 0, result.output
+    merged = tomllib.loads(config_path.read_text())
+    assert "base_dir" not in merged  # non-interactive default never auto-writes base_dir

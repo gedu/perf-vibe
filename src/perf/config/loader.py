@@ -78,6 +78,7 @@ class PerfConfig:
     default_mode: str = DEFAULT_MODE
     device: str | None = None
     results_dir: str = DEFAULT_RESULTS_DIR
+    base_dir: str | None = None
     build_variant: str | None = None
     tool_version: str = DEFAULT_TOOL_VERSION
     replay_logcat: str | None = None
@@ -188,8 +189,34 @@ def load_config(
     floors_raw = _merge(dict(DEFAULT_FLOORS), layers.get("floors") or {})
     floors = {unit: float(value) for unit, value in floors_raw.items()}
 
+    # `base_dir` anchors perfvibe's OUTPUT artifacts — the db and the results
+    # dir — so they land NEXT TO the flows folder (e.g. inside an app's
+    # `e2e/`) instead of wherever the CLI happens to be invoked from, while
+    # the config file itself may live at the repo root. A relative `base_dir`
+    # is resolved against the config file's own directory (or the working dir
+    # when no config file was found). Flows are INPUTS the user points at, not
+    # perfvibe outputs, so their `maestro_path` is deliberately NOT re-anchored
+    # (that would double-resolve a path `init` already wrote relative to the
+    # run dir). When `base_dir` is UNSET the feature is fully INERT: every path
+    # stays exactly as before (relative, CWD-based), so existing configs are
+    # untouched.
+    base_dir_raw = layers.get("base_dir")
+    base_dir: Path | None = None
+    if base_dir_raw:
+        anchor_dir = project_path.parent if project_path is not None else project_dir
+        _raw_path = Path(str(base_dir_raw))
+        base_dir = _raw_path if _raw_path.is_absolute() else (anchor_dir / _raw_path)
+
+    def _under_base(path_value: str) -> str:
+        # Base unset, or an already-absolute path, passes through unchanged;
+        # a relative OUTPUT path is anchored under `base_dir`.
+        if base_dir is None:
+            return path_value
+        candidate = Path(path_value)
+        return str(candidate if candidate.is_absolute() else base_dir / candidate)
+
     return PerfConfig(
-        db_path=str(layers.get("db_path", DEFAULT_DB_PATH)),
+        db_path=_under_base(str(layers.get("db_path", DEFAULT_DB_PATH))),
         no_color=bool(layers.get("no_color", False)),
         driver=str(layers.get("driver", "maestro")),
         sampler=layers.get("sampler", "flashlight"),
@@ -198,7 +225,8 @@ def load_config(
         default_iterations=int(layers.get("default_iterations", DEFAULT_ITERATIONS)),
         default_mode=str(layers.get("default_mode", DEFAULT_MODE)),
         device=layers.get("device"),
-        results_dir=str(layers.get("results_dir", DEFAULT_RESULTS_DIR)),
+        results_dir=_under_base(str(layers.get("results_dir", DEFAULT_RESULTS_DIR))),
+        base_dir=str(base_dir) if base_dir is not None else None,
         build_variant=layers.get("build_variant"),
         tool_version=str(layers.get("tool_version", DEFAULT_TOOL_VERSION)),
         replay_logcat=layers.get("replay_logcat"),
