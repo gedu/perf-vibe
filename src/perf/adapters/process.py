@@ -230,11 +230,27 @@ class SubprocessRunner:
 
     def stop_capture(self, process: subprocess.Popen) -> CaptureResult:
         """Terminate a capture process started by `start_capture`, return
-        every captured line AND the process's exit code (resilience fix:
-        callers must be able to tell a dead/failed capture — e.g. `adb
-        logcat`'s "more than one device" error — apart from a healthy
-        capture that simply saw zero lines)."""
+        every captured line AND a returncode that answers the ONE question
+        the caller cares about: did this capture DIE ON ITS OWN before we
+        stopped it?
 
+        A long-running capture like `adb logcat` never self-exits in a
+        healthy run — WE always `terminate()` it, which leaves a non-zero
+        (negative, SIGTERM) exit code. Reporting that raw code made every
+        caller misread a perfectly healthy, cleanly-terminated capture as
+        "dead/failed": a SIGTERM'd process has `returncode == -15`, which is
+        `not in (None, 0)`, so the driver aborted the whole run before
+        persist (the "dead/failed logcat capture" bug). Fakes hid it — a
+        fake `stop_capture` returns `0`, never the real `-15`.
+
+        Fix: snapshot `poll()` BEFORE terminating. `None` means it was still
+        running and WE ended it cleanly (healthy → report `None`). A
+        non-`None` value means it had ALREADY exited on its own — e.g. `adb
+        logcat`'s "more than one device" error, which exits immediately —
+        and THAT exit code is the real failure signal we surface, preserving
+        the original resilience intent."""
+
+        prior_returncode = process.poll()
         process.terminate()
         try:
             stdout, _ = process.communicate(timeout=5)
@@ -242,4 +258,7 @@ class SubprocessRunner:
             process.kill()
             stdout, _ = process.communicate()
         lines = stdout.splitlines() if stdout else []
-        return CaptureResult(lines=lines, returncode=process.returncode)
+        # `prior_returncode is None` => healthy (we terminated a still-running
+        # capture); otherwise the capture self-exited and we surface the code
+        # it died with as the failure signal.
+        return CaptureResult(lines=lines, returncode=prior_returncode)

@@ -33,6 +33,50 @@ def _run(*, script: str, env: dict[str, str] | None = None) -> tuple[CommandResu
     return result, relayed
 
 
+def test_stop_capture_treats_a_cleanly_terminated_running_process_as_healthy():
+    # REGRESSION: a long-running capture (like `adb logcat`) that WE
+    # terminate must report returncode None (healthy), NOT a dead/failed
+    # capture. Before the fix, terminating a running process left
+    # returncode == -15 (SIGTERM), which the driver read as
+    # `not in (None, 0)` -> capture_failed -> aborted the run before persist.
+    # A real terminated child returns -15 here; the fake runners always
+    # returned 0, which is exactly why the suite never caught this.
+    runner = SubprocessRunner()
+    proc = runner.start_capture(
+        [
+            sys.executable,
+            "-u",
+            "-c",
+            "import time; print('--------- beginning of main'); time.sleep(30)",
+        ]
+    )
+    time.sleep(0.2)  # let the child emit its first line before we stop it
+    result = runner.stop_capture(proc)
+
+    assert result.returncode is None  # healthy: we ended a still-running capture
+    assert any("beginning of main" in line for line in result.lines)
+
+
+def test_stop_capture_surfaces_the_exit_code_of_a_capture_that_died_on_its_own():
+    # A capture that self-exits non-zero BEFORE we stop it (e.g. adb
+    # logcat's "more than one device", which exits immediately) is a REAL
+    # failure — its exit code must survive so the driver can flag it.
+    runner = SubprocessRunner()
+    proc = runner.start_capture(
+        [
+            sys.executable,
+            "-u",
+            "-c",
+            "import sys; print('adb: more than one device'); sys.exit(3)",
+        ]
+    )
+    proc.wait()  # let it die on its own first
+    result = runner.stop_capture(proc)
+
+    assert result.returncode == 3  # self-exited failure code is surfaced
+    assert any("more than one device" in line for line in result.lines)
+
+
 def test_relays_each_line_live_in_order():
     script = "print('one'); print('two'); print('three')"
     result, relayed = _run(script=script)
