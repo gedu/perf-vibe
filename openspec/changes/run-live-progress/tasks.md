@@ -65,14 +65,55 @@ _Spec: run-progress/Maestro markers-only, TTY-Aware Rendering, Secret Scrubbing.
 
 _Spec: run-progress/Maestro+Flashlight scenario; perf-run/Exit-Code Discipline._
 
-- [ ] C.1 RED `tests/integration/test_driver_maestro.py` [threat-matrix]: TOOL_MANAGED relays the single subprocess stream via `run_streamed` unparsed (no fake iteration events); composed argv includes `--no-ansi`.
-- [ ] C.2 GREEN `driver_maestro.py` `_drive_tool_managed`/`command()`: use `run_streamed`, relay via `reporter.relayed_line`; add `--no-ansi` to the inner maestro argv.
-- [ ] C.3 RED `tests/unit/test_progress.py`: `recap(result)` renders a ⏳/✅/❌ table from `iterations[].status`/`partial_coverage`, including a partial-coverage row.
-- [ ] C.4 GREEN `cli/output/progress.py`: add `recap(result: RunFlowResult)` on `StderrProgressReporter` only — NOT on the Protocol.
-- [ ] C.5 GREEN `cli/commands/run.py`: call `reporter.recap(result)` after `execute()` on success only; failure (`emit_error`) path unchanged, recap skipped.
-- [ ] C.6 RED `tests/integration/test_cli_run.py`: TOOL_MANAGED relay never pollutes stdout; `--json` purity holds with recap active.
-- [ ] C.7 MANDATORY verification (blocks merge): confirm real Maestro `--no-ansi` non-TTY step-line format against a live binary/device — sub-agents could not run one. Until confirmed, treat relayed lines as opaque; NEVER parse them to synthesize iteration events (design.md open item).
-- [ ] C.8 Verify: slice tests green; mypy+ruff clean; coverage threshold met; rendering failure maps to exit 3, never 1.
+- [x] C.1 RED `tests/integration/test_driver_maestro.py` [threat-matrix]: TOOL_MANAGED relays the single subprocess stream via `run_streamed` unparsed (no fake iteration events); composed argv includes `--no-ansi`. (`test_tool_managed_relays_via_run_streamed_unparsed_no_fake_iteration_events`, `test_command_no_ansi_precedes_env_secrets`.)
+- [x] C.2 GREEN `driver_maestro.py` `_drive_tool_managed`/`command()`: use `run_streamed`, relay via `reporter.relayed_line`; add `--no-ansi` to the inner maestro argv.
+- [x] C.3 RED `tests/unit/test_progress.py`: `recap(result)` renders a ✅/❌ table from `iterations[].status`/`partial_coverage`, including a partial-coverage row. (No fabricated ⏳: recap runs once, post-completion, when every iteration is already resolved — `test_recap_never_emits_pending_glyph` locks this.)
+- [x] C.4 GREEN `cli/output/progress.py`: add `recap(result: RunFlowResult)` on `StderrProgressReporter` only — NOT on the Protocol.
+- [x] C.5 GREEN `cli/commands/run.py`: call `reporter.recap(result)` after `execute()` on success only; failure (`emit_error`) path unchanged, recap skipped.
+- [x] C.6 RED `tests/integration/test_cli_run.py`: TOOL_MANAGED relay never pollutes stdout; `--json` purity holds with recap active. (`test_tool_managed_flashlight_relay_stays_on_stderr_json_purity_holds_with_recap`.)
+- [x] C.7 MANDATORY verification (blocks merge) — SATISFIED. Confirmed against a real Maestro binary/device this session (user ran `maestro test <flow>` piped, non-TTY): piped Maestro is ALREADY clean plain text — header `> Flow <name>`, then one line per step `<description>... COMPLETED`/`... FAILED`, no ANSI/cursor codes. `--no-ansi` IS accepted (no "unknown option"); output stays plain text; on failure it also prints static multi-line blocks (assertion detail, `Possible causes:`, a `~/.maestro/tests/<ts>` path, a Unicode box-drawing panel) — all static text, no cursor control. Decision locked: keep `--no-ansi`, relay every line OPAQUELY (no step-structure parsing) — implemented exactly this way in `_drive_tool_managed`.
+- [x] C.8 Verify: slice tests green; mypy+ruff clean; coverage threshold met; rendering failure maps to exit 3, never 1. (`./.venv/bin/pytest -q --cov=perf` → 596 passed, 95.00% coverage vs 93% threshold; `./.venv/bin/mypy src/perf` → no issues in 47 files; `./.venv/bin/ruff check .` → all checks passed; `./.venv/bin/ruff format --check .` → 104 files formatted. Exit-3-never-1 unchanged — `recap()` is called inside the SAME guarded try/except as output rendering in `run.py`, already asserted by `test_run_never_exits_1`/`test_render_failure_exits_3_never_1`.)
+
+## Slice C — Post-Review Correctness/Cleanup Fixes (adversarial review, before merge)
+
+- [x] FIX 1 (correctness): `recap()` treated `iteration_statuses is not None` as the
+  per-iteration-table gate, but `FlashlightSampler.parse()` returns `[]` (empty list,
+  NOT `None`) for a zero-`iterations[]` report — the per-iteration loop ran zero times
+  and NO coverage line was emitted (silence, just the header). Fixed: `if statuses:`
+  (truthy) drives the table branch; the else branch now handles BOTH `None` and `[]`,
+  always emitting an honest coverage line. Test:
+  `test_recap_empty_iteration_statuses_falls_back_to_honest_coverage_line`.
+- [x] FIX 2 (correctness): the recap header used `result.iterations` (REQUESTED count)
+  while the per-iteration rows used `len(statuses)` (ACTUAL reported count) — a
+  self-contradictory recap when they disagree. Fixed: when the true table renders,
+  BOTH the header and every row denominator are driven from the SAME `len(statuses)`;
+  if the requested count differs, the header says "N requested · M reported" instead
+  of silently picking one. Tests:
+  `test_recap_reports_requested_vs_reported_when_counts_disagree`,
+  `test_recap_header_and_rows_share_the_same_count_when_they_agree`.
+- [x] FIX 3 (spec cleanliness): removed the `⚠️` glyph (`_PARTIAL`) from the coarse-
+  fallback summary — outside the locked ⏳/✅/❌ vocabulary. Now renders `❌ <n>
+  iteration(s) · partial coverage (...)` / `✅ <n> iteration(s) · complete` — locked
+  glyphs + plain words only. Updated
+  `test_recap_honest_coverage_summary_when_no_iteration_statuses_and_partial`.
+- [x] FIX 4 (cleanup): removed the `🎯 <flow> · N iterations via Flashlight` header
+  emission (and the `_last_flow_name` mutable-state field it required) from
+  `driver_maestro.py`'s `_drive_tool_managed` — it was emitted via `relayed_line`,
+  3-space-indented so it read like a nested tool line. Added a concrete-only
+  `StderrProgressReporter.run_header(flow_name, iterations)` (`cli/output/progress.py`,
+  same placement rule as `recap()` — NOT on the `ProgressReporter` Protocol), called
+  from `cli/commands/run.py` BEFORE `use_case.execute(...)`, guarded to only the
+  Flashlight-sampler (TOOL_MANAGED) path (`config.sampler == "flashlight"`), inside the
+  same guarded try/except so a failure still maps to exit 3, never 1, and never
+  touches stdout. Tests: `test_run_header_writes_a_non_indented_top_level_line`,
+  `test_run_header_is_not_on_the_progress_reporter_protocol`, updated
+  `test_tool_managed_relays_via_run_streamed_unparsed_no_fake_iteration_events`
+  (driver no longer emits the header), and
+  `test_tool_managed_flashlight_relay_stays_on_stderr_json_purity_holds_with_recap`
+  (CLI-level: header is a distinct, non-indented top-level stderr line).
+- [x] Gates: `./.venv/bin/pytest -q --cov=perf` → 601 passed, 95.01% coverage (threshold
+  93.0%); `./.venv/bin/mypy src/perf` → no issues in 47 files; `./.venv/bin/ruff check .`
+  → all checks passed; `./.venv/bin/ruff format --check .` → 104 files formatted.
 
 ## Slice D — `--quiet`/`-q`
 

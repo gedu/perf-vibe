@@ -398,10 +398,21 @@ class SystemSampleParseResult:
     per-iteration) MUST be honored — a FAILURE/timed-out iteration must
     never be aggregated and persisted as if it succeeded. Failed iterations
     are excluded from `samples` and flagged via `partial_coverage=True`
-    rather than silently vanishing or poisoning the regression history."""
+    rather than silently vanishing or poisoning the regression history.
+
+    `iteration_statuses` (`run-live-progress` Slice C, design open item
+    "data availability"): the FULL per-iteration ok/not-ok list, index-
+    aligned with the raw report's `iterations[]` (including excluded/
+    failed ones, unlike `samples` which drops them) — `None` when the
+    concrete `SystemSampler` does not surface per-iteration status at all
+    (only `FlashlightSampler` does today). This is what lets the CLI-side
+    `recap()` (`cli/output/progress.py`) render a TRUE per-iteration
+    ✅/❌ table instead of fabricating status for iterations it never
+    actually observed."""
 
     samples: Sequence[SystemSample]
     partial_coverage: bool
+    iteration_statuses: Sequence[bool] | None = None
 
 
 def compose_execution_plan(

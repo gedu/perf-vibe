@@ -472,3 +472,91 @@ def test_driver_managed_maestro_relay_stays_on_stderr_json_purity_holds(
     assert payload["flow"] == "checkout"
     assert "RUN Checkout Flow" not in result.stdout
     assert "RUN Checkout Flow" in result.stderr
+
+
+# ===== run-live-progress Slice C =====
+
+
+def test_tool_managed_flashlight_relay_stays_on_stderr_json_purity_holds_with_recap(
+    monkeypatch, tmp_path: Path
+):
+    """C.6: `--json` purity re-confirmed with the REAL, registry-built
+    `MaestroDriver` + `FlashlightSampler` TOOL_MANAGED path — `build_driver`/
+    `build_sampler` are NEVER monkeypatched (python-testing rule 3). Only
+    `SubprocessRunner.run_streamed` (the actual subprocess boundary) is
+    faked; it also writes the Flashlight results JSON the real
+    `FlashlightSampler.parse()` then reads, with ONE failed iteration so the
+    recap must show honest per-iteration ❌, not silent all-✅. Proves the
+    live relay + the end-of-run recap both land on STDERR ONLY, with STDOUT
+    still byte-pure JSON."""
+    from perf.adapters.process import CommandResult
+    from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
+
+    def fake_run_streamed(self, argv, *, env=None, cwd=None, on_line=None):
+        # Locate --resultsFilePath in the composed Flashlight argv and write
+        # the report FlashlightSampler.parse() will read back — one
+        # SUCCESS + one FAILURE iteration, proving honest partial-coverage
+        # recap (never a fabricated all-✅ table).
+        results_path = argv[argv.index("--resultsFilePath") + 1]
+        report = {
+            "name": "Results",
+            "status": "SUCCESS",
+            "iterations": [
+                {
+                    "time": 900.0,
+                    "startTime": 0.0,
+                    "status": "SUCCESS",
+                    "measures": [{"fps": 60.0, "ram": 100.0, "cpu": {"perName": {"UI": 5.0}}}],
+                },
+                {"time": 500.0, "startTime": 0.0, "status": "FAILURE", "measures": []},
+            ],
+        }
+        Path(results_path).write_text(json.dumps(report))
+        if on_line is not None:
+            on_line("RUN Checkout Flow")
+            on_line("  COMPLETED")
+        return CommandResult(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(RealSubprocessRunner, "run_streamed", fake_run_streamed)
+
+    config = PerfConfig(
+        db_path=str(tmp_path / "perf.db"),
+        no_color=True,
+        driver="maestro",
+        sampler="flashlight",
+        marker_source=None,
+        bundle_id="com.example.app",
+        results_dir=str(tmp_path),
+        default_iterations=2,
+        flows={"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
+    )
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["--json", "run", "checkout"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)  # raises if any stray byte reached stdout
+    assert payload["schema_version"] == 1
+    assert payload["flow"] == "checkout"
+    assert payload["partial_coverage"] is True
+
+    # Relay + header stay on STDERR only.
+    assert "RUN Checkout Flow" not in result.stdout
+    assert "RUN Checkout Flow" in result.stderr
+    assert "checkout · 2 iterations via Flashlight" in result.stderr
+
+    # FIX 4 (cleanup): the header is now emitted by `run.py` calling
+    # `reporter.run_header(...)` directly (BEFORE `execute()`), never by
+    # `driver_maestro.py` via the 3-space-indented `relayed_line` — assert
+    # the header line is a DISTINCT, non-indented top-level line.
+    header_lines = [
+        line for line in result.stderr.splitlines() if "iterations via Flashlight" in line
+    ]
+    assert header_lines == ["🎯 checkout · 2 iterations via Flashlight"]
+
+    # Recap renders on STDERR with an honest per-iteration table — the
+    # failed iteration shows ❌, never silently ✅.
+    assert "Recap" in result.stderr
+    assert "✅ iteration 1/2" in result.stderr
+    assert "❌ iteration 2/2" in result.stderr
+    assert "Recap" not in result.stdout

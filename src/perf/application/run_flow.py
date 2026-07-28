@@ -110,6 +110,13 @@ class RunFlowResult:
     samples: Sequence[SystemSample]
     raw_report_path: str | None
     partial_coverage: bool
+    # `run-live-progress` Slice C: threaded straight from
+    # `SystemSampleParseResult.iteration_statuses` (only `FlashlightSampler`
+    # populates it today) — `None` when the active sampler/marker-source
+    # combo never surfaced per-iteration status, so the CLI-side `recap()`
+    # (`cli/output/progress.py`) can render a TRUE per-iteration table
+    # instead of fabricating ✅ for iterations it never actually observed.
+    iteration_statuses: Sequence[bool] | None = None
 
 
 class RunFlowUseCase:
@@ -241,6 +248,7 @@ class RunFlowUseCase:
         # artifact — `wrap is not None`) and markers.
         samples: Sequence[SystemSample] = ()
         samples_partial = False
+        iteration_statuses: Sequence[bool] | None = None
         if wrap is not None:
             try:
                 sample_result = self._sampler.parse(wrap.results_path)  # type: ignore[union-attr]
@@ -256,6 +264,7 @@ class RunFlowUseCase:
                 ) from exc
             samples = sample_result.samples
             samples_partial = sample_result.partial_coverage
+            iteration_statuses = sample_result.iteration_statuses
 
         markers: Sequence[Marker] = ()
         markers_partial = False
@@ -316,6 +325,7 @@ class RunFlowUseCase:
             samples=samples,
             raw_report_path=raw_report_path,
             partial_coverage=bool(samples_partial or markers_partial),
+            iteration_statuses=iteration_statuses,
         )
 
     def _get_context(self, logcat_lines: Sequence[str]) -> RunContext:
