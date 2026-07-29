@@ -1,122 +1,164 @@
 # perf-vibe
 
-`perfvibe` — a **local-first performance lab CLI**. It drives a Maestro flow N
-times on a fixed device, captures in-app `[PERF]` markers plus Flashlight system
-samples (FPS/CPU/RAM), and persists each run to a local SQLite store for later
-comparison against history. Lab-only, pre-merge complement to Embrace real-user
-monitoring — no network telemetry, no cloud store, nothing leaves your machine.
-(Runs are tagged `local:$USER` so you can tell yours apart from CI's; that stays
-in your local SQLite file, which is gitignored.)
+**Catch mobile performance regressions before they merge.**
 
-> The command is `perfvibe` (not `perf`) so it never collides with the Linux
-> kernel profiler `perf`. The Python package is `perf` internally.
+`perfvibe` runs a [Maestro](https://maestro.mobile.dev) flow on an Android device
+N times, measures it (in-app `[PERF]` markers **plus** [Flashlight](https://docs.flashlight.dev)
+FPS / CPU / RAM), saves every run to a local SQLite file, and tells you whether your
+branch got slower than its own history — with a CI gate that **fails the build on a
+real regression**.
 
-**Machine contract:** for scripts / CI / AI, always pass `--json` and parse that.
-The pretty terminal view is for humans and is not a stable contract — never parse
-it. See [`AGENTS.md`](./AGENTS.md).
+It's a **local, pre-merge lab** — a complement to real-user monitoring like Embrace,
+not a replacement. **Nothing leaves your machine:** no network calls, no cloud store,
+no telemetry. Your runs live in a gitignored `*.db` file, tagged `local:$USER` so you
+can tell yours apart from CI's.
+
+```text
+! checkout                 1310.0 vs 812.0      ms   ↑   +61.3%  REGRESSION       ▁▁▁▁█
+  ttfp                       421.0 vs 430.0     ms   ↓    -2.1%  STABLE           ████▁
+  fps_avg                     58.1 vs 58.2      fps  ↓    -0.2%  STABLE           ████▁
+```
+
+> **Why `perfvibe` and not `perf`?** The command is `perfvibe` so it never collides
+> with the Linux kernel profiler `perf`. (The Python package is named `perf` internally —
+> you'll never type that.)
+
+---
+
+## The 30-second tour (no device needed)
+
+`perfvibe run` normally needs a real Android device, `maestro`, and `flashlight`.
+To see the whole pipeline work with **none** of that, a `replay` driver feeds recorded
+captures through the exact same production code path. Install first (see below), then:
+
+```bash
+# 1. Measure a flow → persist one run.  Global flags go BEFORE the subcommand.
+perfvibe --config examples/demo-run/perfvibe.toml run demo
+```
+```text
+✓ perf run complete — run #1
+  flow:       demo
+  mode:       warm (n=2)
+  source:     local:eduardograciano
+  markers:
+    checkout: n=2 avg=801.0ms
+    ttfp: n=2 avg=417.5ms
+  flashlight (per-iteration aggregates):
+    fps avg: 57.4   ram peak: 222.5MB   cpu avg: 34.3%
+```
+
+```bash
+# 2. Compare a branch against its history → a per-metric, direction-aware verdict.
+#    (compare needs history, so seed a few recorded runs first — safe to re-run.)
+python examples/demo-compare/seed.py
+perfvibe --config examples/demo-compare/perfvibe.toml compare demo
+```
+```text
+! checkout                 1310.0 vs 812.0      ms   ↑   +61.3%  REGRESSION       ▁▁▁▁█
+  ttfp                       421.0 vs 430.0     ms   ↓    -2.1%  STABLE           ████▁
+  ram_peak_mb                205.0 vs 206.0     mb   ↓    -0.5%  STABLE           ████▁
+! total_time_ms            1310.0 vs 805.0      ms   ↑   +62.7%  REGRESSION       ▁▁▁▁█
+  fps_avg                     58.1 vs 58.2      fps  ↓    -0.2%  STABLE           ████▁
+
+✓ reasonable — 0 of 4 runs would flag
+```
+
+```bash
+# 3. Gate CI on it → exits 1 on a confirmed regression, so the build fails.
+perfvibe --config examples/demo-compare/perfvibe.toml budget-check demo
+echo "exit: $?"   # → 1
+```
+```text
+│   ✗  checkout          1310.0 ms     812.0 ms   ↑ +61.3%  REGRESSION         ▁▁▁▁█
+│   ✓  ttfp               421.0 ms     430.0 ms    ↓ -2.1%  stable             ████▁
+│   ✗  total_time_ms     1310.0 ms     805.0 ms   ↑ +62.7%  REGRESSION         ▁▁▁▁█
+├──────────────────────────────────────────────────────────────────────────────────
+│   ✗  GATE FAILED   ·   2 metrics regressed   ·   exit 1
+```
+
+> These three demos are real and re-runnable — see
+> [`examples/`](./examples/). No device, `adb`, `maestro`, or `flashlight` binary
+> is invoked; only recorded fixtures are read.
+
+---
 
 ## Install
 
-### One-liner (recommended)
+**One-liner (recommended)** — installs the `perfvibe` command globally and isolated
+via [`pipx`](https://pipx.pypa.io), straight from Git (no PyPI needed). Requires a
+**Python 3.11+** interpreter; `perfvibe` is a Python CLI, not a standalone binary.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gedu/perf-vibe/main/install.sh | bash
 perfvibe --help
 ```
 
-This installs the `perfvibe` command globally and isolated via [`pipx`](https://pipx.pypa.io),
-straight from the Git repo (no PyPI publish needed). It requires a **Python
-3.11+** interpreter on your machine — `perfvibe` is a Python CLI, not a
-standalone binary.
+<details>
+<summary>Other ways to install</summary>
 
-### With pipx directly
-
+**With pipx directly:**
 ```bash
 pipx install "git+https://github.com/gedu/perf-vibe.git"
 ```
 
-### From a source checkout
-
-`perfvibe-cli.py` is a thin launcher, but the CLI still needs its dependency
-(`typer`), so install into a venv first:
-
+**From a source checkout** (`perfvibe-cli.py` is a thin launcher, but the CLI still
+needs its `typer` dependency, so install into a venv first):
 ```bash
-python3.11 -m venv .venv                 # see Development if python3.11 is missing
+python3.11 -m venv .venv          # any Python 3.11+ works — see Development
 ./.venv/bin/pip install -e .
-./.venv/bin/perfvibe --help              # or: ./.venv/bin/python perfvibe-cli.py --help
+./.venv/bin/perfvibe --help        # or: ./.venv/bin/python perfvibe-cli.py --help
 ```
+</details>
 
-## Try it without a device
+---
 
-`perfvibe run` normally needs a real Android device + `maestro` + `flashlight`.
-To see it work without any of that, a `replay` driver runs recorded captures
-through the exact production pipeline.
+## The five commands
 
-This needs `perfvibe` on your PATH — do one of the Install steps above first, or
-run it straight from a source checkout with the venv from the previous section:
+| Command | What it does | Exits `1`? |
+|---|---|:--:|
+| `perfvibe run <flow> [n]` | Measure a flow and **persist** one run. | never |
+| `perfvibe compare <flow>…` | Show a **verdict** vs. history (per metric, direction-aware). Read-only. | never |
+| `perfvibe budget-check <flow>` | The **CI gate** — reuses `compare`'s verdict; any regression fails. | **on regression** |
+| `perfvibe history <flow>` | Export a flow's full run series (machine-readable chart data). | never |
+| `perfvibe init <flows-dir>` | Scaffold or merge the `perfvibe.toml` flow config. | never |
+
+Only `budget-check` ever exits `1`. `run` persists, `compare`/`history` report, and
+`init` configures — none of them gate, so a regression under `compare` still exits `0`.
+**Full flags, JSON payloads, and per-command detail live in
+[`docs/commands.md`](./docs/commands.md).**
+
+### Exit codes (the whole contract)
+
+| Code | Meaning |
+|:--:|---|
+| `0` | Success (including a `budget-check` gate that **passes** or is skipped) |
+| `1` | **`budget-check` only** — a confirmed regression (or, under `--strict`, an unprovable-safety case) |
+| `2` | Usage error (unknown flow/metric, bad config, flags in the wrong place) |
+| `3` | Runtime / tooling failure (device, `adb`, `maestro`, `flashlight`, git, DB) |
+
+---
+
+## The machine contract: always `--json`
+
+For scripts, CI, or an AI agent, **always pass `--json` and parse that.** The pretty
+terminal view (sparklines, color, confirmation text) is for humans and is **not a
+stable contract** — never parse it. Every `--json` payload carries a `schema_version`
+you can branch on. See [`AGENTS.md`](./AGENTS.md) and [`docs/commands.md`](./docs/commands.md).
 
 ```bash
-# globals (--config/--json) go BEFORE the subcommand
-perfvibe --config examples/demo-run/perfvibe.toml run demo          # pretty output
-perfvibe --json --config examples/demo-run/perfvibe.toml run demo   # machine contract
-
-# no install? from a source checkout, same thing via the launcher:
-./.venv/bin/python perfvibe-cli.py --config examples/demo-run/perfvibe.toml run demo
+perfvibe --json --config examples/demo-compare/perfvibe.toml budget-check demo
+```
+```json
+{ "schema_version": 1, "gate_status": "fail",
+  "offending_metrics": ["checkout", "total_time_ms"], "strict": false, "verdicts": [ … ] }
 ```
 
-There is a second, seeded demo that shows `compare` computing a real regression
-verdict — see [`examples/demo-compare/`](./examples/demo-compare/) — a third
-that shows `budget-check` gating on that same regression and exiting `1` — see
-[`examples/demo-budget-check/`](./examples/demo-budget-check/) — and the `run`
-demo lives in [`examples/demo-run/`](./examples/demo-run/).
-
-## Usage
-
-```bash
-perfvibe run <flow> [n] [--restart] [--device <serial>]     # measure and persist
-perfvibe compare <flow>...                                  # verdict vs history (one or more flows)
-perfvibe compare --all                                      # compare every config-known flow
-perfvibe compare                                            # no args on a TTY: interactive flow picker
-perfvibe budget-check <flow> [--strict] [--metric <name>] [--verbose] [--restart] [--device <serial>]
-perfvibe history <flow> [--metric <name>] [--limit N] [--restart] [--device <serial>] [--device-key <key>]
-perfvibe --json run <flow>          # stable machine output (schema_version=1)
-perfvibe --json compare <flow>                              # single flow: compare_v1 payload
-perfvibe --json compare <flow>... | --all                  # 2+ flows/--all: compare_all_v1 envelope
-perfvibe --json budget-check <flow>
-perfvibe --json history <flow>                              # per-flow historical series (history_v1)
-```
-
-`run` persists a run. `compare` reads that history and shows a per-metric,
-direction-aware verdict (median-by-commit baseline, sparklines, `--json`).
-Pass one flow, several, or `--all` (every config-known flow, sorted); a flow
-with no history is warned and skipped. With no flow args on an interactive
-terminal it opens an fzf-style picker (type to filter, `↑`/`↓` to move, `Tab`
-to multi-select, `Ctrl-A` to select all, `Enter` to run, `Esc` to cancel); in
-`--json` or non-interactive contexts you must name a flow or pass `--all`.
-`budget-check` reuses `compare`'s verdict and applies ONE gate rule: any
-`regression` fails the flow. It is the CI-gating command — `run` and `compare`
-never exit `1`, `budget-check` does.
-
-`history` is the machine-readable per-flow chart export: it reads the local
-store and emits every persisted run for a flow (oldest→newest) with each
-metric's `{p50, p90, n, unit}`, across both metric families (marker measures
-and Flashlight system-sample aggregates). `--metric` narrows to one metric;
-`--limit N` (default 50) takes the most recent N runs. Like `compare`, it is
-show-only — `0` success, `2` usage (unknown flow/metric, or no history for the
-flow+device+mode), `3` runtime failure, never `1`. Always parse the `--json`
-(`schema_version=1`) payload, never the pretty view.
-
-Exit codes: `0` success (or a `budget-check` gate `pass`/`skipped`) · `1`
-**`budget-check` only** — a confirmed regression (or, under `--strict`, an
-unprovable-safety case) · `2` usage error · `3` runtime/tooling failure.
-`run` and `compare` never exit `1` — `compare` is show-only, so even a
-regression exits `0`; `budget-check` is what spends the CI-gating exit `1`.
+---
 
 ## Configuring flows
 
-`perfvibe` reads which Maestro flows exist and where their `.yaml` files live
-from a `perfvibe.toml` config file's `[flows]` table — one `[flows.<name>]`
-sub-table per flow, pointing at that flow's `maestro_path`:
+`perfvibe` learns which Maestro flows exist from a `perfvibe.toml` file's `[flows]`
+table — one sub-table per flow, pointing at its `.yaml`:
 
 ```toml
 bundle_id = "com.example.app"
@@ -128,81 +170,32 @@ maestro_path = "flows/checkout.yaml"
 maestro_path = "flows/login.yaml"
 ```
 
-Hand-writing this table works, but `perfvibe init <flows-dir>` scaffolds or
-merges it for you: it recursively scans a Maestro flows directory (skipping
-any `subflows/` — those are `runFlow` utilities, never top-level flows),
-detects a single consistent `appId:` header across the flows as your
-`bundle_id`, and writes (or safely merges into) `perfvibe.toml`.
+You can hand-write it, but `perfvibe init <flows-dir>` scans your flows directory,
+detects the `bundle_id`, and writes (or safely merges into) the file for you:
 
 ```bash
 perfvibe init tests/fixtures/flows --yes --bundle-id com.example.app
 ```
 
-Add `--force` to overwrite a colliding flow name or a `perfvibe.toml` that
-contains hand-written comments (re-serializing always drops comments — this
-tool refuses to do that silently). See `perfvibe init --help` for the full
-flag list (`--driver`, `--db`, `--bundle-id`, `--force`, `--yes`,
-`--prune-missing`).
+**Commit `perfvibe.toml`** alongside your flows and let CI read it — don't regenerate
+it at CI time. The full story on `init` (adding/removing flows, `--force`,
+`--prune-missing`, the comment-loss guard, CI guidance) is in
+**[`docs/configuring-flows.md`](./docs/configuring-flows.md).**
 
-**Adding flows later?** Re-run the same `perfvibe init <flows-dir>` command —
-it re-scans the whole directory and merges in any genuinely new flow names,
-leaving existing entries untouched. Since `perfvibe.toml` is a plain committed
-file, `git diff perfvibe.toml` right after running it is your review of what
-changed. Note this is add-only: if an *existing* flow's file moved or you
-want to update its `maestro_path`, a plain re-run won't touch that entry —
-pass `--force` to overwrite it (which overwrites every colliding name in
-that run, not just one).
-
-**Removed or renamed a flow file?** By default `init` never deletes —
-a stale `[flows.<name>]` entry whose file is gone from `--flows-dir` is left
-untouched forever. Pass `--prune-missing` to opt in to reconciliation: it
-removes exactly the `[flows.*]` entries no longer matched by this run's
-discovery, and is confirm-gated the same way the comment-loss guard is —
-interactively it previews the names and prompts before deleting; run
-non-interactively (e.g. in a script) it needs `--yes` or it previews the
-would-be-pruned names (to stdout as `--json`, else to stderr) and exits `2`
-without writing, so it never silently deletes and never silently no-ops.
-It composes with `--force` (a name can be simultaneously new/colliding and a
-different name simultaneously missing, in the same run) and with the
-comment-loss guard (a commented `perfvibe.toml` pruned non-interactively needs
-BOTH `--force` and `--yes`, since each guard is waived independently). It
-also can never empty the flows table down to zero: if `--flows-dir` itself
-discovers no flows, the pre-existing "no candidate flows discovered" usage
-error wins and nothing is pruned — a matching-nothing glob is treated as a
-wrong-path mistake, not an intent to delete everything.
-
-```bash
-perfvibe init tests/fixtures/flows --yes --prune-missing
-```
-
-**CI should read a committed `perfvibe.toml`, not regenerate one at CI time.**
-Run `perfvibe init` locally once, review the diff, and commit the resulting
-`perfvibe.toml` alongside your Maestro flows — the same way you'd commit any
-other config file. `run`/`compare`/`budget-check` in CI then read that
-committed file directly; there is no `init` step in the CI pipeline itself.
-This keeps the set of flows CI measures explicit and reviewable in the PR
-diff, rather than implicitly whatever `init` happens to (re-)discover on a
-CI runner.
+---
 
 ## Development
 
 ```bash
-python3.11 -m venv .venv
+python3.11 -m venv .venv        # any Python 3.11+ works (python3.12/3.13, or `brew install python@3.11`)
 source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 ```
 
-No `python3.11`? Any Python **3.11+** works — try `python3.12`/`python3.13`, or
-install one (`brew install python@3.11` on macOS). `install.sh` does this
-discovery automatically if you prefer the one-liner above.
-
-CI runs lint (`ruff`), format check, type check (`mypy`) and the suite with a
-93% coverage floor on every push and PR. Run the same locally before opening
-one — see [`CONTRIBUTING.md`](./CONTRIBUTING.md).
-
-Conventions live in [`AGENTS.md`](./AGENTS.md) and the project skills under
-[`.claude/skills/`](./.claude/skills/). Spec-Driven Development records for the
-shipped capabilities are in [`docs/specs/`](./docs/specs/) (`perf-run`,
-`compare`), with the canonical current specs in
-[`openspec/specs/`](./openspec/specs/).
+CI runs lint (`ruff`), format check, type check (`mypy`) and the suite with a **93%
+coverage floor** on every push and PR — run the same locally before opening one, see
+[`CONTRIBUTING.md`](./CONTRIBUTING.md). Conventions live in [`AGENTS.md`](./AGENTS.md)
+and the project skills under [`.claude/skills/`](./.claude/skills/). Spec-Driven
+Development records for each shipped capability are in [`docs/specs/`](./docs/specs/),
+with the canonical current specs in [`openspec/specs/`](./openspec/specs/).

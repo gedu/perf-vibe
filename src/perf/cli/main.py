@@ -49,7 +49,9 @@ def main_callback(
         False, "--help", "-h", help="Show this help message and exit.", is_eager=True
     ),
     json_output: bool = typer.Option(
-        False, "--json", help="Emit the stable machine --json contract (schema_version=1)."
+        False,
+        "--json",
+        help="Emit the stable machine --json contract (each payload carries a schema_version).",
     ),
     no_color: bool = typer.Option(
         False, "--no-color", help="Disable ANSI color output (also honors NO_COLOR env)."
