@@ -126,7 +126,12 @@ def pick_flows(flows: tuple[str, ...], *, color: bool) -> list[str] | None:
         raise PickerUnavailable(str(exc)) from exc
 
     def write(text: str) -> None:
-        sys.stderr.write(text)
+        # Raw mode disables output post-processing (OPOST/ONLCR), so a bare
+        # "\n" is a line-feed only — it drops a row without returning to
+        # column 0. Translate to CRLF ourselves; otherwise each frame line
+        # staircases rightward and the cursor-up repaint math drifts, leaving
+        # stale header lines stacked on screen. The pure `render` keeps "\n".
+        sys.stderr.write(text.replace("\n", "\r\n"))
         sys.stderr.flush()
 
     try:
