@@ -7,6 +7,7 @@ lets an exception escape as Python's default exit code `1`."""
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import typer
@@ -32,6 +33,7 @@ from perf.cli.output.errors import (
     hint_for_diagnostics,
     salient_tool_line,
 )
+from perf.cli.output.flow_picker_terminal import PickerUnavailable, pick_flows
 from perf.cli.output.json_reporter import render_json
 from perf.cli.output.pretty import render_confirmation
 from perf.cli.output.progress import build_progress_reporter
@@ -40,10 +42,76 @@ from perf.contracts.json_v1 import build_run_payload
 
 __all__ = ["run"]
 
+# Dim placeholder styling for the interactive iterations prompt (mirrors the
+# `init` wizard's bundle_id/base_dir prompts). Kept local per the codebase's
+# per-module ANSI convention.
+_DIM = "\x1b[2m"
+_RESET = "\x1b[0m"
+
+_PICK_HINT = "pass a flow name, or run in an interactive terminal to pick one"
+
+
+def _style(text: str, *, color: bool, code: str) -> str:
+    return f"{code}{text}{_RESET}" if color else text
+
+
+def _picker_available(output: OutputContext) -> bool:
+    """The interactive picker needs an interactive stdout AND stdin (it reads
+    keystrokes and paints to stderr) and must never run in `--json` mode
+    (machine contexts stay explicit). Mirrors `compare`'s gate; isolated so
+    tests drive the wiring without a real TTY."""
+
+    return output.stdout_is_tty and not output.json_mode and bool(sys.stdin.isatty())
+
+
+def _select_flow_interactively(output: OutputContext, config: PerfConfig) -> str:
+    # No flow arg: on a non-interactive stdout/stdin or in `--json` mode, stay
+    # explicit — a usage error with a hint (machine contexts must name the
+    # flow). Mirrors `compare`'s single-vs-interactive split, but `run` acts
+    # on exactly ONE flow, so the picker runs in single-select mode.
+    if not _picker_available(output):
+        emit_error(output, "no flow given", hint=_PICK_HINT)
+        raise typer.Exit(code=2)
+
+    flow_names = tuple(sorted(config.flows))
+    try:
+        picked = pick_flows(flow_names, color=output.color_enabled, multi=False)
+    except PickerUnavailable:
+        # Raw mode could not be enabled — fall back to the explicit usage
+        # error rather than crashing.
+        emit_error(output, "no flow given", hint=_PICK_HINT)
+        raise typer.Exit(code=2) from None
+
+    if not picked:
+        # Esc/Ctrl-C: the user's choice to not run, never an error. Nothing
+        # has been driven yet, so this is a clean exit 0 (mirrors `compare`).
+        emit_warning(output, "no flow selected")
+        raise typer.Exit(code=0)
+    return picked[0]
+
+
+def _prompt_iterations(default: int, *, color: bool) -> int:
+    """Prompt for the iteration count with a dim, pre-filled placeholder
+    default (mirrors the `init` wizard): Enter accepts the default, a typed
+    whole number ≥ 1 overrides it. Re-prompts on a value below 1; a
+    non-integer is re-prompted by typer itself. `typer.Abort` (Ctrl-C/EOF)
+    propagates for the caller to treat as a cancel."""
+
+    styled_default = _style(str(default), color=color, code=_DIM)
+    while True:
+        value = typer.prompt(
+            f"iterations [{styled_default}]", default=default, show_default=False, type=int
+        )
+        if value >= 1:
+            return value
+        typer.echo("iterations must be a whole number ≥ 1; try again", err=True)
+
 
 def run(
     ctx: typer.Context,
-    flow: str = typer.Argument(..., help="Config-known flow name to run"),
+    flow: str | None = typer.Argument(
+        None, help="Config-known flow name to run (omit for an interactive picker)"
+    ),
     iterations: int | None = typer.Option(
         None,
         "--iterations",
@@ -69,6 +137,23 @@ def run(
     state: dict = ctx.obj or {}
     output: OutputContext = state["output"]
     config: PerfConfig = state["config"]
+
+    # No flow argument: resolve one interactively (single-select picker),
+    # then prompt for the iteration count unless `-n` was already given.
+    # Non-interactive/`--json` contexts fall through to the explicit usage
+    # error inside `_select_flow_interactively` (exit 2), never a picker.
+    if flow is None:
+        flow = _select_flow_interactively(output, config)  # exits on cancel/unavailable
+        if iterations is None:
+            try:
+                iterations = _prompt_iterations(
+                    config.default_iterations, color=output.color_enabled
+                )
+            except typer.Abort:
+                # Ctrl-C/EOF at the prompt, before any device work — a clean
+                # cancel, not a failure (run never exits 1; SKILL rule 7).
+                emit_warning(output, "cancelled — no run started")
+                raise typer.Exit(code=0) from None
 
     # SKILL rule 5: `flow_name` MUST be validated against config-known flows
     # BEFORE any driver invocation — for EVERY driver, not just Maestro's

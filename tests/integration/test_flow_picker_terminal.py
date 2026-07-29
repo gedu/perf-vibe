@@ -86,6 +86,18 @@ def test_drive_picker_backspace_edits_filter():
     assert selection == ["login"]
 
 
+def test_drive_picker_single_mode_enter_returns_highlighted_and_ignores_tab():
+    selection = drive_picker(
+        FLOWS,
+        color=False,
+        # Tab is a no-op in single mode; the arrow+Enter picks one flow.
+        read_key=_key_source([KEY_TAB, KEY_DOWN, KEY_ENTER]),
+        write=lambda _s: None,
+        multi=False,
+    )
+    assert selection == ["login"]
+
+
 def test_drive_picker_esc_cancels_returns_none():
     selection = drive_picker(
         FLOWS,

@@ -144,3 +144,42 @@ def test_render_marks_cursor_and_checkboxes_and_shows_query():
 def test_render_color_off_has_no_ansi_escapes():
     out = render(initial_state(FLOWS), color=False)
     assert "\x1b[" not in out
+
+
+# ===== Single-select mode (`run` picks exactly one flow) =====
+
+
+def test_single_mode_ignores_tab_so_no_set_is_built():
+    state = initial_state(FLOWS, multi=False)
+    state = _feed(state, [KEY_TAB, KEY_DOWN, KEY_TAB])
+    # Tab is swallowed — nothing is ever toggled in single mode.
+    assert state.selected == frozenset()
+
+
+def test_single_mode_ignores_ctrl_a():
+    state = initial_state(FLOWS, multi=False)
+    state = apply_key(state, KEY_CTRL_A)
+    assert state.selected == frozenset()
+
+
+def test_single_mode_enter_resolves_to_the_highlighted_flow():
+    state = initial_state(FLOWS, multi=False)
+    state = _feed(state, [KEY_DOWN, KEY_DOWN])  # highlight "search"
+    state = apply_key(state, KEY_ENTER)
+    assert state.outcome == OUTCOME_ACCEPT
+    assert resolved_selection(state) == ("search",)
+
+
+def test_single_mode_enter_on_empty_filtered_list_resolves_to_nothing():
+    state = _feed(initial_state(FLOWS, multi=False), "zzz")
+    assert visible(state) == ()
+    assert resolved_selection(state) == ()
+
+
+def test_single_mode_render_has_single_header_and_no_checkboxes():
+    state = _feed(initial_state(FLOWS, multi=False), [KEY_DOWN])  # cursor on login
+    out = render(state, color=False)
+    assert "Select a flow" in out
+    assert "Tab select" not in out  # multi-only affordance is gone
+    assert "[ ]" not in out and "[x]" not in out  # no checkbox column
+    assert "▶ login" in out

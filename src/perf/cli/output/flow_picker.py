@@ -50,24 +50,30 @@ _BOLD = "\x1b[1m"
 _REVERSE = "\x1b[7m"
 _RESET = "\x1b[0m"
 
-_HEADER = "Select flows — type to filter, ↑/↓ move, Tab select, Ctrl-A all, Enter run, Esc cancel"
+_HEADER_MULTI = (
+    "Select flows — type to filter, ↑/↓ move, Tab select, Ctrl-A all, Enter run, Esc cancel"
+)
+_HEADER_SINGLE = "Select a flow — type to filter, ↑/↓ move, Enter run, Esc cancel"
 
 
 @dataclass(frozen=True)
 class PickerState:
     """One immutable snapshot of the picker. `flows` is the full, ordered
     candidate set (config-known flows, sorted by the caller); `selected` is
-    by NAME so a toggle survives the flow being filtered off-screen."""
+    by NAME so a toggle survives the flow being filtered off-screen. `multi`
+    picks the mode: multi-select (`compare` — Tab/Ctrl-A toggle a set) or
+    single-select (`run` — no toggling, Enter runs the highlighted flow)."""
 
     flows: tuple[str, ...]
     query: str = ""
     cursor: int = 0
     selected: frozenset[str] = frozenset()
     outcome: str | None = None
+    multi: bool = True
 
 
-def initial_state(flows: tuple[str, ...]) -> PickerState:
-    return PickerState(flows=tuple(flows))
+def initial_state(flows: tuple[str, ...], *, multi: bool = True) -> PickerState:
+    return PickerState(flows=tuple(flows), multi=multi)
 
 
 def visible(state: PickerState) -> tuple[str, ...]:
@@ -131,20 +137,24 @@ def apply_key(state: PickerState, key: str) -> PickerState:
     if key == KEY_BACKSPACE:
         return _with_query(state, state.query[:-1])
     if key == KEY_TAB:
-        return _toggle(state)
+        # Multi-select toggling is meaningless in single mode (`run` picks
+        # exactly one flow) — swallow the key rather than build a set the
+        # caller would then have to reject.
+        return _toggle(state) if state.multi else state
     if key == KEY_CTRL_A:
-        return _select_visible(state)
+        return _select_visible(state) if state.multi else state
     if len(key) == 1 and key.isprintable():
         return _with_query(state, state.query + key)
     return state
 
 
 def resolved_selection(state: PickerState) -> tuple[str, ...]:
-    """The flows to compare once the user accepts: the toggled set (in flow
-    order) if any are toggled, otherwise the single highlighted flow, or
-    nothing when the filtered list is empty (spec 'Enter semantics')."""
+    """The flows to act on once the user accepts. Single mode always resolves
+    to the highlighted flow. Multi mode resolves to the toggled set (in flow
+    order) if any are toggled, otherwise the single highlighted flow. Either
+    way, an empty filtered list resolves to nothing (spec 'Enter semantics')."""
 
-    if state.selected:
+    if state.multi and state.selected:
         return tuple(flow for flow in state.flows if flow in state.selected)
     rows = visible(state)
     if not rows:
@@ -161,14 +171,20 @@ def render(state: PickerState, *, color: bool = False) -> str:
     visible flow with a cursor marker and a checkbox. Emits NO ANSI escapes
     when `color=False` (unit tests force it off)."""
 
-    lines = [_style(_HEADER, color=color, code=_BOLD), f"> {state.query}"]
+    header = _HEADER_MULTI if state.multi else _HEADER_SINGLE
+    lines = [_style(header, color=color, code=_BOLD), f"> {state.query}"]
     rows = visible(state)
     if not rows:
         lines.append("  (no matching flows)")
     for index, flow in enumerate(rows):
-        checkbox = "[x]" if flow in state.selected else "[ ]"
         is_cursor = index == state.cursor
         pointer = "▶" if is_cursor else " "
-        row = f"{pointer} {checkbox} {flow}"
+        if state.multi:
+            checkbox = "[x]" if flow in state.selected else "[ ]"
+            row = f"{pointer} {checkbox} {flow}"
+        else:
+            # Single mode drops the checkbox column — there is nothing to
+            # toggle, so a `[ ]` would only imply an affordance that is gone.
+            row = f"{pointer} {flow}"
         lines.append(_style(row, color=color, code=_REVERSE) if is_cursor else row)
     return "\n".join(lines)
