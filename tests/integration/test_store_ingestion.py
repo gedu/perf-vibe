@@ -213,6 +213,27 @@ def test_metric_direction_metadata_recorded_correctly(store):
     assert rows["cpu_avg_pct"] == 0
 
 
+def test_system_sample_units_persisted_correctly_not_defaulted_to_ms(store):
+    """Resilience batch (Task 5): a fresh run must persist the CORRECT
+    `metric.unit` for each system-sample aggregate — fps for fps_*, mb for
+    ram_*, pct for cpu_* — never the blanket 'ms' the old ingestion wrote.
+    total_time_ms/start_time_ms stay 'ms' (they genuinely are)."""
+    ctx = _run_context()
+    samples = [SystemSample(0, 46712.0, 1342.0, 59.28, 55.0, 210.5, 240.0, 12.4, 30.0)]
+
+    store.save_run(ctx, "prestamos-warm", 1, "warm", "local:eduardo", [], samples, None)
+
+    units = dict(store._conn.execute("SELECT name, unit FROM metric"))
+    assert units["fps_avg"] == "fps"
+    assert units["fps_min"] == "fps"
+    assert units["ram_avg_mb"] == "mb"
+    assert units["ram_peak_mb"] == "mb"
+    assert units["cpu_avg_pct"] == "pct"
+    assert units["cpu_peak_pct"] == "pct"
+    assert units["total_time_ms"] == "ms"
+    assert units["start_time_ms"] == "ms"
+
+
 def test_sql_metacharacter_names_round_trip_safely_as_bound_values(store):
     """A device/flow/metric NAME containing SQL metacharacters is stored
     and queried safely as a VALUE (parameterized) — never as an

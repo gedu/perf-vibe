@@ -54,6 +54,32 @@ def percentile(values: Sequence[float], p: float) -> float:
     return float(ordered[min(rank, n) - 1])
 
 
+# Consistency constant that scales the median absolute deviation to a robust
+# standard-deviation estimate for normally-distributed data (the standard
+# 1/Φ⁻¹(3/4) ≈ 1.4826). Used by the adaptive noise floor (anti-false-positive
+# batch, Task 2) so a metric's own historical scatter — not just a static
+# per-unit floor — sets how big a change must be before it counts.
+_MAD_SCALE = 1.4826
+
+
+def robust_noise(values: Sequence[float]) -> float:
+    """Robust dispersion estimate: `1.4826 * MAD`, where MAD is the median of
+    the absolute deviations from the series median. Robust to outliers (unlike
+    a plain standard deviation) — one freak run cannot inflate the estimate.
+
+    Well-defined and finite on every input: an empty series, a single value,
+    and any zero-variance (all-equal) series all return `0.0`; a NaN is never
+    produced for finite inputs. Callers gate on `>= 3` points before letting
+    it widen a floor (spec Task 2) — with fewer points the estimate is too
+    unstable to trust — but the function itself imposes no minimum."""
+
+    if not values:
+        return 0.0
+    center = median(values)
+    deviations = [abs(value - center) for value in values]
+    return _MAD_SCALE * median(deviations)
+
+
 def median_by_commit(points: Iterable[tuple[str, float]]) -> dict[str, float]:
     """Collapses repeated same-commit runs to exactly ONE median value per
     commit (spec "Baseline Correctness" — commit C with 3 recorded runs

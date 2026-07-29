@@ -90,6 +90,10 @@ CREATE INDEX idx_run_baseline ON run(flow_id, device_id, mode, started_at);
 -- ===== VIEWS =====
 -- Per-run + metric summary (nearest-rank percentiles) — §9.3.
 -- SQLite has no PERCENTILE_CONT; rank within the group.
+-- `p90_ms` uses integer CEIL nearest-rank `rn <= (9*n + 9) / 10` (== ceil(0.9n),
+-- 0003_fix_p90_ceil_rank.sql), MATCHING `domain/statistics.percentile`. The
+-- earlier floor form `CAST(0.9*n AS INT)` was optimistically biased (for n=2 it
+-- returned the MINIMUM as p90) — see the migration for the derivation.
 CREATE VIEW run_metric_summary AS
 WITH ranked AS (
   SELECT run_id, metric_id, duration_ms,
@@ -100,5 +104,5 @@ WITH ranked AS (
 SELECT run_id, metric_id, n,
        MIN(duration_ms) AS min_ms, MAX(duration_ms) AS max_ms, AVG(duration_ms) AS avg_ms,
        AVG(CASE WHEN rn IN ((n+1)/2,(n+2)/2) THEN duration_ms END) AS p50_ms,
-       MAX(CASE WHEN rn <= CAST(0.9*n AS INT) THEN duration_ms END) AS p90_ms
+       MAX(CASE WHEN rn <= (9*n + 9) / 10 THEN duration_ms END) AS p90_ms
 FROM ranked GROUP BY run_id, metric_id;

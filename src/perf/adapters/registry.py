@@ -210,6 +210,7 @@ def build_analyzer(
     min_baseline_commits: int,
     warmup_k: int,
     baseline_n: int,
+    adaptive_floor: bool = True,
 ) -> Analyzer:
     """`Analyzer` has exactly one implementation — a single factory, no
     name-keyed map needed (design 'Analyzer factory' decision: rule of
@@ -230,6 +231,7 @@ def build_analyzer(
         min_baseline_commits=min_baseline_commits,
         warmup_k=warmup_k,
         baseline_n=baseline_n,
+        adaptive_floor=adaptive_floor,
     )
 
 

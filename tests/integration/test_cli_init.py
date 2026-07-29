@@ -61,6 +61,38 @@ def _patch_load_config(monkeypatch, **overrides) -> PerfConfig:
     return config
 
 
+# ===== resilience batch Task 6: duplicate flow-stem collision =====
+
+
+def test_duplicate_flow_stem_exits_2_listing_each_stem_and_paths(monkeypatch, tmp_path):
+    """Task 6: two flow files sharing a stem (android/login.yaml vs
+    ios/login.yaml) make `init` a usage error (exit 2) listing the stem,
+    both relative paths, and a rename/restructure hint — never a silent
+    drop, and never Python's default exit 1."""
+    _patch_load_config(monkeypatch)
+    flows_dir = tmp_path / "flows"
+    (flows_dir / "android").mkdir(parents=True)
+    (flows_dir / "ios").mkdir(parents=True)
+    (flows_dir / "android" / "login.yaml").write_text("appId: com.a\n---\n")
+    (flows_dir / "ios" / "login.yaml").write_text("appId: com.b\n---\n")
+    (flows_dir / "checkout.yaml").write_text("appId: com.c\n---\n")
+    config_path = tmp_path / "perfvibe.toml"
+
+    result = runner.invoke(
+        main_module.app,
+        ["--config", str(config_path), "init", str(flows_dir)],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert result.exit_code != 1
+    assert "login" in result.output
+    assert str(Path("android") / "login.yaml") in result.output
+    assert str(Path("ios") / "login.yaml") in result.output
+    assert "rename" in result.output.lower()
+    # Nothing was written — the collision is refused before any merge/write.
+    assert not config_path.exists()
+
+
 # ===== 3.1: fresh create + round-trip + --json payload shape =====
 
 

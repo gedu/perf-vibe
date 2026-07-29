@@ -252,6 +252,15 @@ class CompareResult:
     # model -> calibration -> regression -> model, so the name is intentionally
     # never bound in this module — hence the suppression below.
     calibration: CalibrationReport
+    # Diagnostic counts (anti-false-positive batch, Task 4) for runs the
+    # baseline query SILENTLY excludes: runs on the current commit, and runs
+    # with no git commit. Surfaced ONLY in the pretty view (one dim note line)
+    # so a dev iterating on a single sha understands WHY history looks thin;
+    # deliberately NOT in the `--json` payload (the exact-key contract is
+    # unchanged). Additive with `0` defaults so every existing construction
+    # (`run`-era tests, budget-check) keeps working unchanged.
+    excluded_same_commit: int = 0
+    excluded_no_commit: int = 0
 
 
 # ===== budget-check gate carriers (design §2, tasks 1.9) =====
@@ -302,6 +311,43 @@ class RunPoint:
     metric_name: str
     value: float
     started_at: str  # ISO-8601 UTC, for chronological ordering
+
+
+# ===== `history` read model (the charting-export seam) =====
+
+
+@dataclass(frozen=True)
+class HistoryMetric:
+    """One metric's per-run percentile summary within a flow's historical
+    series (`history` command read model). Covers BOTH metric families —
+    marker `measure` metrics (summarized by the `run_metric_summary` view)
+    and `system_sample` aggregates (`fps_avg`/`ram_avg_mb`/… reduced from
+    the raw per-iteration rows). A raw per-run summary — NO warm-up discard
+    is applied here (unlike `compare`'s baseline math), so it reflects
+    exactly what the run recorded. `p50`/`p90` are `None` only for a metric
+    with no usable samples in the run. Additive value object with safe
+    defaults — unrelated constructions are unaffected."""
+
+    metric_name: str
+    p50: float | None = None
+    p90: float | None = None
+    n: int = 0
+    unit: str = "ms"
+
+
+@dataclass(frozen=True)
+class HistoryRun:
+    """One persisted run's slot in a flow's historical series (`history`
+    command read model). Carries the run's identity/provenance metadata plus
+    every metric's summary. Runs are ordered OLDEST→NEWEST by the store query
+    (natural chart order). `git_commit` is `None` when the run was persisted
+    with no resolvable git commit. Additive value object with safe defaults."""
+
+    run_id: int
+    started_at: str  # ISO-8601 UTC
+    git_commit: str | None = None
+    source: str = ""
+    metrics: Sequence[HistoryMetric] = ()
 
 
 # ===== Rev 2 compose-time value objects (design §1) =====

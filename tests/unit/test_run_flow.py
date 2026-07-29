@@ -298,6 +298,63 @@ def test_flow_failure_message_summarizes_outcomes_as_a_count_not_a_raw_list():
     assert "'failed'" not in message  # the noisy raw list is gone
 
 
+def test_driver_managed_partial_success_persists_good_iterations_with_partial_coverage():
+    """Resilience batch (Task 1): a DRIVER_MANAGED run where ONE of N
+    iterations failed must PERSIST the N-1 good iterations flagged
+    `partial_coverage=True` (mirroring the Flashlight/TOOL_MANAGED policy),
+    never discard every good measurement over one flake. `sampler=None`
+    selects the DRIVER_MANAGED plan; the surviving markers come from the
+    good iterations."""
+    driver = FakeDriver(
+        drive_result=DriverResult(
+            ok=False,
+            iteration_outcomes=("ok", "ok", "failed"),
+            logcat_lines=(),
+        )
+    )
+    marker_source = FakeMarkerSource(
+        parse_result=MarkerParseResult(
+            markers=(
+                Marker(name="checkout", value=900.0, unit="ms"),
+                Marker(name="checkout", value=910.0, unit="ms"),
+            ),
+            partial_coverage=True,
+            diagnostic="only 2 of 3 iterations produced markers",
+        )
+    )
+    store = FakeStore()
+    use_case = _use_case(driver=driver, sampler=None, marker_source=marker_source, store=store)
+
+    result = use_case.execute(_request(iterations=3, results_dir=None))
+
+    assert len(store.saved_runs) == 1
+    assert len(store.saved_runs[0]["markers"]) == 2
+    assert result.partial_coverage is True
+    assert result.iteration_statuses == (True, True, False)
+
+
+def test_driver_managed_all_iterations_failed_raises_and_persists_nothing():
+    """The flip side of partial success: when EVERY iteration failed
+    (`0/N` succeeded) it stays a hard runtime failure (exit 3), persisting
+    nothing — the partial-coverage policy only rescues a good/flaky mix."""
+    driver = FakeDriver(
+        drive_result=DriverResult(
+            ok=False,
+            iteration_outcomes=("failed", "failed", "failed"),
+            logcat_lines=(),
+            diagnostics="adb: no devices/emulators found",
+        )
+    )
+    store = FakeStore()
+    use_case = _use_case(driver=driver, sampler=None, store=store)
+
+    with pytest.raises(RunFailedError) as excinfo:
+        use_case.execute(_request(iterations=3, results_dir=None))
+
+    assert "0/3 iterations succeeded" in str(excinfo.value)
+    assert not store.saved_runs
+
+
 def test_capture_failed_raises_run_failed_even_when_ok():
     driver = FakeDriver(
         drive_result=DriverResult(

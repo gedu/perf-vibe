@@ -8,6 +8,7 @@ gating rules end-to-end (SKILL rule 6/7).
 from __future__ import annotations
 
 import json
+import re
 from importlib import import_module
 from pathlib import Path
 
@@ -735,6 +736,175 @@ def test_driver_managed_maestro_relay_stays_on_stderr_json_purity_holds(
     assert "RUN Checkout Flow" in result.stderr
 
 
+# ===== resilience batch Task 4: sampler = "none" (marker-only runs) =====
+
+
+def test_sampler_none_marker_only_run_persists_markers_and_no_flashlight_header(
+    monkeypatch, tmp_path: Path
+):
+    """Task 4: a `sampler=None` (marker-only) run drives the REAL,
+    registry-built `MaestroDriver` DRIVER_MANAGED path, persists markers,
+    exits 0, and emits NO tool-managed 'via Flashlight' header (that header
+    is keyed off the BUILT sampler, not the config name). Only the
+    `SubprocessRunner` process boundary is faked; `build_sampler(None)`
+    naturally returns no sampler."""
+    from perf.adapters.process import CaptureResult, CommandResult
+    from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
+
+    def fake_run_streamed(self, argv, *, env=None, cwd=None, on_line=None):
+        if on_line is not None:
+            on_line("RUN Checkout Flow")
+        return CommandResult(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(RealSubprocessRunner, "run_streamed", fake_run_streamed)
+    monkeypatch.setattr(RealSubprocessRunner, "start_capture", lambda self, argv: object())
+    monkeypatch.setattr(
+        RealSubprocessRunner,
+        "stop_capture",
+        lambda self, process: CaptureResult(lines=["[PERF] checkout: 900ms"], returncode=0),
+    )
+
+    config = PerfConfig(
+        db_path=str(tmp_path / "perf.db"),
+        no_color=True,
+        driver="maestro",
+        sampler=None,  # marker-only run (loader maps "none"/"" -> None)
+        marker_source="adb-logcat",
+        default_iterations=1,
+        flows={"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
+    )
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["--json", "run", "checkout"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["measures"]["checkout"]["values"] == [900.0]
+    assert payload["flashlight"] == []  # no sampler ran
+    assert "via Flashlight" not in result.stderr  # no tool-managed header
+
+
+# ===== resilience batch Task 1: driver-managed partial coverage =====
+
+
+def test_driver_managed_one_of_n_fails_persists_rest_exit_0_partial(monkeypatch, tmp_path: Path):
+    """Resilience Task 1: a REAL, registry-built `MaestroDriver`
+    DRIVER_MANAGED run (`build_driver` NEVER monkeypatched — python-testing
+    rule 3) where iteration 2 of 3 fails must exit 0, persist the good
+    iterations, and report `partial_coverage: true` in `--json`. The recap
+    shows honest ❌ for the failed iteration on STDERR. Only
+    `SubprocessRunner.run_streamed`/`start_capture`/`stop_capture` (the
+    process boundary) are faked."""
+    from perf.adapters.process import CaptureResult, CommandResult
+    from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
+
+    calls = {"n": 0}
+
+    def fake_run_streamed(self, argv, *, env=None, cwd=None, on_line=None):
+        calls["n"] += 1
+        # Iteration 2 (the 2nd run_streamed call) fails; the others succeed.
+        failed = calls["n"] == 2
+        if on_line is not None:
+            on_line("RUN Checkout Flow")
+        return CommandResult(
+            returncode=1 if failed else 0,
+            stdout="",
+            stderr="maestro: iteration 2 flaked" if failed else "",
+        )
+
+    def fake_start_capture(self, argv):
+        return object()
+
+    def fake_stop_capture(self, process):
+        # Two good iterations produced two markers; the flaky one produced none.
+        return CaptureResult(
+            lines=["[PERF] checkout: 900ms", "[PERF] checkout: 910ms"], returncode=0
+        )
+
+    monkeypatch.setattr(RealSubprocessRunner, "run_streamed", fake_run_streamed)
+    monkeypatch.setattr(RealSubprocessRunner, "start_capture", fake_start_capture)
+    monkeypatch.setattr(RealSubprocessRunner, "stop_capture", fake_stop_capture)
+
+    db_path = tmp_path / "perf.db"
+    config = PerfConfig(
+        db_path=str(db_path),
+        no_color=True,
+        driver="maestro",
+        sampler=None,
+        marker_source="adb-logcat",
+        default_iterations=3,
+        flows={"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
+    )
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["--json", "run", "checkout"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["flow"] == "checkout"
+    assert payload["partial_coverage"] is True
+    assert payload["measures"]["checkout"]["values"] == [900.0, 910.0]
+    # Honest per-iteration recap on STDERR: the flaky iteration shows ❌.
+    assert "❌ iteration 2/3" in result.stderr
+    assert "Recap" not in result.stdout
+
+    # The run really landed in the DB — the good iterations were not discarded.
+    from perf.adapters.store_sqlite import SqliteStore
+
+    store = SqliteStore(db_path)
+    try:
+        run_count = store._conn.execute("SELECT COUNT(*) FROM run").fetchone()[0]
+    finally:
+        store.close()
+    assert run_count == 1
+
+
+def test_driver_managed_all_iterations_fail_exits_3_persists_nothing(monkeypatch, tmp_path: Path):
+    """The flip side: a DRIVER_MANAGED run where ALL iterations fail exits 3
+    (never 1) and persists ZERO rows — the partial-coverage rescue only
+    applies to a good/flaky mix."""
+    from perf.adapters.process import CaptureResult, CommandResult
+    from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
+
+    def fake_run_streamed(self, argv, *, env=None, cwd=None, on_line=None):
+        return CommandResult(returncode=1, stdout="", stderr="maestro: device offline")
+
+    monkeypatch.setattr(RealSubprocessRunner, "run_streamed", fake_run_streamed)
+    monkeypatch.setattr(RealSubprocessRunner, "start_capture", lambda self, argv: object())
+    monkeypatch.setattr(
+        RealSubprocessRunner,
+        "stop_capture",
+        lambda self, process: CaptureResult(lines=[], returncode=0),
+    )
+
+    db_path = tmp_path / "perf.db"
+    config = PerfConfig(
+        db_path=str(db_path),
+        no_color=True,
+        driver="maestro",
+        sampler=None,
+        marker_source="adb-logcat",
+        default_iterations=3,
+        flows={"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
+    )
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+
+    result = runner.invoke(main_module.app, ["run", "checkout"])
+
+    assert result.exit_code == 3, result.output
+    assert result.exit_code != 1
+    assert "0/3 iterations succeeded" in result.output
+
+    from perf.adapters.store_sqlite import SqliteStore
+
+    store = SqliteStore(db_path)
+    try:
+        run_count = store._conn.execute("SELECT COUNT(*) FROM run").fetchone()[0]
+    finally:
+        store.close()
+    assert run_count == 0
+
+
 # ===== run-live-progress Slice C =====
 
 
@@ -963,15 +1133,22 @@ def test_quiet_does_not_change_exit_code_on_failure(monkeypatch, tmp_path: Path)
 
 def test_run_help_documents_quiet_flag_and_short_form(monkeypatch, tmp_path: Path):
     """Sanity check: `--quiet`/`-q` are discoverable via `--help` (same
-    pattern as the existing `--restart`/`--device` options)."""
+    pattern as the existing `--restart`/`--device` options).
+
+    Assert against the de-ANSI'd help: when color is on (CI/GitHub Actions
+    force it) Rich styles the option name with interleaved escape codes, so
+    the literal substring `--quiet` is absent from raw stdout even though the
+    rendered text shows it. Stripping ANSI tests the real intent — the flag
+    is documented — independent of styling."""
     config = _config(db_path=str(tmp_path / "perf.db"))
     monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
 
     result = runner.invoke(main_module.app, ["run", "--help"])
 
     assert result.exit_code == 0
-    assert "--quiet" in result.stdout
-    assert "-q" in result.stdout
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+    assert "--quiet" in plain
+    assert "-q" in plain
 
 
 # ===== run-live-progress Slice D post-review FIX 1: --quiet must silence

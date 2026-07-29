@@ -90,13 +90,14 @@ def _seed(
 
 
 def _seed_n1(store, *, git_commit, checkout_ms, fps_values=(60.0,), ram_values=(200.0,)):
-    """Seeds a run with exactly ONE `checkout` marker (n=1) — triggers
-    `run_metric_summary.p90_ms IS NULL` (`CAST(0.9*1 AS INT)` truncates to
-    0, nothing qualifies) — the BLOCKER scenario (FIX 1, PR-B review:
-    n=1 runs, reachable via `perf run --iterations 1`, must never crash
-    `compare_latest`)."""
+    """Seeds a run with exactly ONE `checkout` marker (n=1). After the p90
+    CEIL nearest-rank fix (0003_fix_p90_ceil_rank.sql) such a run has a
+    WELL-DEFINED p90 — its single value (rank ceil(0.9)=1) — so it now
+    CONTRIBUTES a baseline/latest point rather than yielding NULL. Still
+    reachable via `perf run --iterations 1`; `compare_latest` must never
+    crash on it."""
     ctx = _ctx(git_commit=git_commit)
-    markers = [Marker(name="checkout", value=checkout_ms, unit="ms")]  # n=1 -> NULL p90
+    markers = [Marker(name="checkout", value=checkout_ms, unit="ms")]  # n=1 -> p90 == value
     samples = _system_samples(fps_values, ram_values)
     return store.save_run(ctx, FLOW, 1, "warm", "local:eduardo", markers, samples, None)
 
@@ -256,6 +257,71 @@ def test_warmup_k_drops_first_iteration_for_system_sample_only_not_measure(tmp_p
         assert checkout.sample_n == 3  # every measure counts — no ordinal to drop
         assert fps.sample_n == 2  # 3 iterations minus the warmed-up-dropped idx 0
         assert fps.status == regression.STATUS_STABLE  # post-drop values match baseline (60.0)
+    finally:
+        store.close()
+
+
+# ===== Adaptive noise floor (anti-false-positive batch, Task 2): a noisy
+# baseline widens the effective floor so a small delta that a STATIC floor
+# would flag is suppressed to `stable`; `adaptive_floor=False` restores it. =====
+
+
+def _seed_noisy_baseline_and_small_delta_latest(store):
+    """5 baseline commits with checkout medians 100,90,110,95,105 (robust
+    noise 1.4826*MAD == 1.4826*5 ≈ 7.41 -> 2* ≈ 14.83), then a LATEST run
+    +8ms over the baseline median (100). +8 clears the static ms floor (5.0)
+    and the 5% threshold, so it flags under a static floor — but 8 < 14.83,
+    so the adaptive floor suppresses it."""
+    for commit, value in (("c1", 100.0), ("c2", 90.0), ("c3", 110.0), ("c4", 95.0), ("c5", 105.0)):
+        _seed(
+            store,
+            git_commit=commit,
+            checkout_ms=value,
+            fps_values=[60.0, 60.0],
+            ram_values=[200.0, 200.0],
+        )
+    _seed(
+        store,
+        git_commit="HEAD",
+        checkout_ms=108.0,
+        fps_values=[60.0, 60.0],
+        ram_values=[200.0, 200.0],
+    )
+
+
+def test_adaptive_floor_suppresses_small_delta_on_noisy_baseline(tmp_path):
+    store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
+    try:
+        _seed_noisy_baseline_and_small_delta_latest(store)
+
+        analyzer = _make_analyzer(store)  # adaptive_floor defaults True
+        result = analyzer.compare_latest(FLOW, DEVICE_A, "warm")
+
+        checkout = _verdict_by_metric(result, "checkout")
+        assert checkout is not None
+        assert checkout.baseline_value == 100.0
+        assert checkout.status == regression.STATUS_STABLE  # noise floor swallows the +8
+        # `Verdict.floor` reports the ACTUAL (widened) floor used, not the
+        # static 5.0 — 2 * robust_noise([100,90,110,95,105]) == 2*1.4826*5.
+        assert checkout.floor == 2.0 * 1.4826 * 5.0
+    finally:
+        store.close()
+
+
+def test_adaptive_floor_false_restores_static_floor_verdict(tmp_path):
+    store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
+    try:
+        _seed_noisy_baseline_and_small_delta_latest(store)
+
+        analyzer = _make_analyzer(store, adaptive_floor=False)
+        result = analyzer.compare_latest(FLOW, DEVICE_A, "warm")
+
+        checkout = _verdict_by_metric(result, "checkout")
+        assert checkout is not None
+        # +8 clears the static ms floor (5.0) and the 5% threshold -> regression,
+        # and `Verdict.floor` is the static floor, unwidened.
+        assert checkout.status == regression.STATUS_REGRESSION
+        assert checkout.floor == 5.0
     finally:
         store.close()
 
@@ -423,6 +489,87 @@ def test_verdict_series_points_parity_across_both_families(tmp_path):
         store.close()
 
 
+# ===== Excluded-runs diagnostic counts (anti-false-positive batch, Task 4):
+# runs the baseline query silently drops (current-commit, no-commit) are
+# counted onto CompareResult for the pretty view — never into --json. =====
+
+
+def test_compare_result_reports_excluded_run_counts(tmp_path):
+    store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
+    try:
+        for commit in ("c1", "c2"):
+            _seed(
+                store,
+                git_commit=commit,
+                checkout_ms=100.0,
+                fps_values=[60.0, 60.0],
+                ram_values=[200.0, 200.0],
+            )
+        # a run with NO git commit (detached/no repo) -> excluded as no-commit
+        _seed(
+            store,
+            git_commit=None,
+            checkout_ms=100.0,
+            fps_values=[60.0, 60.0],
+            ram_values=[200.0, 200.0],
+        )
+        # two runs on the CURRENT commit (HEAD); the latter is the latest run
+        _seed(
+            store,
+            git_commit="HEAD",
+            checkout_ms=100.0,
+            fps_values=[60.0, 60.0],
+            ram_values=[200.0, 200.0],
+        )
+        _seed(
+            store,
+            git_commit="HEAD",
+            checkout_ms=100.0,
+            fps_values=[60.0, 60.0],
+            ram_values=[200.0, 200.0],
+        )
+
+        analyzer = _make_analyzer(store)
+        result = analyzer.compare_latest(FLOW, DEVICE_A, "warm")
+
+        assert result is not None
+        assert result.excluded_same_commit == 2  # both HEAD runs
+        assert result.excluded_no_commit == 1  # the git_commit-less run
+    finally:
+        store.close()
+
+
+def test_compare_result_excluded_counts_zero_with_clean_history(tmp_path):
+    """No same-commit duplicates and no commit-less runs -> both counts 0, so
+    the pretty view adds no note line (the common, healthy case)."""
+    store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
+    try:
+        for commit in ("c1", "c2", "c3"):
+            _seed(
+                store,
+                git_commit=commit,
+                checkout_ms=100.0,
+                fps_values=[60.0, 60.0],
+                ram_values=[200.0, 200.0],
+            )
+        _seed(
+            store,
+            git_commit="HEAD",
+            checkout_ms=100.0,
+            fps_values=[60.0, 60.0],
+            ram_values=[200.0, 200.0],
+        )
+
+        analyzer = _make_analyzer(store)
+        result = analyzer.compare_latest(FLOW, DEVICE_A, "warm")
+
+        assert result is not None
+        assert result.excluded_same_commit == 1  # only the latest HEAD run itself
+        assert result.excluded_no_commit == 0
+    finally:
+        store.close()
+
+
 def test_compare_latest_returns_none_when_no_runs_at_all(tmp_path):
     """No prior run at all for this flow/device/mode — `SqlAnalyzer`
     returns `None` (the CLI, PR-C, maps this to the usage-error exit)."""
@@ -435,15 +582,17 @@ def test_compare_latest_returns_none_when_no_runs_at_all(tmp_path):
         store.close()
 
 
-# ===== FIX 1 (BLOCKER, PR-B review): NULL p90 (n=1 run) must never crash
-# `compare_latest` — n=1 is reachable via `perf run --iterations 1`. =====
+# ===== p90 CEIL nearest-rank fix (0003_fix_p90_ceil_rank.sql): an n=1 run
+# (reachable via `perf run --iterations 1`) now has a WELL-DEFINED p90 — its
+# single value — so it CONTRIBUTES rather than yielding NULL, and
+# `compare_latest` must never crash on it. =====
 
 
-def test_n1_run_in_baseline_window_excluded_from_median_not_crash(tmp_path):
-    """(a) A baseline window CONTAINING an n=1 run: that run's NULL p90
-    must be EXCLUDED from the median (not crash `median_by_commit`), and
-    the remaining median must be computed correctly from the other
-    (non-NULL) baseline commits."""
+def test_n1_run_in_baseline_window_contributes_its_single_value_not_crash(tmp_path):
+    """(a) A baseline window CONTAINING an n=1 run: after the ceil fix that
+    run's single value IS its p90, so it CONTRIBUTES a baseline point (rank
+    ceil(0.9)=1) instead of being dropped as a NULL — and never crashes
+    `median_by_commit`."""
     store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
     try:
         _seed(
@@ -453,7 +602,7 @@ def test_n1_run_in_baseline_window_excluded_from_median_not_crash(tmp_path):
             fps_values=[60.0, 60.0],
             ram_values=[200.0, 200.0],
         )
-        _seed_n1(store, git_commit="c2", checkout_ms=999.0)  # n=1 -> NULL p90, must be excluded
+        _seed_n1(store, git_commit="c2", checkout_ms=999.0)  # n=1 -> p90 == 999.0, contributes
         _seed(
             store,
             git_commit="c3",
@@ -475,20 +624,21 @@ def test_n1_run_in_baseline_window_excluded_from_median_not_crash(tmp_path):
         assert result is not None
         checkout = _verdict_by_metric(result, "checkout")
         assert checkout is not None
-        # c2's NULL p90 contributes NOTHING — median(100, 100), NOT median(100, 100, 999)
+        # All three commits contribute: per-commit medians 100 (c1), 999 (c2),
+        # 100 (c3) -> median-of-medians == 100.
         assert checkout.baseline_value == 100.0
-        assert checkout.baseline_commit_n == 2  # only c1 and c3 count
+        assert checkout.baseline_commit_n == 3  # c1, c2 (n=1) AND c3 all count
         assert checkout.status == regression.STATUS_STABLE
     finally:
         store.close()
 
 
-def test_latest_n1_run_is_insufficient_data_not_crash(tmp_path):
-    """(b) The LATEST run is n=1 for a metric: that metric's `Verdict`
-    MUST classify `insufficient-data` (no usable latest tail value) —
-    `compare_latest` must never crash. `min_baseline_commits=1` isolates
-    the `latest is None` branch from the (unrelated) `sample_n < min_n`
-    guard so this test proves the NULL-latest path specifically."""
+def test_latest_n1_run_now_has_a_valid_p90_not_insufficient_data(tmp_path):
+    """(b) The LATEST run is n=1 for a metric: after the ceil fix its single
+    value IS the p90 (rank ceil(0.9)=1), so the metric gets a REAL verdict
+    (here a regression against a stable baseline) instead of the old
+    `insufficient-data` from a NULL latest. `compare_latest` never crashes.
+    `min_baseline_commits=1` isolates this from the baseline-depth guard."""
     store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
     try:
         for commit in ("c1", "c2"):
@@ -499,7 +649,7 @@ def test_latest_n1_run_is_insufficient_data_not_crash(tmp_path):
                 fps_values=[60.0, 60.0],
                 ram_values=[200.0, 200.0],
             )
-        _seed_n1(store, git_commit="HEAD", checkout_ms=999.0)  # n=1 latest -> NULL p90
+        _seed_n1(store, git_commit="HEAD", checkout_ms=999.0)  # n=1 latest -> p90 == 999.0
 
         analyzer = _make_analyzer(store, min_baseline_commits=1)
         result = analyzer.compare_latest(FLOW, DEVICE_A, "warm")  # must NOT crash
@@ -507,16 +657,17 @@ def test_latest_n1_run_is_insufficient_data_not_crash(tmp_path):
         assert result is not None
         checkout = _verdict_by_metric(result, "checkout")
         assert checkout is not None
-        assert checkout.status == regression.STATUS_INSUFFICIENT_DATA
-        assert checkout.latest_value is None
+        assert checkout.latest_value == 999.0  # the single n=1 value, not None
+        assert checkout.status == regression.STATUS_REGRESSION  # 999 vs 100 baseline (up = worse)
     finally:
         store.close()
 
 
-def test_all_baseline_runs_n1_yields_insufficient_data_not_crash(tmp_path):
-    """(c) EVERY baseline run is n=1: the baseline collapses to empty
-    (every candidate point excluded) — `insufficient-data`, never a
-    crash."""
+def test_all_baseline_runs_n1_now_contribute_not_insufficient_data(tmp_path):
+    """(c) EVERY baseline run is n=1: after the ceil fix each contributes its
+    single value, so the baseline is NON-empty (two commits) and the metric
+    gets a real verdict — never a crash. (Under the old floor form every
+    n=1 run yielded NULL and the baseline collapsed to `insufficient-data`.)"""
     store = SqliteStore(tmp_path / "perf.db", clock=SequentialClock())
     try:
         _seed_n1(store, git_commit="c1", checkout_ms=100.0)
@@ -535,8 +686,10 @@ def test_all_baseline_runs_n1_yields_insufficient_data_not_crash(tmp_path):
         assert result is not None
         checkout = _verdict_by_metric(result, "checkout")
         assert checkout is not None
-        assert checkout.status == regression.STATUS_INSUFFICIENT_DATA
-        assert checkout.baseline_commit_n == 0  # both n=1 baseline runs excluded, none contributed
+        assert checkout.baseline_commit_n == 2  # both n=1 baseline runs contribute now
+        # baseline median-of-medians == median(100, 200) == 150; latest 100 is
+        # a drop -> improvement (checkout is lower-is-better).
+        assert checkout.status == regression.STATUS_IMPROVEMENT
     finally:
         store.close()
 

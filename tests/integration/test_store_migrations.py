@@ -25,7 +25,9 @@ def test_fresh_db_migrates_to_latest_user_version_and_creates_schema(tmp_path):
     store = SqliteStore(db_path)
     try:
         version = store._conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 2  # 0001_init.sql + 0002_compare_baseline_index.sql
+        # 0001_init + 0002_compare_baseline_index + 0003_fix_p90_ceil_rank
+        # + 0004_fix_system_sample_units
+        assert version == 4
 
         tables = {
             row[0]
@@ -81,10 +83,105 @@ def test_migrated_pre_rev3_db_advances_to_user_version_2_and_adds_index(tmp_path
             row[0]
             for row in store._conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
         }
-        assert version_after == 2
+        assert version_after == 4  # picks up 0002 (index), 0003 (p90 fix) AND 0004 (units)
         assert "idx_run_baseline" in indexes_after
     finally:
         store.close()
+
+
+def test_pre_p90fix_db_upgrades_to_0003_and_view_p90_changes_from_min_to_max(tmp_path):
+    """A DB at the 0002 level (floor nearest-rank p90, the bug) upgrades to
+    0003 on next open: `user_version` advances to 3 AND the same n=2 measure
+    run's `p90_ms` FLIPS from the MINIMUM (floor rank 1, the optimistic bug)
+    to the MAXIMUM (ceil rank 2) — proving the view was actually recreated,
+    not just the version bumped (math / anti-false-positive, Task 1)."""
+    db_path = tmp_path / "perf.db"
+
+    # Simulate a pre-0003 DB: apply ONLY 0001 + 0002 by hand and seed an n=2
+    # measure run. Under the floor view, p90 == MIN (the bug).
+    conn = sqlite3.connect(str(db_path), isolation_level=None)
+    conn.execute("PRAGMA foreign_keys = ON")
+    init_sql = (_MIGRATIONS_DIR / "0001_init.sql").read_text()
+    index_sql = (_MIGRATIONS_DIR / "0002_compare_baseline_index.sql").read_text()
+    conn.executescript(f"BEGIN;\n{init_sql}\n{index_sql}\nPRAGMA user_version = 2;\nCOMMIT;")
+    conn.execute(
+        "INSERT INTO device (device_key, model, os_version) VALUES (?, ?, ?)",
+        ("Pixel 8 Pro|Android 14|physical", "Pixel 8 Pro", "Android 14"),
+    )
+    conn.execute("INSERT INTO flow (name) VALUES (?)", ("checkout",))
+    conn.execute("INSERT INTO metric (name) VALUES (?)", ("checkout",))
+    conn.execute(
+        """
+        INSERT INTO run (flow_id, device_id, started_at, iterations, mode, source)
+        VALUES (1, 1, '2026-07-22T00:00:00Z', 1, 'warm', 'local:eduardo')
+        """
+    )
+    for duration in (100.0, 900.0):
+        conn.execute(
+            "INSERT INTO measure (run_id, metric_id, duration_ms) VALUES (1, 1, ?)", (duration,)
+        )
+    conn.commit()
+    version_before = conn.execute("PRAGMA user_version").fetchone()[0]
+    p90_before = conn.execute(
+        "SELECT p90_ms FROM run_metric_summary WHERE run_id = 1 AND metric_id = 1"
+    ).fetchone()[0]
+    conn.close()
+    assert version_before == 2
+    assert p90_before == 100.0  # floor nearest-rank returned the MIN — the bug
+
+    store = SqliteStore(db_path)
+    try:
+        version_after = store._conn.execute("PRAGMA user_version").fetchone()[0]
+        p90_after = store._conn.execute(
+            "SELECT p90_ms FROM run_metric_summary WHERE run_id = 1 AND metric_id = 1"
+        ).fetchone()[0]
+        assert version_after == 4  # 0003 (p90 fix) + 0004 (units) both applied
+        assert p90_after == 900.0  # ceil nearest-rank now returns the MAX
+    finally:
+        store.close()
+
+
+def test_pre_units_db_upgrades_to_0004_and_fixes_system_sample_units(tmp_path):
+    """A DB at the 0003 level (system-sample metrics wrongly stored as 'ms')
+    upgrades to 0004 on next open: `user_version` advances to 4 AND the
+    persisted `metric.unit` for fps/ram/cpu aggregates is corrected to
+    fps/mb/pct (resilience batch, Task 5). Marker metrics and total/start
+    time keep 'ms'."""
+    db_path = tmp_path / "perf.db"
+
+    # Simulate a pre-0004 DB: apply 0001 + 0002 + 0003 by hand and seed the
+    # `metric` table exactly as the old `_upsert_metrics` did — every metric
+    # unit='ms', including fps/ram/cpu aggregates.
+    conn = sqlite3.connect(str(db_path), isolation_level=None)
+    conn.execute("PRAGMA foreign_keys = ON")
+    parts = [
+        (_MIGRATIONS_DIR / name).read_text()
+        for name in (
+            "0001_init.sql",
+            "0002_compare_baseline_index.sql",
+            "0003_fix_p90_ceil_rank.sql",
+        )
+    ]
+    conn.executescript("BEGIN;\n" + "\n".join(parts) + "\nPRAGMA user_version = 3;\nCOMMIT;")
+    for name in ("checkout", "fps_avg", "fps_min", "ram_avg_mb", "cpu_avg_pct", "total_time_ms"):
+        conn.execute("INSERT INTO metric (name, unit) VALUES (?, 'ms')", (name,))
+    conn.commit()
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+    conn.close()
+
+    store = SqliteStore(db_path)
+    try:
+        assert store._conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        units = dict(store._conn.execute("SELECT name, unit FROM metric").fetchall())
+    finally:
+        store.close()
+
+    assert units["fps_avg"] == "fps"
+    assert units["fps_min"] == "fps"
+    assert units["ram_avg_mb"] == "mb"
+    assert units["cpu_avg_pct"] == "pct"
+    assert units["total_time_ms"] == "ms"  # unchanged
+    assert units["checkout"] == "ms"  # a real marker metric — never touched
 
 
 def test_fresh_schema_sql_and_migrated_db_converge_on_indexes(tmp_path):
@@ -128,7 +225,7 @@ def test_migration_runner_still_idempotent_at_version_2_on_reopen(tmp_path):
     store2 = SqliteStore(db_path)
     try:
         version = store2._conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 2
+        assert version == 4
     finally:
         store2.close()
 
@@ -145,7 +242,7 @@ def test_migration_runner_is_idempotent_on_reopen(tmp_path):
     store2 = SqliteStore(db_path)
     try:
         version = store2._conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 2  # latest version as of Rev 3 (0001 + 0002)
+        assert version == 4  # latest version (0001 + 0002 + 0003 + 0004)
     finally:
         store2.close()
 

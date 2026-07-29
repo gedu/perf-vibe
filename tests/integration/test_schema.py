@@ -19,6 +19,7 @@ DB_DIR = Path(__file__).resolve().parents[2] / "src" / "perf" / "db"
 SCHEMA_SQL = DB_DIR / "schema.sql"
 MIGRATION_0001 = DB_DIR / "migrations" / "0001_init.sql"
 MIGRATION_0002 = DB_DIR / "migrations" / "0002_compare_baseline_index.sql"
+MIGRATION_0003 = DB_DIR / "migrations" / "0003_fix_p90_ceil_rank.sql"
 
 EXPECTED_TABLES = {"device", "flow", "metric", "run", "iteration", "measure", "system_sample"}
 EXPECTED_INDEXES = {"idx_run_flow_device_time", "idx_measure_metric", "idx_measure_run"}
@@ -182,6 +183,7 @@ def test_schema_sql_and_migrations_are_fully_equivalent():
         conn_schema.executescript(SCHEMA_SQL.read_text())
         conn_migration.executescript(MIGRATION_0001.read_text())
         conn_migration.executescript(MIGRATION_0002.read_text())
+        conn_migration.executescript(MIGRATION_0003.read_text())
         assert _introspect_full_schema(conn_schema) == _introspect_full_schema(conn_migration)
     finally:
         conn_schema.close()
@@ -355,3 +357,78 @@ def test_system_sample_still_keyed_by_iteration_pk_fk(fresh_connection, ddl_path
             VALUES (999, 1.0)
             """
         )
+
+
+# ===== p90_ms CEIL nearest-rank fix (math / anti-false-positive, Task 1):
+# the view's p90_ms MUST equal `domain.statistics.percentile(values, 90)`
+# (CEIL nearest-rank) for every n — the earlier floor form was optimistically
+# biased (n=2 returned the MINIMUM as p90). =====
+
+
+def _seed_single_metric_run(conn: sqlite3.Connection, durations) -> None:
+    """Seed ONE run with one metric whose `measure` rows carry `durations`,
+    so `run_metric_summary` computes over exactly those values."""
+    conn.execute(
+        "INSERT INTO device (device_key, model, os_version) VALUES (?, ?, ?)",
+        ("Pixel 8 Pro|Android 14|physical", "Pixel 8 Pro", "Android 14"),
+    )
+    conn.execute("INSERT INTO flow (name) VALUES (?)", ("checkout",))
+    conn.execute("INSERT INTO metric (name) VALUES (?)", ("checkout",))
+    conn.execute(
+        """
+        INSERT INTO run (flow_id, device_id, started_at, iterations, mode, source)
+        VALUES (1, 1, '2026-07-22T00:00:00Z', 1, 'warm', 'local:eduardo')
+        """
+    )
+    for duration in durations:
+        conn.execute(
+            "INSERT INTO measure (run_id, metric_id, duration_ms) VALUES (1, 1, ?)",
+            (float(duration),),
+        )
+    conn.commit()
+
+
+def _view_p90(conn: sqlite3.Connection) -> float | None:
+    row = conn.execute(
+        "SELECT p90_ms FROM run_metric_summary WHERE run_id = 1 AND metric_id = 1"
+    ).fetchone()
+    return None if row is None else row[0]
+
+
+@pytest.mark.parametrize("ddl_path", [SCHEMA_SQL])
+@pytest.mark.parametrize("n", list(range(1, 31)))
+def test_view_p90_matches_domain_percentile_ceil_nearest_rank(fresh_connection, ddl_path, n):
+    """Property-style: for values 10, 20, ..., 10n the view's `p90_ms` must
+    equal `domain.statistics.percentile(values, 90)` (CEIL nearest-rank) for
+    every n in 1..30 — the SQL and the domain now agree on the SAME
+    convention (the domain docstring's long-standing claim is finally true)."""
+    from perf.domain.statistics import percentile
+
+    fresh_connection.executescript(ddl_path.read_text())
+    values = [10.0 * (i + 1) for i in range(n)]
+    _seed_single_metric_run(fresh_connection, values)
+
+    assert _view_p90(fresh_connection) == percentile(values, 90)
+
+
+def test_view_p90_n2_is_the_max_never_the_min(fresh_connection):
+    """Explicit n=2 regression pin: floor nearest-rank returned the MINIMUM
+    as p90 (rank floor(1.8)=1) — a systematic optimistic bias. CEIL
+    nearest-rank (rank ceil(1.8)=2) returns the MAX."""
+    fresh_connection.executescript(SCHEMA_SQL.read_text())
+    _seed_single_metric_run(fresh_connection, [100.0, 900.0])
+
+    p90 = _view_p90(fresh_connection)
+    assert p90 == 900.0  # the MAX
+    assert p90 != 100.0  # never the MIN (the old floor bug)
+
+
+def test_view_p90_n1_returns_the_single_value_not_null(fresh_connection):
+    """CEIL nearest-rank makes n=1 well-defined: p90 of a single-measure run
+    is that value (rank ceil(0.9)=1), NOT NULL. The old floor form returned
+    NULL for n=1 (`CAST(0.9*1 AS INT)`=0, nothing qualified) — a symptom of
+    the same bug, now gone."""
+    fresh_connection.executescript(SCHEMA_SQL.read_text())
+    _seed_single_metric_run(fresh_connection, [42.0])
+
+    assert _view_p90(fresh_connection) == 42.0

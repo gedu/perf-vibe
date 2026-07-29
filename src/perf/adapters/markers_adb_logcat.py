@@ -33,6 +33,7 @@ apply.
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Sequence
 
@@ -170,6 +171,14 @@ class AdbLogcatMarkerSource:
         try:
             value = float(value)
         except (TypeError, ValueError):
+            return None
+        # Python's `json.loads` ACCEPTS the `NaN`/`Infinity` literals. A NaN
+        # here later binds as NULL into the `NOT NULL duration_ms` column and
+        # rolls back the ENTIRE run at ingestion; an inf silently poisons the
+        # baseline median forever. Negative durations are clock-skew garbage
+        # the text-form regex already rejects — the JSON path must agree.
+        # All three are malformed data: skip, never raise (SKILL rule 5).
+        if not math.isfinite(value) or value < 0:
             return None
 
         unit = data.get("unit") or "ms"

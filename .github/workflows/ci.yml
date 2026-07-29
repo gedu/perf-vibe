@@ -59,7 +59,7 @@ jobs:
       - name: Smoke — demos run end to end
         run: |
           set -euo pipefail
-          perfvibe --json --config examples/demo-run/perf.toml run demo > /dev/null
+          perfvibe --json --config examples/demo-run/perfvibe.toml run demo > /dev/null
           python examples/demo-compare/seed.py > /dev/null
-          perfvibe --json --config examples/demo-compare/perf.toml compare demo > /dev/null
+          perfvibe --json --config examples/demo-compare/perfvibe.toml compare demo > /dev/null
           echo "compare exited $? on a seeded regression (expected 0)"

@@ -218,3 +218,60 @@ def test_one_failed_iteration_among_successes_yields_only_success_sample_and_par
     # excluded from `samples`, never from `iteration_statuses` — so the CLI
     # recap can show it as ❌ rather than silently vanishing.
     assert result.iteration_statuses == [True, False]
+
+
+def test_non_finite_and_non_numeric_measure_values_are_skipped(tmp_path):
+    """Python's `json.loads` ACCEPTS `NaN`/`Infinity` literals, and a real
+    Flashlight report can carry them (or non-numeric junk) inside a
+    measure. A NaN reaching `fmean` poisons the whole aggregate — and a
+    NaN aggregate later binds as NULL into the nullable `system_sample`
+    columns, silently vanishing. Bad VALUES are skipped exactly like a
+    measure with the key missing; the finite values still aggregate."""
+    report = {
+        "status": "SUCCESS",
+        "iterations": [
+            {
+                "time": 1000,
+                "startTime": 10,
+                "status": "SUCCESS",
+                "measures": [
+                    {"fps": 60.0, "ram": 100.0},
+                    {"fps": float("nan"), "ram": "lots"},
+                    {"fps": 30.0, "cpu": {"perName": {"UI Thread": float("inf"), "gpu": 10.0}}},
+                ],
+            }
+        ],
+    }
+    path = tmp_path / "nonfinite.json"
+    path.write_text(json.dumps(report))
+
+    result = FlashlightSampler().parse(str(path))
+
+    sample = result.samples[0]
+    assert sample.fps_avg == 45.0  # mean of 60 + 30 — the NaN is skipped
+    assert sample.fps_min == 30.0
+    assert sample.ram_avg_mb == 100.0  # the non-numeric "lots" is skipped
+    assert sample.cpu_avg_pct == 10.0  # the inf never enters the perName sum
+    assert result.partial_coverage is False  # bad VALUES are not failed ITERATIONS
+
+
+def test_non_finite_iteration_time_becomes_none(tmp_path):
+    report = {
+        "status": "SUCCESS",
+        "iterations": [
+            {
+                "time": float("nan"),
+                "startTime": float("inf"),
+                "status": "SUCCESS",
+                "measures": [{"fps": 60.0}],
+            }
+        ],
+    }
+    path = tmp_path / "nan-time.json"
+    path.write_text(json.dumps(report))
+
+    result = FlashlightSampler().parse(str(path))
+
+    assert result.samples[0].total_time_ms is None
+    assert result.samples[0].start_time_ms is None
+    assert result.samples[0].fps_avg == 60.0

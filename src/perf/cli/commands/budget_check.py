@@ -23,6 +23,7 @@ from perf.adapters.registry import (
     build_context_provider,
     build_store,
 )
+from perf.adapters.store_sqlite import SqliteStore
 from perf.application.budget_check_flow import (
     BudgetCheckFailedError,
     BudgetCheckRequest,
@@ -31,13 +32,51 @@ from perf.application.budget_check_flow import (
 )
 from perf.cli.output.budget_check_pretty import render_metric_detail, render_summary
 from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
-from perf.cli.output.errors import emit_error
+from perf.cli.output.errors import emit_error, emit_warning
 from perf.cli.output.json_reporter import render_json
 from perf.config.loader import PerfConfig
 from perf.contracts.budget_check_v1 import build_payload
-from perf.domain.model import GATE_FAIL
+from perf.domain.model import GATE_FAIL, BudgetVerdict
 
 __all__ = ["budget_check"]
+
+
+def _evaluate_with_fallback(
+    output: OutputContext,
+    use_case: BudgetCheckUseCase,
+    store: SqliteStore,
+    *,
+    flow: str,
+    device_key: str,
+    mode: str,
+    strict: bool,
+    device_key_explicit: bool,
+) -> BudgetVerdict:
+    """Run the gate with the device-key fallback (resilience batch, Task 2):
+    when the derived `device_key` matches NO history (`UsageError`) AND it
+    was not pinned via `--device-key`, retry once with the most recent
+    persisted device_key for this flow+mode, warning that it did so — so the
+    CI gate does not die with exit 2 merely because no device is attached. A
+    still-empty fallback re-raises the original no-history `UsageError`."""
+
+    try:
+        return use_case.execute(
+            BudgetCheckRequest(flow_name=flow, device_key=device_key, mode=mode, strict=strict)
+        )
+    except UsageError:
+        if device_key_explicit:
+            raise
+        fallback = store.latest_device_key(flow, mode)
+        if fallback is None or fallback == device_key:
+            raise
+        emit_warning(
+            output,
+            f"no history for derived device key {device_key!r}; "
+            f"falling back to last recorded key {fallback!r}",
+        )
+        return use_case.execute(
+            BudgetCheckRequest(flow_name=flow, device_key=fallback, mode=mode, strict=strict)
+        )
 
 
 def budget_check(
@@ -59,6 +98,12 @@ def budget_check(
     ),
     device: str | None = typer.Option(
         None, "--device", help="Pin a device serial (overrides MAESTRO_DEVICE/config)"
+    ),
+    device_key: str | None = typer.Option(
+        None,
+        "--device-key",
+        help="Use this device key verbatim (e.g. 'Pixel 8|Android 14|physical'); "
+        "skips live-adb derivation and the last-recorded-key fallback",
     ),
 ) -> None:
     """The CI gate: reuses compare's already-shipped `Analyzer.compare_latest`
@@ -94,6 +139,10 @@ def budget_check(
             device=resolved_device,
         )
         rc = context_provider.context()
+        # `--device-key` wins verbatim (Task 2): no live-adb-derived key
+        # needed, so the gate runs with no device attached. `rc` is still
+        # used for the render-time git context regardless.
+        effective_device_key = device_key if device_key is not None else rc.device_key
 
         store = build_store(config.db_path)
         analyzer = build_analyzer(
@@ -103,10 +152,18 @@ def budget_check(
             min_baseline_commits=config.min_baseline_commits,
             warmup_k=config.warmup_k,
             baseline_n=config.baseline_n,
+            adaptive_floor=config.adaptive_floor,
         )
         use_case = BudgetCheckUseCase(analyzer=analyzer)
-        verdict = use_case.execute(
-            BudgetCheckRequest(flow_name=flow, device_key=rc.device_key, mode=mode, strict=strict)
+        verdict = _evaluate_with_fallback(
+            output,
+            use_case,
+            store,
+            flow=flow,
+            device_key=effective_device_key,
+            mode=mode,
+            strict=strict,
+            device_key_explicit=device_key is not None,
         )
     except UsageError as exc:
         emit_error(output, str(exc))

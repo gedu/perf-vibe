@@ -74,18 +74,37 @@ demo lives in [`examples/demo-run/`](./examples/demo-run/).
 
 ```bash
 perfvibe run <flow> [n] [--restart] [--device <serial>]     # measure and persist
-perfvibe compare <flow>                                     # verdict vs history
+perfvibe compare <flow>...                                  # verdict vs history (one or more flows)
+perfvibe compare --all                                      # compare every config-known flow
+perfvibe compare                                            # no args on a TTY: interactive flow picker
 perfvibe budget-check <flow> [--strict] [--metric <name>] [--verbose] [--restart] [--device <serial>]
+perfvibe history <flow> [--metric <name>] [--limit N] [--restart] [--device <serial>] [--device-key <key>]
 perfvibe --json run <flow>          # stable machine output (schema_version=1)
-perfvibe --json compare <flow>
+perfvibe --json compare <flow>                              # single flow: compare_v1 payload
+perfvibe --json compare <flow>... | --all                  # 2+ flows/--all: compare_all_v1 envelope
 perfvibe --json budget-check <flow>
+perfvibe --json history <flow>                              # per-flow historical series (history_v1)
 ```
 
 `run` persists a run. `compare` reads that history and shows a per-metric,
 direction-aware verdict (median-by-commit baseline, sparklines, `--json`).
+Pass one flow, several, or `--all` (every config-known flow, sorted); a flow
+with no history is warned and skipped. With no flow args on an interactive
+terminal it opens an fzf-style picker (type to filter, `↑`/`↓` to move, `Tab`
+to multi-select, `Ctrl-A` to select all, `Enter` to run, `Esc` to cancel); in
+`--json` or non-interactive contexts you must name a flow or pass `--all`.
 `budget-check` reuses `compare`'s verdict and applies ONE gate rule: any
 `regression` fails the flow. It is the CI-gating command — `run` and `compare`
 never exit `1`, `budget-check` does.
+
+`history` is the machine-readable per-flow chart export: it reads the local
+store and emits every persisted run for a flow (oldest→newest) with each
+metric's `{p50, p90, n, unit}`, across both metric families (marker measures
+and Flashlight system-sample aggregates). `--metric` narrows to one metric;
+`--limit N` (default 50) takes the most recent N runs. Like `compare`, it is
+show-only — `0` success, `2` usage (unknown flow/metric, or no history for the
+flow+device+mode), `3` runtime failure, never `1`. Always parse the `--json`
+(`schema_version=1`) payload, never the pretty view.
 
 Exit codes: `0` success (or a `budget-check` gate `pass`/`skipped`) · `1`
 **`budget-check` only** — a confirmed regression (or, under `--strict`, an
