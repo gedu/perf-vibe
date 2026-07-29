@@ -8,6 +8,7 @@ gating rules end-to-end (SKILL rule 6/7).
 from __future__ import annotations
 
 import json
+import re
 from importlib import import_module
 from pathlib import Path
 
@@ -1132,15 +1133,22 @@ def test_quiet_does_not_change_exit_code_on_failure(monkeypatch, tmp_path: Path)
 
 def test_run_help_documents_quiet_flag_and_short_form(monkeypatch, tmp_path: Path):
     """Sanity check: `--quiet`/`-q` are discoverable via `--help` (same
-    pattern as the existing `--restart`/`--device` options)."""
+    pattern as the existing `--restart`/`--device` options).
+
+    Assert against the de-ANSI'd help: when color is on (CI/GitHub Actions
+    force it) Rich styles the option name with interleaved escape codes, so
+    the literal substring `--quiet` is absent from raw stdout even though the
+    rendered text shows it. Stripping ANSI tests the real intent — the flag
+    is documented — independent of styling."""
     config = _config(db_path=str(tmp_path / "perf.db"))
     monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
 
     result = runner.invoke(main_module.app, ["run", "--help"])
 
     assert result.exit_code == 0
-    assert "--quiet" in result.stdout
-    assert "-q" in result.stdout
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+    assert "--quiet" in plain
+    assert "-q" in plain
 
 
 # ===== run-live-progress Slice D post-review FIX 1: --quiet must silence
