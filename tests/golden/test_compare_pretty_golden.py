@@ -265,3 +265,54 @@ def test_max_eq_min_sparkline_matches_golden(request):
 def test_max_eq_min_sparkline_does_not_crash_or_divide_by_zero():
     actual = render_compare(_max_eq_min_result(), color=False)
     assert "checkout" in actual
+
+
+# ===== (f) excluded-runs diagnostic note (anti-false-positive batch, Task 4):
+# ONE dim line explaining runs the baseline silently dropped, pretty-only. =====
+
+
+def _excluded_note_result() -> CompareResult:
+    return CompareResult(
+        verdicts=_insufficient_data_result().verdicts,
+        calibration=CalibrationReport(
+            metrics=(), status="insufficient-data", runs_flagged=0, runs_total=0
+        ),
+        excluded_same_commit=3,
+        excluded_no_commit=2,
+    )
+
+
+def test_excluded_note_matches_golden(request):
+    actual = render_compare(_excluded_note_result(), color=False)
+    _assert_or_update_golden(request, "compare_excluded_note.txt", actual)
+
+
+def test_excluded_note_present_and_counts_rendered_color_off():
+    actual = render_compare(_excluded_note_result(), color=False)
+    assert "5 run(s) excluded from baseline" in actual  # 3 + 2
+    assert "3 on the current commit" in actual
+    assert "2 without a git commit" in actual
+    assert "commit your changes to grow history" in actual
+    assert _ANSI_ESCAPE not in actual  # dim styling never leaks under color-off
+
+
+def test_excluded_note_absent_when_no_runs_excluded():
+    """Default counts (0) -> no note line at all, so the common healthy case
+    is byte-identical to before this batch."""
+    actual = render_compare(_normal_result(), color=False)
+    assert "excluded from baseline" not in actual
+
+
+def test_excluded_note_only_names_nonzero_categories():
+    result = CompareResult(
+        verdicts=_insufficient_data_result().verdicts,
+        calibration=CalibrationReport(
+            metrics=(), status="insufficient-data", runs_flagged=0, runs_total=0
+        ),
+        excluded_same_commit=0,
+        excluded_no_commit=4,
+    )
+    actual = render_compare(result, color=False)
+    assert "4 run(s) excluded from baseline" in actual
+    assert "4 without a git commit" in actual
+    assert "on the current commit" not in actual  # zero category omitted

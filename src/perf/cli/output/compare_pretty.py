@@ -14,9 +14,11 @@ from perf.domain import calibration, regression
 from perf.domain.calibration import CalibrationReport
 from perf.domain.model import CompareResult, Verdict
 
-__all__ = ["render_compare"]
+__all__ = ["render_compare", "render_flow_header"]
 
+_BOLD = "\x1b[1m"
 _BOLD_RED = "\x1b[1;31m"
+_DIM = "\x1b[2m"
 _RESET = "\x1b[0m"
 
 # Stdlib Unicode block characters, low -> high (design "UX": "▁▂▃▅▇").
@@ -99,6 +101,42 @@ def _sanity_label(report: CalibrationReport) -> str:
     return "· insufficient data to grade config sanity"
 
 
+def _excluded_note(result: CompareResult, *, color: bool) -> str | None:
+    """ONE dim explanatory line (anti-false-positive batch, Task 4) shown
+    ONLY when the baseline query silently dropped runs — so a dev iterating
+    on a single sha (or on an uncommitted tree) understands WHY history looks
+    thin, instead of a bare "insufficient data". Lossy pretty-only; the
+    `--json` payload never carries these counts (contract unchanged). Returns
+    `None` when nothing was excluded, so the common case adds no line."""
+
+    same_commit = result.excluded_same_commit
+    no_commit = result.excluded_no_commit
+    total = same_commit + no_commit
+    if total <= 0:
+        return None
+
+    clauses: list[str] = []
+    if same_commit > 0:
+        clauses.append(f"{same_commit} on the current commit")
+    if no_commit > 0:
+        clauses.append(f"{no_commit} without a git commit")
+    detail = ", ".join(clauses)
+    text = (
+        f"note: {total} run(s) excluded from baseline: {detail} "
+        "— commit your changes to grow history"
+    )
+    return _style(text, color=color, code=_DIM)
+
+
+def render_flow_header(flow_name: str, *, color: bool = False) -> str:
+    """A single, clear per-flow header line for the MULTI-flow `compare`
+    view (2+ flows or `--all`), so sequentially rendered flows never blur
+    together. Bolded when color is on; plain (byte-clean) when off. Never
+    emitted for a single-flow compare — that output stays byte-identical."""
+
+    return _style(f"═══ {flow_name} ═══", color=color, code=_BOLD)
+
+
 def render_compare(result: CompareResult, *, color: bool = False) -> str:
     """Per-metric line (name, latest vs baseline, arrow + signed %,
     classification, sparkline) followed by ONE sanity-label footer line
@@ -109,4 +147,7 @@ def render_compare(result: CompareResult, *, color: bool = False) -> str:
     lines: list[str] = [_metric_line(verdict, color=color) for verdict in result.verdicts]
     lines.append("")
     lines.append(_sanity_label(result.calibration))
+    note = _excluded_note(result, color=color)
+    if note is not None:
+        lines.append(note)
     return "\n".join(lines) + "\n"

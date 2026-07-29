@@ -14,7 +14,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from perf.cli.commands.init import _is_subflows_segment, discover_flows
+import pytest
+
+from perf.cli.commands.init import (
+    DuplicateFlowStemError,
+    _is_subflows_segment,
+    discover_flows,
+)
 
 _FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 _FLOWS_DIR = _FIXTURES_DIR / "flows"
@@ -81,3 +87,39 @@ def test_discover_flows_yields_zero_candidates_for_an_empty_directory(tmp_path):
     flows = discover_flows(tmp_path)
 
     assert flows == {}
+
+
+def test_discover_flows_raises_on_duplicate_stem_across_subdirs(tmp_path):
+    """Task 6: two flow files sharing a stem (android/login.yaml vs
+    ios/login.yaml) must raise `DuplicateFlowStemError` — never silently
+    keep just one. The error lists the stem with both relative paths."""
+    (tmp_path / "android").mkdir()
+    (tmp_path / "ios").mkdir()
+    (tmp_path / "android" / "login.yaml").write_text("appId: a\n---\n")
+    (tmp_path / "ios" / "login.yaml").write_text("appId: b\n---\n")
+    (tmp_path / "checkout.yaml").write_text("appId: c\n---\n")
+
+    with pytest.raises(DuplicateFlowStemError) as excinfo:
+        discover_flows(tmp_path)
+
+    collisions = excinfo.value.collisions
+    assert set(collisions) == {"login"}
+    assert sorted(str(p) for p in collisions["login"]) == [
+        str(Path("android") / "login.yaml"),
+        str(Path("ios") / "login.yaml"),
+    ]
+    # The message names the colliding stem and both paths.
+    message = str(excinfo.value)
+    assert "login" in message
+
+
+def test_discover_flows_no_collision_when_stems_are_unique(tmp_path):
+    """The flip side: distinct stems across subdirs never trigger the error."""
+    (tmp_path / "android").mkdir()
+    (tmp_path / "ios").mkdir()
+    (tmp_path / "android" / "login.yaml").write_text("---\n")
+    (tmp_path / "ios" / "checkout.yaml").write_text("---\n")
+
+    flows = discover_flows(tmp_path)
+
+    assert set(flows) == {"login", "checkout"}

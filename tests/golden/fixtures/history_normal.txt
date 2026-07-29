@@ -1,0 +1,15 @@
+checkout — device=TestDevice|14|physical mode=warm — 4 run(s)
+
+checkout (ms)  ▁▂▁█
+  run      date         commit           p50        p90
+  1000     2020-01-01   abcdef0        100.0      108.0
+  1001     2020-01-02   abcdef1        105.0      113.0
+  1002     2020-01-03   abcdef2        102.0      110.0
+  1003     2020-01-04   abcdef3        130.0      138.0
+
+fps_avg (fps)  ▇█▇▁
+  run      date         commit           p50        p90
+  1000     2020-01-01   abcdef0         60.0       58.0
+  1001     2020-01-02   abcdef1         61.0       59.0
+  1002     2020-01-03   abcdef2         59.0       57.0
+  1003     2020-01-04   abcdef3         48.0       46.0

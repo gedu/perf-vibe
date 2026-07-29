@@ -18,10 +18,12 @@ import typer
 from perf.cli.banner import render_banner, should_show_banner
 from perf.cli.commands.budget_check import budget_check as budget_check_command
 from perf.cli.commands.compare import compare as compare_command
+from perf.cli.commands.history import history as history_command
 from perf.cli.commands.init import init as init_command
 from perf.cli.commands.run import run as run_command
 from perf.cli.output.context import OutputContext, resolve_output_context
-from perf.config.loader import load_config
+from perf.cli.output.errors import emit_error
+from perf.config.loader import ConfigError, load_config
 
 app = typer.Typer(
     add_completion=False,
@@ -61,11 +63,26 @@ def main_callback(
 ) -> None:
     # Load config FIRST so the resolved project/global `no_color` can feed the
     # output context (precedence: CLI flag > NO_COLOR env > config > TTY).
-    perf_config = load_config(
-        cli_db=db,
-        cli_config_path=config,
-        cli_no_color=no_color if no_color else None,
-    )
+    try:
+        perf_config = load_config(
+            cli_db=db,
+            cli_config_path=config,
+            cli_no_color=no_color if no_color else None,
+        )
+    except ConfigError as exc:
+        # A broken config is a USAGE error (exit 2) for every command — it
+        # must never escape as a traceback (exit 1 would poison the
+        # `run`-never-exits-1 contract). The config never loaded, so the
+        # output context is resolved from CLI flags/env/TTY alone.
+        fallback_output = resolve_output_context(
+            json_mode=json_output,
+            no_color_cli=no_color,
+            no_color_config=False,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+        )
+        emit_error(fallback_output, str(exc), cause=exc.cause, hint=exc.hint)
+        raise typer.Exit(code=2) from exc
     output = resolve_output_context(
         json_mode=json_output,
         no_color_cli=no_color,
@@ -103,6 +120,11 @@ app.command(
     name="budget-check",
     context_settings={"help_option_names": ["--help", "-h"]},
 )(budget_check_command)
+
+app.command(
+    name="history",
+    context_settings={"help_option_names": ["--help", "-h"]},
+)(history_command)
 
 app.command(
     name="init",

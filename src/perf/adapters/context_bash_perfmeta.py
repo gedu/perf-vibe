@@ -59,6 +59,14 @@ class BashRunContextProvider:
 
     def context(self, logcat_lines: Sequence[str] = ()) -> RunContext:
         git_commit = self._git_field(["rev-parse", "HEAD"])
+        # Anti-false-positive batch (Task 3): a run from a MODIFIED working
+        # tree is indistinguishable from the committed sha and would pollute
+        # that commit's baseline median. Tag it `<sha>-dirty` so the baseline
+        # query naturally treats it as a DISTINCT commit (and still excludes
+        # it as the current commit while iterating). Only ever appended to a
+        # real resolved sha — never bolted onto a `None` HEAD.
+        if git_commit is not None and self._is_dirty_worktree():
+            git_commit = f"{git_commit}-dirty"
         git_branch = self._git_field(["rev-parse", "--abbrev-ref", "HEAD"])
 
         model = self._adb_getprop("ro.product.model") or "unknown"
@@ -103,6 +111,22 @@ class BashRunContextProvider:
             return None
         value = result.stdout.strip()
         return value or None
+
+    def _is_dirty_worktree(self) -> bool:
+        """`True` when `git status --porcelain` reports ANY change (staged,
+        unstaged, or untracked). Runs as an argv LIST — never `shell=True`,
+        never string composition (SKILL rule 5), mirroring `_git_field`. ANY
+        git failure (non-zero exit, `git` absent from PATH) degrades to
+        `False`: we simply do NOT add the `-dirty` suffix rather than raising
+        or guessing dirtiness — honoring the module's 'never raises' contract."""
+
+        try:
+            result = self._runner.run(["git", "status", "--porcelain"], cwd=self._repo_path)
+        except OSError:
+            return False
+        if result.returncode != 0:
+            return False
+        return bool(result.stdout.strip())
 
     def _git_field(self, args: Sequence[str]) -> str | None:
         try:

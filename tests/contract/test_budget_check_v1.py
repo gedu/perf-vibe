@@ -164,6 +164,25 @@ def test_gate_banner_never_appears_in_json_payload():
             assert banner_text not in serialized
 
 
+def test_direction_follows_the_verdicts_own_higher_is_better_never_rederived():
+    """`model.py` pins it: `Verdict.higher_is_better` carries the direction
+    `classify` ACTUALLY used (the persisted `metric.higher_is_better` for
+    measure-family metrics) — a contract must never re-derive it via
+    `default_higher_is_better` at serialization time, or the payload can
+    report a direction that contradicts its own gating. `compare_v1`
+    already reads the verdict field; this pins `budget_check_v1` to it."""
+    verdict = Verdict(
+        metric_name="checkout",  # static default says lower-is-better...
+        delta_pct=20.0,
+        threshold_pct=5.0,
+        status=STATUS_REGRESSION,
+        higher_is_better=True,  # ...but classification actually used THIS
+    )
+    bv = budget.evaluate(CompareResult(verdicts=(verdict,), calibration=_CALIBRATION), strict=False)
+    payload = build_payload(bv)
+    assert payload["verdicts"][0]["direction"] == "higher-is-better"
+
+
 def test_payload_is_json_serializable():
     payload = build_payload(_sample_budget_verdict())
     serialized = json.dumps(payload)

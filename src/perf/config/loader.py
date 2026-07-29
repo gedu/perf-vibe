@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 __all__ = [
+    "DEFAULT_ADAPTIVE_FLOOR",
     "DEFAULT_BASELINE_N",
     "DEFAULT_FLOORS",
     "DEFAULT_ITERATIONS",
@@ -30,10 +31,26 @@ __all__ = [
     "DEFAULT_THRESHOLD_PCT",
     "DEFAULT_WARMUP_K",
     "GLOBAL_CONFIG_PATH",
+    "ConfigError",
     "FlowConfig",
     "PerfConfig",
     "load_config",
 ]
+
+
+class ConfigError(Exception):
+    """A user-facing configuration problem: an unparseable/unreadable TOML
+    file, an ill-typed value, or an explicitly named `--config` path that
+    does not exist. The CLI callback maps this to a usage error (exit 2) —
+    a broken config must never escape as a raw traceback (which would exit
+    1 and poison the `run`-never-exits-1 contract). `cause`/`hint` feed
+    `emit_error`'s follow-up lines."""
+
+    def __init__(self, message: str, *, cause: str | None = None, hint: str | None = None):
+        super().__init__(message)
+        self.cause = cause
+        self.hint = hint
+
 
 DEFAULT_ITERATIONS = 10
 DEFAULT_DB_PATH = "perfvibe.db"
@@ -49,6 +66,11 @@ DEFAULT_FLOORS: Mapping[str, float] = {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 
 DEFAULT_MIN_BASELINE_COMMITS = 3
 DEFAULT_WARMUP_K = 1
 DEFAULT_BASELINE_N = 10
+# Adaptive noise floor (anti-false-positive batch, Task 2): widen a metric's
+# absolute floor to its own robust historical scatter when the baseline is
+# noisy, so noisy metrics stop crying wolf. On by default; set
+# `adaptive_floor = false` to restore the pre-batch static-floor behavior.
+DEFAULT_ADAPTIVE_FLOOR = True
 
 GLOBAL_CONFIG_PATH = Path.home() / ".config" / "perf" / "config.toml"
 PROJECT_CONFIG_FILENAMES: tuple[str, ...] = ("perfvibe.toml", ".perfvibe.toml")
@@ -91,13 +113,19 @@ class PerfConfig:
     min_baseline_commits: int = DEFAULT_MIN_BASELINE_COMMITS
     warmup_k: int = DEFAULT_WARMUP_K
     baseline_n: int = DEFAULT_BASELINE_N
+    adaptive_floor: bool = DEFAULT_ADAPTIVE_FLOOR
 
 
 def _read_toml(path: Path) -> dict:
     if not path.is_file():
         return {}
-    with path.open("rb") as fh:
-        return tomllib.load(fh)
+    try:
+        with path.open("rb") as fh:
+            return tomllib.load(fh)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"config file `{path}` is not valid TOML", cause=str(exc)) from exc
+    except OSError as exc:
+        raise ConfigError(f"config file `{path}` could not be read", cause=str(exc)) from exc
 
 
 def _merge(base: dict, override: dict) -> dict:
@@ -120,6 +148,37 @@ def _find_project_config(start_dir: Path) -> Path | None:
         if candidate.is_file():
             return candidate
     return None
+
+
+def _typed_int(layers: Mapping[str, object], key: str, default: int) -> int:
+    try:
+        return int(layers.get(key, default))  # type: ignore[call-overload]
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"invalid value for `{key}` in config", cause=str(exc)) from exc
+
+
+def _typed_float(layers: Mapping[str, object], key: str, default: float) -> float:
+    try:
+        return float(layers.get(key, default))  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"invalid value for `{key}` in config", cause=str(exc)) from exc
+
+
+def _normalize_optional_source(value: object) -> str | None:
+    """An optional adapter source (`sampler`/`marker_source`) that is unset,
+    empty, or the literal `"none"` (case-insensitive) resolves to `None` —
+    i.e. "no adapter selected" (resilience batch, Task 4). This is what
+    enables marker-only runs (`sampler = "none"`, e.g. react-native-
+    performance without Flashlight installed) or sampler-only runs
+    (`marker_source = "none"`). A real adapter name passes through verbatim
+    for the registry to resolve (or reject)."""
+
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text == "" or text.lower() == "none":
+        return None
+    return text
 
 
 def _build_flows(raw: Mapping[str, object]) -> Mapping[str, FlowConfig]:
@@ -156,9 +215,19 @@ def load_config(
     layers: dict = {}
     layers = _merge(layers, _read_toml(GLOBAL_CONFIG_PATH))
 
-    project_path = (
-        Path(cli_config_path) if cli_config_path is not None else _find_project_config(project_dir)
-    )
+    # An EXPLICITLY named `--config` must exist — silently falling back to
+    # defaults turns a typo'd path into a baffling downstream "unknown flow"
+    # error. Only the DISCOVERED project/global files may be silently absent.
+    if cli_config_path is not None:
+        explicit_path = Path(cli_config_path)
+        if not explicit_path.is_file():
+            raise ConfigError(
+                f"config file `{cli_config_path}` not found",
+                hint="check the `--config` path",
+            )
+        project_path: Path | None = explicit_path
+    else:
+        project_path = _find_project_config(project_dir)
     if project_path is not None:
         layers = _merge(layers, _read_toml(project_path))
 
@@ -181,13 +250,21 @@ def load_config(
     layers = _merge(layers, cli_layer)
 
     flows_raw = layers.pop("flows", {}) or {}
+    if not isinstance(flows_raw, dict):
+        raise ConfigError("`flows` must be a table of `[flows.<name>]` entries")
     flows = _build_flows(flows_raw)
 
     # Partial `[floors]` overrides (e.g. only `fps = 1.5`) must merge ON
     # TOP OF the defaults, never replace the whole per-unit map — a
     # single-unit override must not silently drop the other units' floors.
-    floors_raw = _merge(dict(DEFAULT_FLOORS), layers.get("floors") or {})
-    floors = {unit: float(value) for unit, value in floors_raw.items()}
+    floors_layer = layers.get("floors") or {}
+    if not isinstance(floors_layer, dict):
+        raise ConfigError("`floors` must be a table of per-unit values (e.g. `fps = 2.0`)")
+    floors_raw = _merge(dict(DEFAULT_FLOORS), floors_layer)
+    try:
+        floors = {unit: float(value) for unit, value in floors_raw.items()}
+    except (TypeError, ValueError) as exc:
+        raise ConfigError("invalid value in the `[floors]` table", cause=str(exc)) from exc
 
     # `base_dir` anchors perfvibe's OUTPUT artifacts — the db and the results
     # dir — so they land NEXT TO the flows folder (e.g. inside an app's
@@ -219,10 +296,10 @@ def load_config(
         db_path=_under_base(str(layers.get("db_path", DEFAULT_DB_PATH))),
         no_color=bool(layers.get("no_color", False)),
         driver=str(layers.get("driver", "maestro")),
-        sampler=layers.get("sampler", "flashlight"),
-        marker_source=layers.get("marker_source", "adb-logcat"),
+        sampler=_normalize_optional_source(layers.get("sampler", "flashlight")),
+        marker_source=_normalize_optional_source(layers.get("marker_source", "adb-logcat")),
         bundle_id=layers.get("bundle_id"),
-        default_iterations=int(layers.get("default_iterations", DEFAULT_ITERATIONS)),
+        default_iterations=_typed_int(layers, "default_iterations", DEFAULT_ITERATIONS),
         default_mode=str(layers.get("default_mode", DEFAULT_MODE)),
         device=layers.get("device"),
         results_dir=_under_base(str(layers.get("results_dir", DEFAULT_RESULTS_DIR))),
@@ -232,13 +309,16 @@ def load_config(
         replay_logcat=layers.get("replay_logcat"),
         replay_flashlight=layers.get("replay_flashlight"),
         flows=flows,
-        threshold_pct=float(layers.get("threshold_pct", DEFAULT_THRESHOLD_PCT)),
+        threshold_pct=_typed_float(layers, "threshold_pct", DEFAULT_THRESHOLD_PCT),
         floors=floors,
-        min_baseline_commits=int(layers.get("min_baseline_commits", DEFAULT_MIN_BASELINE_COMMITS)),
-        warmup_k=int(layers.get("warmup_k", DEFAULT_WARMUP_K)),
+        min_baseline_commits=_typed_int(
+            layers, "min_baseline_commits", DEFAULT_MIN_BASELINE_COMMITS
+        ),
+        warmup_k=_typed_int(layers, "warmup_k", DEFAULT_WARMUP_K),
+        adaptive_floor=bool(layers.get("adaptive_floor", DEFAULT_ADAPTIVE_FLOOR)),
         # FIX 3 (PR-B review): a 0/negative `baseline_n` would reach the
         # baseline query's `LIMIT ?`, where SQLite treats `LIMIT <= -1` as
         # UNBOUNDED — silently loading the entire history and defeating
         # the bounded-window guarantee. Clamp to a minimum of 1.
-        baseline_n=max(1, int(layers.get("baseline_n", DEFAULT_BASELINE_N))),
+        baseline_n=max(1, _typed_int(layers, "baseline_n", DEFAULT_BASELINE_N)),
     )

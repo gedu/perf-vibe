@@ -18,15 +18,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from perf.domain.model import BudgetVerdict, GatedVerdict, default_higher_is_better
+from perf.domain.model import BudgetVerdict, GatedVerdict
 
 __all__ = ["SCHEMA_VERSION", "build_payload"]
 
 SCHEMA_VERSION = 1
 
 
-def _direction(metric_name: str) -> str:
-    return "higher-is-better" if default_higher_is_better(metric_name) else "lower-is-better"
+def _direction(higher_is_better: bool) -> str:
+    # ALWAYS the verdict's own field — the direction `classify` actually
+    # used (persisted `metric.higher_is_better` for measure-family metrics).
+    # Re-deriving via `default_higher_is_better` here can contradict the
+    # gating itself (`model.py`'s `Verdict` docstring pins this rule;
+    # `compare_v1` already follows it).
+    return "higher-is-better" if higher_is_better else "lower-is-better"
 
 
 def _gated_verdict_payload(gv: GatedVerdict) -> dict[str, Any]:
@@ -34,7 +39,7 @@ def _gated_verdict_payload(gv: GatedVerdict) -> dict[str, Any]:
     return {
         "metric": verdict.metric_name,
         "unit": verdict.unit,
-        "direction": _direction(verdict.metric_name),
+        "direction": _direction(verdict.higher_is_better),
         "latest_value": verdict.latest_value,
         "baseline_value": verdict.baseline_value,
         "delta_pct": verdict.delta_pct,

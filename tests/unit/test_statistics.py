@@ -5,11 +5,13 @@ tasks 1.1 RED / 1.2 GREEN). No I/O — pure aggregation math only.
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from perf.domain.statistics import median, median_by_commit, percentile
+from perf.domain.statistics import median, median_by_commit, percentile, robust_noise
 
 # ===== median =====
 
@@ -88,6 +90,53 @@ def test_percentile_min_p50_p90_max_invariant(values):
     p50 = percentile(values, 50)
     p90 = percentile(values, 90)
     assert min(values) <= p50 <= p90 <= max(values)
+
+
+# ===== robust_noise (1.4826 * MAD — adaptive noise floor, Task 2) =====
+
+
+def test_robust_noise_empty_is_zero():
+    assert robust_noise([]) == 0.0
+
+
+def test_robust_noise_single_value_is_zero():
+    assert robust_noise([42.0]) == 0.0
+
+
+def test_robust_noise_zero_variance_is_zero():
+    assert robust_noise([7.0, 7.0, 7.0, 7.0]) == 0.0
+
+
+def test_robust_noise_two_values_is_well_defined():
+    # median([1, 3]) == 2; deviations [1, 1]; MAD == 1; 1.4826 * 1.
+    assert robust_noise([1.0, 3.0]) == pytest.approx(1.4826)
+
+
+def test_robust_noise_known_example_scales_mad_by_1_4826():
+    # median([100, 90, 110, 95, 105]) == 100; abs deviations [0,10,10,5,5];
+    # median of those == 5; robust noise == 1.4826 * 5.
+    assert robust_noise([100.0, 90.0, 110.0, 95.0, 105.0]) == pytest.approx(1.4826 * 5.0)
+
+
+def test_robust_noise_is_outlier_robust():
+    """One freak run cannot inflate the estimate the way a stddev would —
+    that is the whole point of using the MAD for the noise floor."""
+    calm = [100.0, 101.0, 99.0, 100.0, 101.0]
+    with_outlier = [*calm, 100_000.0]
+    assert robust_noise(with_outlier) == pytest.approx(robust_noise(calm), rel=0.5)
+
+
+@given(
+    st.lists(
+        st.floats(allow_nan=False, allow_infinity=False, width=32),
+        min_size=0,
+        max_size=50,
+    )
+)
+def test_robust_noise_is_non_negative_and_never_nan(values):
+    result = robust_noise(values)
+    assert not math.isnan(result)
+    assert result >= 0.0
 
 
 # ===== median_by_commit (spec "Baseline Correctness" — repeated same-commit

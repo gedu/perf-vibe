@@ -186,6 +186,65 @@ def test_no_history_at_all_for_known_flow_exits_2(monkeypatch, tmp_path: Path):
     assert result.exit_code == 2, result.output
 
 
+# ===== resilience batch Task 2: device-key override + last-recorded fallback =====
+
+
+def test_budget_check_device_key_option_used_verbatim(monkeypatch, tmp_path: Path):
+    """Task 2: `--device-key` pins the gate's key VERBATIM even when live-adb
+    derivation would degrade to a device-less key that matches no history —
+    so the CI gate runs with no device attached. Regression seeded under
+    DEVICE_KEY is still gated (exit 1) via the explicit key."""
+    db_path = tmp_path / "perf.db"
+    _seed_history(db_path, regression_on_latest=True)
+    config = _config(str(db_path))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_context_provider(monkeypatch, device_key="unknown|unknown|physical")
+
+    result = runner.invoke(
+        main_module.app, ["--json", "budget-check", "checkout", "--device-key", DEVICE_KEY]
+    )
+
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.stdout)
+    assert payload["gate_status"] == "fail"
+    assert "falling back" not in result.stderr
+
+
+def test_budget_check_falls_back_to_last_recorded_key_with_warning(monkeypatch, tmp_path: Path):
+    """Task 2: with NO device attached (derived key `unknown|unknown|
+    physical`) and no `--device-key`, the gate retries once with the most
+    recent persisted device_key, warns naming both keys, and produces a real
+    verdict (exit 1 for the seeded regression) instead of dying with exit 2."""
+    db_path = tmp_path / "perf.db"
+    _seed_history(db_path, regression_on_latest=True)
+    config = _config(str(db_path))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_context_provider(monkeypatch, device_key="unknown|unknown|physical")
+
+    result = runner.invoke(main_module.app, ["--json", "budget-check", "checkout"])
+
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.stdout)
+    assert payload["gate_status"] == "fail"
+    assert "no history for derived device key" in result.stderr
+    assert "unknown|unknown|physical" in result.stderr
+    assert DEVICE_KEY in result.stderr
+
+
+def test_budget_check_fallback_still_empty_exits_2(monkeypatch, tmp_path: Path):
+    """Task 2: when even the fallback finds nothing (empty DB), the existing
+    no-history exit 2 stands."""
+    db_path = tmp_path / "perf.db"
+    SqliteStore(db_path).close()
+    config = _config(str(db_path))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_context_provider(monkeypatch, device_key="unknown|unknown|physical")
+
+    result = runner.invoke(main_module.app, ["budget-check", "checkout"])
+
+    assert result.exit_code == 2, result.output
+
+
 # ===== B3: insufficient baseline commits =====
 
 

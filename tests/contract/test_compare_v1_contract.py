@@ -34,6 +34,11 @@ _REQUIRED_CALIBRATION_KEYS_AND_TYPES = {
     "metrics": list,
 }
 
+# Exact-set pins (SKILL rule 8: ANY shape change — additive included —
+# must fail without a `schema_version` bump).
+_TOP_LEVEL_KEYS = {"schema_version", "verdicts", "calibration"}
+_CALIBRATION_METRIC_ITEM_KEYS = {"metric", "status", "flagged_count", "total_count"}
+
 
 def _sample_result() -> CompareResult:
     verdicts = (
@@ -176,10 +181,16 @@ def test_no_secret_ever_appears_in_payload():
 
 
 def test_contract_rejects_a_shape_change_without_version_bump():
-    """Structural regression guard: removing/renaming a required key
-    without bumping `SCHEMA_VERSION` fails this test."""
+    """Structural regression guard: removing, renaming, OR ADDING a key —
+    top-level, per-verdict, calibration, or per-calibration-metric —
+    without bumping `SCHEMA_VERSION` fails this test. Exact-set pinning
+    (matching `test_budget_check_v1`'s pattern): SKILL rule 8 says ANY
+    shape change needs a bump, additive changes included."""
     payload = build_compare_payload(_sample_result())
-    assert set(_REQUIRED_CALIBRATION_KEYS_AND_TYPES).issubset(payload["calibration"].keys())
+    assert set(payload.keys()) == _TOP_LEVEL_KEYS
+    assert set(payload["calibration"].keys()) == set(_REQUIRED_CALIBRATION_KEYS_AND_TYPES)
+    for metric_payload in payload["calibration"]["metrics"]:
+        assert set(metric_payload.keys()) == _CALIBRATION_METRIC_ITEM_KEYS
     for verdict_payload in payload["verdicts"]:
-        assert set(_REQUIRED_VERDICT_KEYS_AND_TYPES).issubset(verdict_payload.keys())
+        assert set(verdict_payload.keys()) == set(_REQUIRED_VERDICT_KEYS_AND_TYPES)
     assert payload["schema_version"] >= 1

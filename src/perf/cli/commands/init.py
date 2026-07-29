@@ -33,6 +33,7 @@ from perf.contracts.init_v1 import build_init_payload
 __all__ = [
     "TEMPLATE",
     "BundleReconciliation",
+    "DuplicateFlowStemError",
     "FlowCollisionError",
     "compute_pruned_flows",
     "discover_flows",
@@ -47,6 +48,25 @@ __all__ = [
 # ===== Flow discovery (design "Flow discovery") =====
 
 _FLOW_SUFFIXES: Final = {".yaml", ".yml"}
+
+
+class DuplicateFlowStemError(Exception):
+    """Raised by `discover_flows` when two discovered flow files share a
+    filename STEM (e.g. `android/login.yaml` and `ios/login.yaml` both key
+    to `login`). The stem-keyed `[flows]` table cannot represent both
+    without silently dropping one — so this is a usage error (exit 2),
+    never a silent overwrite. `collisions` maps each colliding stem to its
+    paths (relative to the flows dir, sorted), for the CLI to list."""
+
+    def __init__(self, collisions: Mapping[str, Sequence[Path]]) -> None:
+        self.collisions: dict[str, tuple[Path, ...]] = {
+            stem: tuple(paths) for stem, paths in collisions.items()
+        }
+        detail = "; ".join(
+            f"{stem} ({', '.join(str(path) for path in paths)})"
+            for stem, paths in sorted(self.collisions.items())
+        )
+        super().__init__(f"duplicate flow stem(s): {detail}")
 
 
 def _is_subflows_segment(segment: str) -> bool:
@@ -67,15 +87,29 @@ def discover_flows(flows_dir: Path) -> dict[str, Path]:
     if not flows_dir.is_dir():
         return {}
 
-    flows: dict[str, Path] = {}
+    by_stem: dict[str, list[Path]] = {}
     for path in sorted(flows_dir.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in _FLOW_SUFFIXES:
             continue
         relative_parts = path.relative_to(flows_dir).parts[:-1]
         if any(_is_subflows_segment(part) for part in relative_parts):
             continue
-        flows[path.stem] = path
-    return flows
+        by_stem.setdefault(path.stem, []).append(path)
+
+    # Two files sharing a stem (e.g. android/login.yaml + ios/login.yaml)
+    # would silently clobber each other in the stem-keyed table — refuse
+    # instead (Task 6). Report EVERY colliding stem, with paths relative to
+    # the flows dir so the message is short and portable.
+    collisions = {stem: paths for stem, paths in by_stem.items() if len(paths) > 1}
+    if collisions:
+        raise DuplicateFlowStemError(
+            {
+                stem: sorted(path.relative_to(flows_dir) for path in paths)
+                for stem, paths in collisions.items()
+            }
+        )
+
+    return {stem: paths[0] for stem, paths in by_stem.items()}
 
 
 # ===== appId parsing (design "appId line-scan (exact algorithm)") =====
@@ -510,7 +544,20 @@ def init(
         emit_error(output, f"--flows-dir {flows_dir!r} does not exist or is not a directory")
         raise typer.Exit(code=2)
 
-    flows = discover_flows(flows_path)
+    try:
+        flows = discover_flows(flows_path)
+    except DuplicateFlowStemError as exc:
+        detail = "; ".join(
+            f"`{stem}` ({', '.join(str(path) for path in paths)})"
+            for stem, paths in sorted(exc.collisions.items())
+        )
+        emit_error(
+            output,
+            f"duplicate flow stem(s) under {flows_dir!r}: {detail}",
+            hint="rename the colliding file(s) or restructure so each flow has a "
+            "unique filename stem",
+        )
+        raise typer.Exit(code=2) from None
     if not flows:
         emit_error(
             output,

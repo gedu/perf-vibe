@@ -29,6 +29,7 @@ def _responses(**overrides) -> dict:
     base = {
         ("git", "rev-parse", "HEAD"): CommandResult(0, "abc123\n", ""),
         ("git", "rev-parse", "--abbrev-ref", "HEAD"): CommandResult(0, "main\n", ""),
+        ("git", "status", "--porcelain"): CommandResult(0, "", ""),  # clean worktree by default
         ("adb", "shell", "getprop", "ro.product.model"): CommandResult(0, "Pixel 8 Pro\n", ""),
         ("adb", "shell", "getprop", "ro.build.version.release"): CommandResult(0, "14\n", ""),
         ("adb", "shell", "getprop", "ro.kernel.qemu"): CommandResult(0, "\n", ""),
@@ -43,7 +44,7 @@ def test_context_assembles_git_and_device_facts_via_argv_subprocess():
 
     ctx = provider.context()
 
-    assert ctx.git_commit == "abc123"
+    assert ctx.git_commit == "abc123"  # clean worktree -> bare sha, no suffix
     assert ctx.git_branch == "main"
     assert ctx.model == "Pixel 8 Pro"
     assert ctx.os_version == "14"
@@ -100,6 +101,65 @@ def test_context_missing_git_repo_yields_none_fields_not_a_crash():
     ctx = provider.context()
     assert ctx.git_commit is None
     assert ctx.git_branch is None
+
+
+# ===== dirty-tree commit suffix (anti-false-positive batch, Task 3): a run
+# from a modified working tree gets a distinct `<sha>-dirty` commit so it
+# never pollutes the clean sha's baseline median. =====
+
+
+def test_dirty_worktree_appends_dirty_suffix_to_commit():
+    """`git status --porcelain` with ANY output means the working tree is
+    modified — the persisted commit becomes `<sha>-dirty`, which the baseline
+    query then treats as a distinct commit (and still excludes as the current
+    commit while iterating)."""
+    responses = _responses()
+    responses[("git", "status", "--porcelain")] = CommandResult(
+        0, " M src/app.tsx\n?? new.txt\n", ""
+    )
+    runner = _FakeRunner(responses)
+    provider = BashRunContextProvider(runner=runner, build_variant="release", tool_version="0.1.0")
+
+    ctx = provider.context()
+
+    assert ctx.git_commit == "abc123-dirty"
+    assert ["git", "status", "--porcelain"] in runner.calls  # argv-list, never shell=True
+    assert ctx.git_branch == "main"  # branch is unaffected by dirtiness
+
+
+def test_clean_worktree_leaves_commit_unsuffixed():
+    responses = _responses()
+    responses[("git", "status", "--porcelain")] = CommandResult(0, "", "")
+    runner = _FakeRunner(responses)
+    provider = BashRunContextProvider(runner=runner, build_variant="release", tool_version="0.1.0")
+
+    ctx = provider.context()
+    assert ctx.git_commit == "abc123"  # no changes -> bare sha
+
+
+def test_git_status_failure_leaves_commit_unsuffixed_never_raises():
+    """A `git status` failure (non-zero exit) degrades gracefully — we simply
+    do NOT add the suffix rather than raising or guessing dirtiness."""
+    responses = _responses()
+    responses[("git", "status", "--porcelain")] = CommandResult(128, "", "fatal: not a git repo")
+    runner = _FakeRunner(responses)
+    provider = BashRunContextProvider(runner=runner, build_variant="release", tool_version="0.1.0")
+
+    ctx = provider.context()
+    assert ctx.git_commit == "abc123"  # status failed -> assume not-dirty, no suffix
+
+
+def test_no_dirty_suffix_when_head_sha_is_none():
+    """If HEAD itself cannot be resolved (no repo), `git_commit` stays None —
+    a `-dirty` suffix is never bolted onto a None sha."""
+    responses = _responses()
+    responses[("git", "rev-parse", "HEAD")] = CommandResult(128, "", "not a git repository")
+    responses[("git", "status", "--porcelain")] = CommandResult(0, " M x\n", "")
+    runner = _FakeRunner(responses)
+    provider = BashRunContextProvider(runner=runner, build_variant="release", tool_version="0.1.0")
+
+    ctx = provider.context()
+    assert ctx.git_commit is None
 
 
 def test_is_emulator_true_when_qemu_prop_set():

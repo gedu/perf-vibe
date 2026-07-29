@@ -12,8 +12,10 @@ import dataclasses
 
 import pytest
 
+from perf.domain.calibration import CalibrationReport
 from perf.domain.model import (
     CaptureSpec,
+    CompareResult,
     Device,
     DriverCommand,
     DriverResult,
@@ -474,3 +476,31 @@ def test_verdict_carries_higher_is_better_when_provided():
         higher_is_better=True,
     )
     assert verdict.higher_is_better is True
+
+
+# ===== `CompareResult` excluded-runs counts (anti-false-positive batch, Task
+# 4) — additive, default 0, pretty-only (never in --json) =====
+
+
+def _empty_calibration() -> CalibrationReport:
+    return CalibrationReport(metrics=(), status="insufficient-data", runs_flagged=0, runs_total=0)
+
+
+def test_compare_result_excluded_counts_default_to_zero_backward_compat():
+    """Existing 2-arg construction (`verdicts`, `calibration`) — the shape
+    every current caller uses — must keep working unchanged; the diagnostic
+    counts are additive with `0` defaults."""
+    result = CompareResult(verdicts=(), calibration=_empty_calibration())
+    assert result.excluded_same_commit == 0
+    assert result.excluded_no_commit == 0
+
+
+def test_compare_result_carries_excluded_counts_when_provided():
+    result = CompareResult(
+        verdicts=(),
+        calibration=_empty_calibration(),
+        excluded_same_commit=3,
+        excluded_no_commit=2,
+    )
+    assert result.excluded_same_commit == 3
+    assert result.excluded_no_commit == 2

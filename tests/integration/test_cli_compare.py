@@ -28,7 +28,12 @@ from perf.domain.model import Marker, SystemSample
 
 main_module = import_module("perf.cli.main")
 
-from fakes import FakeRunContextProvider, SequentialClock, make_run_context  # noqa: E402
+from fakes import (  # noqa: E402
+    FakeAnalyzer,
+    FakeRunContextProvider,
+    SequentialClock,
+    make_run_context,
+)
 
 runner = CliRunner()
 
@@ -38,16 +43,18 @@ DEVICE_KEY = "TestDevice|14|physical"
 _LABEL_MARKERS = ("reasonable", "too loose", "too strict", "insufficient data")
 
 
-def _config(db_path: str) -> PerfConfig:
-    return PerfConfig(
-        db_path=db_path,
-        no_color=True,
-        flows={"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
-    )
+def _config(db_path: str, **overrides) -> PerfConfig:
+    defaults = {
+        "db_path": db_path,
+        "no_color": True,
+        "flows": {"checkout": FlowConfig(name="checkout", maestro_path="checkout.yaml")},
+    }
+    defaults.update(overrides)
+    return PerfConfig(**defaults)
 
 
-def _patch_context_provider(monkeypatch, *, git_commit="HEAD"):
-    ctx = make_run_context(device_key=DEVICE_KEY, git_commit=git_commit)
+def _patch_context_provider(monkeypatch, *, git_commit="HEAD", device_key=DEVICE_KEY):
+    ctx = make_run_context(device_key=device_key, git_commit=git_commit)
     monkeypatch.setattr(
         compare_module, "build_context_provider", lambda **kw: FakeRunContextProvider(ctx)
     )
@@ -114,6 +121,73 @@ def test_compare_end_to_end_json_matches_contract(monkeypatch, tmp_path: Path):
     checkout_verdict = next(v for v in payload["verdicts"] if v["metric"] == "checkout")
     assert checkout_verdict["status"] == "stable"
     assert "calibration" in payload
+
+
+def test_compare_runtime_failure_on_corrupt_db_exits_3_never_1(monkeypatch, tmp_path: Path):
+    """The exit-3 mapping is the one that lets CI distinguish a tooling
+    failure from a regression — previously the ONLY untested branch of
+    compare's exit-code contract. A `--db` pointing at a non-SQLite file
+    must exit 3 with an error, through the REAL store wiring."""
+    db_path = tmp_path / "garbage.db"
+    db_path.write_bytes(b"this is definitely not a sqlite database file\x00\x01")
+    config = _config(str(db_path))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_context_provider(monkeypatch)
+
+    result = runner.invoke(main_module.app, ["compare", "checkout"])
+
+    assert result.exit_code == 3, result.output
+    assert "Error:" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_compare_analyzer_failure_exits_3_never_1(monkeypatch, tmp_path: Path):
+    db_path = tmp_path / "perf.db"
+    _seed_history(db_path, regression_on_latest=False)
+    config = _config(str(db_path))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_context_provider(monkeypatch)
+    monkeypatch.setattr(
+        compare_module,
+        "build_analyzer",
+        lambda store, **kw: FakeAnalyzer(raises=RuntimeError("baseline query exploded")),
+    )
+
+    result = runner.invoke(main_module.app, ["compare", "checkout"])
+
+    assert result.exit_code == 3, result.output
+    assert "Error:" in result.stderr
+    assert "baseline query exploded" in result.stderr
+
+
+def test_compare_json_with_zero_baseline_emits_valid_json_null_delta(monkeypatch, tmp_path: Path):
+    """`regression.classify` sets `delta_pct = ±inf` when the baseline is
+    exactly 0 (an instant marker) and the latest value is not. `json.dumps`'s
+    default rendered that as the literal `Infinity` — not RFC-8259 JSON, so
+    `jq`/`JSON.parse` choked on the ONE machine contract. Non-finite floats
+    must serialize as `null` (and never leak the bare literals)."""
+    db_path = tmp_path / "perf.db"
+    store = SqliteStore(db_path, clock=SequentialClock())
+    try:
+        for commit in ("c1", "c2", "c3", "c4"):
+            _seed(store, git_commit=commit, checkout_ms=0.0)
+        _seed(store, git_commit="HEAD", checkout_ms=130.0)
+    finally:
+        store.close()
+    config = _config(str(db_path))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_context_provider(monkeypatch, git_commit="HEAD")
+
+    result = runner.invoke(main_module.app, ["--json", "compare", "checkout"])
+
+    assert result.exit_code == 0, result.output
+    # Python's own json.loads ACCEPTS `Infinity`, so a parse alone can't
+    # prove validity — assert the invalid literals are absent byte-wise.
+    assert "Infinity" not in result.stdout
+    assert "NaN" not in result.stdout
+    payload = json.loads(result.stdout)
+    checkout_verdict = next(v for v in payload["verdicts"] if v["metric"] == "checkout")
+    assert checkout_verdict["delta_pct"] is None
 
 
 def test_compare_real_regression_is_shown_and_still_exits_0(monkeypatch, tmp_path: Path):
@@ -243,6 +317,128 @@ def test_compare_never_exits_1(monkeypatch, tmp_path: Path, args):
     result = runner.invoke(main_module.app, args)
 
     assert result.exit_code != 1
+
+
+# ===== resilience batch Task 2: device-key override + last-recorded fallback =====
+
+
+def test_compare_device_key_option_used_verbatim_skips_derivation(monkeypatch, tmp_path: Path):
+    """Task 2: `--device-key` pins the key VERBATIM — even when live-adb
+    derivation would produce a DIFFERENT (device-less, degraded) key that
+    matches no history. History is seeded under DEVICE_KEY; the context
+    provider is patched to derive the WRONG key, yet `--device-key
+    DEVICE_KEY` still finds the history and exits 0."""
+    db_path = tmp_path / "perf.db"
+    _seed_history(db_path, regression_on_latest=False)
+    config = _config(str(db_path))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    # Derivation would yield a degraded key with no history — proving the
+    # explicit key wins, this must NOT be consulted.
+    _patch_context_provider(monkeypatch, device_key="unknown|unknown|physical")
+
+    result = runner.invoke(
+        main_module.app, ["--json", "compare", "checkout", "--device-key", DEVICE_KEY]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    checkout_verdict = next(v for v in payload["verdicts"] if v["metric"] == "checkout")
+    assert checkout_verdict["status"] == "stable"
+    # No fallback warning — the key was pinned, never derived-then-recovered.
+    assert "falling back" not in result.stderr
+
+
+def test_compare_falls_back_to_last_recorded_key_with_warning(monkeypatch, tmp_path: Path):
+    """Task 2: with NO `--device-key` and a derived key that matches no
+    history (device-less run degrading to `unknown|unknown|physical`),
+    `compare` retries once with the most recent persisted device_key,
+    warns naming BOTH keys, and still produces a verdict (exit 0)."""
+    db_path = tmp_path / "perf.db"
+    _seed_history(db_path, regression_on_latest=False)
+    config = _config(str(db_path))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_context_provider(monkeypatch, device_key="unknown|unknown|physical")
+
+    result = runner.invoke(main_module.app, ["--json", "compare", "checkout"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    checkout_verdict = next(v for v in payload["verdicts"] if v["metric"] == "checkout")
+    assert checkout_verdict["status"] == "stable"
+    # The warning names BOTH the derived key and the recovered fallback key.
+    assert "no history for derived device key" in result.stderr
+    assert "unknown|unknown|physical" in result.stderr
+    assert DEVICE_KEY in result.stderr
+
+
+def test_compare_fallback_still_empty_exits_2(monkeypatch, tmp_path: Path):
+    """Task 2: when even the fallback finds nothing (an empty DB — no
+    persisted device_key at all), the existing no-history exit 2 stands."""
+    db_path = tmp_path / "perf.db"
+    SqliteStore(db_path).close()  # empty, migrated DB — zero runs
+    config = _config(str(db_path))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_context_provider(monkeypatch, device_key="unknown|unknown|physical")
+
+    result = runner.invoke(main_module.app, ["compare", "checkout"])
+
+    assert result.exit_code == 2, result.output
+
+
+# ===== resilience batch Task 3: adaptive_floor threaded from config =====
+
+
+def _seed_noisy_baseline(db_path: Path) -> None:
+    """5 baseline commits (checkout medians 100,90,110,95,105 -> robust
+    noise 2*1.4826*5 ≈ 14.83) + a latest run +8ms over the median. +8
+    clears the static ms floor (5.0) and the 5% threshold (flags under a
+    STATIC floor) but is < 14.83, so the adaptive floor suppresses it."""
+    store = SqliteStore(db_path, clock=SequentialClock())
+    try:
+        for commit, value in (
+            ("c1", 100.0),
+            ("c2", 90.0),
+            ("c3", 110.0),
+            ("c4", 95.0),
+            ("c5", 105.0),
+        ):
+            _seed(store, git_commit=commit, checkout_ms=value)
+        _seed(store, git_commit="HEAD", checkout_ms=108.0)
+    finally:
+        store.close()
+
+
+def test_adaptive_floor_true_default_suppresses_noisy_delta_via_cli(monkeypatch, tmp_path: Path):
+    db_path = tmp_path / "perf.db"
+    _seed_noisy_baseline(db_path)
+    config = _config(str(db_path))  # adaptive_floor defaults True
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_context_provider(monkeypatch, git_commit="HEAD")
+
+    result = runner.invoke(main_module.app, ["--json", "compare", "checkout"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    checkout_verdict = next(v for v in payload["verdicts"] if v["metric"] == "checkout")
+    assert checkout_verdict["status"] == "stable"  # adaptive floor swallows +8
+
+
+def test_adaptive_floor_false_from_config_flips_verdict_via_cli(monkeypatch, tmp_path: Path):
+    """Task 3: `adaptive_floor = false` in the config must reach the analyzer
+    through the REAL CLI and flip the SAME noisy-baseline verdict back to the
+    static-floor result (regression)."""
+    db_path = tmp_path / "perf.db"
+    _seed_noisy_baseline(db_path)
+    config = _config(str(db_path), adaptive_floor=False)
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_context_provider(monkeypatch, git_commit="HEAD")
+
+    result = runner.invoke(main_module.app, ["--json", "compare", "checkout"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    checkout_verdict = next(v for v in payload["verdicts"] if v["metric"] == "checkout")
+    assert checkout_verdict["status"] == "regression"  # static floor -> +8 flags
 
 
 def test_compare_exit_code_enumeration_never_1(monkeypatch, tmp_path: Path):

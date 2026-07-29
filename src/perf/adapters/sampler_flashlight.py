@@ -25,6 +25,7 @@ persisted as if it succeeded, which would poison the regression history.
 from __future__ import annotations
 
 import json
+import math
 import shlex
 import statistics
 from pathlib import Path
@@ -35,6 +36,20 @@ from perf.domain.model import (
     SystemSample,
     SystemSampleParseResult,
 )
+
+
+def _is_finite_number(value: object) -> bool:
+    """`json.loads` ACCEPTS `NaN`/`Infinity` literals, and a report can carry
+    non-numeric junk. A NaN reaching `fmean` poisons the whole aggregate
+    (and later binds as NULL into the nullable `system_sample` columns,
+    silently vanishing). Bad values are skipped exactly like a missing key.
+    `bool` is excluded — `True` is an `int` subclass, not a measurement."""
+
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _finite_or_none(value: object) -> float | None:
+    return float(value) if _is_finite_number(value) else None  # type: ignore[arg-type]
 
 
 class FlashlightParseError(RuntimeError):
@@ -149,19 +164,23 @@ class FlashlightSampler:
 
             measures = iteration.get("measures", [])
 
-            fps_values = [m["fps"] for m in measures if "fps" in m]
-            ram_values = [m["ram"] for m in measures if "ram" in m]
-            cpu_totals = [
-                sum(m["cpu"]["perName"].values())
-                for m in measures
-                if "cpu" in m and "perName" in m["cpu"]
-            ]
+            fps_values = [m["fps"] for m in measures if _is_finite_number(m.get("fps"))]
+            ram_values = [m["ram"] for m in measures if _is_finite_number(m.get("ram"))]
+            cpu_totals: list[float] = []
+            for m in measures:
+                if "cpu" not in m or "perName" not in m["cpu"]:
+                    continue
+                finite = [v for v in m["cpu"]["perName"].values() if _is_finite_number(v)]
+                # A perName map with ONLY bad values counts as a missing
+                # measure, never as a bogus 0% total.
+                if finite:
+                    cpu_totals.append(sum(finite))
 
             samples.append(
                 SystemSample(
                     iteration_idx=idx,
-                    total_time_ms=iteration.get("time"),
-                    start_time_ms=iteration.get("startTime"),
+                    total_time_ms=_finite_or_none(iteration.get("time")),
+                    start_time_ms=_finite_or_none(iteration.get("startTime")),
                     fps_avg=statistics.fmean(fps_values) if fps_values else None,
                     fps_min=min(fps_values) if fps_values else None,
                     ram_avg_mb=statistics.fmean(ram_values) if ram_values else None,

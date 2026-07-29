@@ -63,13 +63,10 @@ def _seed_run(
     ram_avg_mb=None,
 ) -> int:
     ctx = _ctx(git_commit=git_commit, device_key=device_key, is_dev_bundle=is_dev_bundle)
-    # 3 identical measures (not 1): `run_metric_summary.p90_ms` truncates
-    # `CAST(0.9*n AS INT)` — for n=1 that is CAST(0.9)=0, so NOTHING
-    # qualifies and p90_ms is NULL. Repeating the SAME value 3x keeps every
-    # assertion in this file unchanged (percentile of identical values ==
-    # that value) while giving the view a well-defined (non-NULL) p90 —
-    # this also matches the realistic shape (a marker fires once per
-    # iteration, so `n` == the run's iteration count).
+    # 3 identical measures (not 1) matches the realistic shape (a marker fires
+    # once per iteration, so `n` == the run's iteration count). Repeating the
+    # SAME value keeps every assertion in this file simple — percentile of
+    # identical values == that value regardless of the nearest-rank convention.
     markers = [Marker(name=metric_name, value=value_ms, unit="ms") for _ in range(3)]
     samples = []
     if fps_avg is not None or ram_avg_mb is not None:
@@ -199,26 +196,27 @@ def test_baseline_measure_points_batches_whole_metric_family_in_one_query(tmp_pa
         store.close()
 
 
-def test_baseline_measure_points_excludes_null_p90_n1_runs(tmp_path):
-    """FIX 1 (BLOCKER, PR-B review): `run_metric_summary.p90_ms` is NULL
-    when a run has exactly 1 measure for a metric (`CAST(0.9*1 AS INT)`
-    truncates to 0, so nothing qualifies as p90) — reachable via
-    `perf run --iterations 1`. Such a run must contribute NO baseline
-    point at all (mirrors the `system_sample` path's
-    `s.{field} IS NOT NULL` filter) — never a `None` value that would
-    crash `statistics.median_by_commit` downstream."""
+def test_baseline_measure_points_includes_n1_runs_with_single_value_p90(tmp_path):
+    """After the p90 CEIL nearest-rank fix (0003_fix_p90_ceil_rank.sql) an
+    n=1 run — reachable via `perf run --iterations 1` — has a WELL-DEFINED
+    p90 (its single value, rank ceil(0.9)=1), NOT NULL. So it now
+    CONTRIBUTES a baseline point carrying that value, rather than being
+    silently dropped as it was under the old floor form. The
+    `median_by_commit` None-safety guard in the analyzer stays as a
+    defensive backstop, but n=1 no longer triggers it."""
     store = _store(tmp_path)
     try:
         ctx = _ctx(git_commit="c1-n1")
-        n1_marker = [Marker(name="checkout", value=999.0, unit="ms")]  # n=1 -> NULL p90_ms
+        n1_marker = [Marker(name="checkout", value=999.0, unit="ms")]  # n=1 -> p90 == 999.0
         store.save_run(ctx, FLOW, 1, "warm", "local:eduardo", n1_marker, [], None)
         _seed_run(store, git_commit="c2", value_ms=100.0)
 
         rows = store.baseline_measure_points(FLOW, DEVICE_A, "warm", None, 10)
         commits = {row.git_commit for row in rows}
+        by_commit = {row.git_commit: row.value for row in rows}
 
-        assert "c1-n1" not in commits  # NULL p90 excluded entirely, not passed through as None
-        assert commits == {"c2"}
+        assert commits == {"c1-n1", "c2"}  # n=1 run now contributes, not dropped
+        assert by_commit["c1-n1"] == 999.0  # its single value IS the p90
     finally:
         store.close()
 
@@ -330,12 +328,12 @@ def test_latest_measure_summary_returns_metric_metadata_and_percentile(tmp_path)
         assert point.unit == "ms"
         assert point.higher_is_better is False
         assert point.sample_n == 3
-        # `run_metric_summary.p90_ms` (db/schema.sql §9.3) truncates
-        # `CAST(0.9*n AS INT)`, NOT nearest-rank: for n=3, CAST(2.7)=2, so
-        # rn<=2 (values 90, 100) qualify and MAX picks 100 — the SQL view's
-        # own convention, distinct from `domain/statistics.percentile`'s
-        # nearest-rank rule (which the analyzer uses for system_sample).
-        assert point.p90_ms == 100.0
+        # `run_metric_summary.p90_ms` (db/schema.sql §9.3) now uses CEIL
+        # nearest-rank `rn <= (9*n+9)/10` (0003_fix_p90_ceil_rank.sql): for
+        # n=3 that is rank ceil(2.7)=3, so rn<=3 (values 90,100,110) qualify
+        # and MAX picks 110 — MATCHING `domain/statistics.percentile(.,90)`
+        # (the old floor form wrongly picked 100).
+        assert point.p90_ms == 110.0
     finally:
         store.close()
 

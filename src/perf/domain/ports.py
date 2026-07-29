@@ -33,6 +33,7 @@ from perf.domain.model import (
     DriverCommand,
     DriverResult,
     ExecutionPlan,
+    HistoryRun,
     Marker,
     MarkerParseResult,
     RunContext,
@@ -118,6 +119,10 @@ class Store(Protocol):
     def history(
         self, flow_name: str, metric_name: str, device_key: str, limit: int
     ) -> Sequence[RunPoint]: ...
+
+    def history_runs(
+        self, flow_name: str, device_key: str, mode: str, limit: int
+    ) -> Sequence[HistoryRun]: ...
 
     # ... show/history read models
 

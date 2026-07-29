@@ -69,6 +69,7 @@ class SqlAnalyzer:
         min_baseline_commits: int,
         warmup_k: int,
         baseline_n: int,
+        adaptive_floor: bool = True,
     ) -> None:
         self._store = store
         self._threshold_pct = threshold_pct
@@ -76,6 +77,7 @@ class SqlAnalyzer:
         self._min_baseline_commits = min_baseline_commits
         self._warmup_k = warmup_k
         self._baseline_n = baseline_n
+        self._adaptive_floor = adaptive_floor
 
     def compare_latest(
         self, flow_name: str, device_key: str, mode: str = "warm"
@@ -124,7 +126,37 @@ class SqlAnalyzer:
             units=units,
             higher_is_better=higher_is_better,
         )
-        return CompareResult(verdicts=tuple(verdicts), calibration=report)
+        # Anti-false-positive batch (Task 4): count the runs the baseline query
+        # silently excludes (same-commit, no-commit) so the pretty view can
+        # explain a thin history. The counts ride on `CompareResult` but stay
+        # OUT of the `--json` payload (contract unchanged).
+        excluded_same_commit, excluded_no_commit = self._store.count_baseline_exclusions(
+            flow_name, device_key, mode, latest.git_commit
+        )
+        return CompareResult(
+            verdicts=tuple(verdicts),
+            calibration=report,
+            excluded_same_commit=excluded_same_commit,
+            excluded_no_commit=excluded_no_commit,
+        )
+
+    def _effective_floor(self, unit: str, baseline_commit_medians: Sequence[float]) -> float:
+        """The absolute floor `classify` actually gates on for this metric
+        (anti-false-positive batch, Task 2). Starts from the configured
+        per-unit floor and, when adaptive filtering is enabled AND there are
+        enough baseline commit medians to trust the estimate (`>= 3`), widens
+        it to `2 * robust_noise(...)` if that is larger — so a metric that is
+        simply NOISY on this device/flow needs a change to clear its OWN
+        historical scatter before it flags, not merely the static floor. With
+        `< 3` baseline medians the estimate is too unstable, so the configured
+        floor alone applies; with `adaptive_floor=False` the behavior is
+        exactly the pre-batch static floor. The chosen value threads onto
+        `Verdict.floor`, so `--json`/pretty report the floor truly used."""
+
+        configured = self._floors.get(unit, 0.0)
+        if self._adaptive_floor and len(baseline_commit_medians) >= 3:
+            return max(configured, 2.0 * statistics.robust_noise(baseline_commit_medians))
+        return configured
 
     # ----- measure family (markers; `run_metric_summary`; no warm-up) -----
 
@@ -176,7 +208,7 @@ class SqlAnalyzer:
                     unit=point.unit,
                     higher_is_better=point.higher_is_better,
                     threshold_pct=self._threshold_pct,
-                    floor=self._floors.get(point.unit, 0.0),
+                    floor=self._effective_floor(point.unit, list(commit_medians.values())),
                     baseline_commit_n=len(commit_medians),
                     sample_n=point.sample_n,
                     min_n=self._min_baseline_commits,
@@ -233,7 +265,7 @@ class SqlAnalyzer:
                     unit=unit,
                     higher_is_better=better_when_higher,
                     threshold_pct=self._threshold_pct,
-                    floor=self._floors.get(unit, 0.0),
+                    floor=self._effective_floor(unit, list(commit_medians.values())),
                     baseline_commit_n=len(commit_medians),
                     sample_n=sample_n,
                     min_n=self._min_baseline_commits,

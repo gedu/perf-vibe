@@ -48,7 +48,16 @@ from pathlib import Path
 from types import TracebackType
 from typing import NamedTuple
 
-from perf.domain.model import Marker, RunContext, RunPoint, SystemSample, default_higher_is_better
+from perf.domain import statistics
+from perf.domain.model import (
+    HistoryMetric,
+    HistoryRun,
+    Marker,
+    RunContext,
+    RunPoint,
+    SystemSample,
+    default_higher_is_better,
+)
 from perf.domain.ports import Clock
 
 # Resolved __file__-relative to THIS package's own db/ directory — never a
@@ -64,6 +73,29 @@ _MIGRATIONS_DIR = _PACKAGE_DB_DIR / "migrations"
 _SYSTEM_SAMPLE_METRIC_FIELDS: tuple[str, ...] = tuple(
     f.name for f in dc_fields(SystemSample) if f.name != "iteration_idx"
 )
+
+# Correct per-unit metadata for the closed set of `system_sample` aggregate
+# fields — the SAME mapping `adapters/analyzer_sql._SYSTEM_SAMPLE_UNITS` uses.
+# Ingestion (`_upsert_metrics`) defaults these metrics to 'ms' in the `metric`
+# table, so the read side must supply the true unit itself (analyzer does the
+# same for `compare`; `history` does it here for its export). Kept a local
+# literal rather than imported from `analyzer_sql` — that module imports THIS
+# one, so importing back would be a cycle.
+_SYSTEM_SAMPLE_UNITS: dict[str, str] = {
+    "total_time_ms": "ms",
+    "start_time_ms": "ms",
+    "fps_avg": "fps",
+    "fps_min": "fps",
+    "ram_avg_mb": "mb",
+    "ram_peak_mb": "mb",
+    "cpu_avg_pct": "pct",
+    "cpu_peak_pct": "pct",
+}
+
+# The p90 percentile `history` reports for the system_sample family — the
+# SAME `_PERCENTILE` the analyzer applies (ceil nearest-rank, matching the
+# `run_metric_summary` view's p90 for the measure family).
+_HISTORY_P90 = 90.0
 
 
 # ===== `compare` read-model row shapes (PR-B, design Rev 3 "Bounded
@@ -311,7 +343,19 @@ class SqliteStore:
                 )
         for name in self._captured_system_sample_metric_names(samples):
             if name not in metric_ids:
-                metric_ids[name] = self._upsert_metric(conn, name, default_higher_is_better(name))
+                # Persist the CORRECT unit for system-sample metrics going
+                # forward (resilience batch, Task 5): fps_avg/fps_min -> 'fps',
+                # ram_* -> 'mb', cpu_* -> 'pct' — not the blanket 'ms' this
+                # loop used to write, which any external DB reader then saw for
+                # fps. Marker metrics keep their parsed unit above; first-write-
+                # wins as today (ON CONFLICT DO NOTHING). Migration 0004 fixes
+                # rows already written with the wrong unit.
+                metric_ids[name] = self._upsert_metric(
+                    conn,
+                    name,
+                    default_higher_is_better(name),
+                    unit=_SYSTEM_SAMPLE_UNITS.get(name, "ms"),
+                )
         return metric_ids
 
     @staticmethod
@@ -468,6 +512,30 @@ class SqliteStore:
             "iterations_captured": iterations_captured,
         }
 
+    def latest_device_key(self, flow_name: str, mode: str) -> str | None:
+        """The `device_key` of the most recently persisted run for this
+        flow+mode, regardless of device (resilience batch, Task 2). Lets
+        `compare`/`budget-check` fall back to the LAST recorded device when
+        the live-derived key (which degrades to `unknown|unknown|physical`
+        with no device attached) matches no history — so the CI gate does
+        not die with exit 2 merely because no device is plugged in. `None`
+        when the flow+mode has no runs at all. Every value is `?`-bound and
+        all identifiers are static literals (SKILL rule 4)."""
+
+        row = self._conn.execute(
+            """
+            SELECT d.device_key
+            FROM run r
+            JOIN flow f ON f.flow_id = r.flow_id
+            JOIN device d ON d.device_id = r.device_id
+            WHERE f.name = ? AND r.mode = ?
+            ORDER BY r.started_at DESC, r.run_id DESC
+            LIMIT 1
+            """,
+            (flow_name, mode),
+        ).fetchone()
+        return row[0] if row is not None else None
+
     # ----- `compare` read models (PR-B, design Rev 3 "Bounded Performance") -----
     #
     # Every value below is `?`-bound; every SQL identifier (table/column
@@ -506,6 +574,127 @@ class SqliteStore:
             for commit, started_at, value in rows
         ]
 
+    def history_runs(
+        self, flow_name: str, device_key: str, mode: str, limit: int
+    ) -> Sequence[HistoryRun]:
+        """The `history` command's per-flow read model (the charting-export
+        seam): the most recent `limit` persisted runs for
+        `flow+device_key+mode`, returned OLDEST→NEWEST (natural chart order),
+        each carrying every metric's per-run {p50, p90, n, unit} summary
+        across BOTH metric families.
+
+        Measure-family metrics are summarized by the `run_metric_summary`
+        view (p50/p90 already computed in SQL — median for p50, ceil
+        nearest-rank for p90); system_sample aggregates are reduced from
+        their raw per-iteration rows via `domain/statistics` with the SAME
+        conventions, so the two families agree. Deliberately a RAW per-run
+        summary — NO warm-up discard (unlike `compare`'s baseline math) — so
+        it reflects exactly what each run recorded. system_sample units come
+        from `_SYSTEM_SAMPLE_UNITS` (ingestion defaults them to 'ms').
+
+        Every value is `?`-bound; the only interpolation is `?`-placeholder
+        text for the `IN (...)` window and the FIXED
+        `_SYSTEM_SAMPLE_METRIC_FIELDS` identifiers — never a bound value
+        (SKILL rule 4)."""
+
+        window = self._conn.execute(
+            """
+            SELECT r.run_id, r.started_at, r.git_commit, r.source
+            FROM run r
+            JOIN flow f ON f.flow_id = r.flow_id
+            JOIN device d ON d.device_id = r.device_id
+            WHERE f.name = ? AND d.device_key = ? AND r.mode = ?
+            ORDER BY r.started_at DESC, r.run_id DESC
+            LIMIT ?
+            """,
+            (flow_name, device_key, mode, limit),
+        ).fetchall()
+        if not window:
+            return ()
+
+        # The query fetched the most-recent window DESC (so LIMIT keeps the
+        # latest N); reverse to oldest→newest for the natural series order.
+        ordered_window = list(reversed(window))
+        run_ids = [row[0] for row in ordered_window]
+
+        measures_by_run = self._history_measure_summaries(run_ids)
+        system_by_run = self._history_system_summaries(run_ids)
+
+        runs: list[HistoryRun] = []
+        for run_id, started_at, git_commit, source in ordered_window:
+            metrics = [*measures_by_run.get(run_id, ()), *system_by_run.get(run_id, ())]
+            metrics.sort(key=lambda metric: metric.metric_name)
+            runs.append(
+                HistoryRun(
+                    run_id=run_id,
+                    started_at=started_at,
+                    git_commit=git_commit,
+                    source=source,
+                    metrics=tuple(metrics),
+                )
+            )
+        return tuple(runs)
+
+    def _history_measure_summaries(self, run_ids: Sequence[int]) -> dict[int, list[HistoryMetric]]:
+        """Measure-family per-run summaries for the whole window in ONE
+        query — the `run_metric_summary` view already carries p50/p90/n; the
+        unit is the metric's own (measures thread it at ingestion). The
+        `?`-placeholder string for the `IN (...)` list is NOT a bound value
+        (SKILL rule 4) — every actual value stays `?`-bound."""
+
+        placeholders = ",".join("?" for _ in run_ids)
+        rows = self._conn.execute(
+            f"""
+            SELECT s.run_id, m.name, m.unit, s.p50_ms, s.p90_ms, s.n
+            FROM run_metric_summary s
+            JOIN metric m ON m.metric_id = s.metric_id
+            WHERE s.run_id IN ({placeholders})
+            """,
+            tuple(run_ids),
+        ).fetchall()
+
+        by_run: dict[int, list[HistoryMetric]] = {}
+        for run_id, name, unit, p50, p90, n in rows:
+            by_run.setdefault(run_id, []).append(
+                HistoryMetric(metric_name=name, p50=p50, p90=p90, n=n, unit=unit)
+            )
+        return by_run
+
+    def _history_system_summaries(self, run_ids: Sequence[int]) -> dict[int, list[HistoryMetric]]:
+        """system_sample-family per-run summaries for the whole window in
+        ONE `UNION ALL` query — raw per-iteration values batched across every
+        field, then reduced per (run, metric) with `domain/statistics`
+        (median p50, ceil-nearest-rank p90). Identifiers are the FIXED
+        `_SYSTEM_SAMPLE_METRIC_FIELDS`; the `?`-placeholder `IN (...)` text is
+        not a bound value (SKILL rule 4)."""
+
+        placeholders = ",".join("?" for _ in run_ids)
+        union_sql = " UNION ALL ".join(
+            f"SELECT i.run_id AS run_id, '{field}' AS metric_name, s.{field} AS value "
+            "FROM iteration i JOIN system_sample s ON s.iteration_id = i.iteration_id "
+            f"WHERE i.run_id IN ({placeholders}) AND s.{field} IS NOT NULL"
+            for field in _SYSTEM_SAMPLE_METRIC_FIELDS
+        )
+        params = tuple(run_ids) * len(_SYSTEM_SAMPLE_METRIC_FIELDS)
+        rows = self._conn.execute(union_sql, params).fetchall()
+
+        grouped: dict[tuple[int, str], list[float]] = {}
+        for run_id, metric_name, value in rows:
+            grouped.setdefault((run_id, metric_name), []).append(value)
+
+        by_run: dict[int, list[HistoryMetric]] = {}
+        for (run_id, metric_name), values in grouped.items():
+            by_run.setdefault(run_id, []).append(
+                HistoryMetric(
+                    metric_name=metric_name,
+                    p50=statistics.median(values),
+                    p90=statistics.percentile(values, _HISTORY_P90),
+                    n=len(values),
+                    unit=_SYSTEM_SAMPLE_UNITS.get(metric_name, "ms"),
+                )
+            )
+        return by_run
+
     def latest_run(self, flow_name: str, device_key: str, mode: str) -> LatestRun | None:
         """The single most recent run `compare` evaluates — `None` when the
         flow/device/mode combination has no runs at all (corner case
@@ -526,6 +715,45 @@ class SqliteStore:
         if row is None:
             return None
         return LatestRun(run_id=row[0], git_commit=row[1], started_at=row[2])
+
+    def count_baseline_exclusions(
+        self,
+        flow_name: str,
+        device_key: str,
+        mode: str,
+        current_commit: str | None,
+    ) -> tuple[int, int]:
+        """Diagnostic counts (anti-false-positive batch, Task 4) for the runs
+        the baseline query SILENTLY drops for this flow/device/mode: returns
+        `(runs on the current commit, runs with no git commit)`. Pretty output
+        surfaces these so a dev iterating on ONE sha understands why history
+        looks thin; the `--json` contract never sees them. Every value is
+        `?`-bound; all identifiers are static literals (SKILL rule 4). The
+        current-commit count is `0` when there is no resolvable `current_commit`
+        (the baseline query adds no same-commit exclusion in that case)."""
+
+        same_commit = 0
+        if current_commit is not None:
+            same_commit = self._conn.execute(
+                """
+                SELECT COUNT(*) FROM run r
+                JOIN flow f ON f.flow_id = r.flow_id
+                JOIN device d ON d.device_id = r.device_id
+                WHERE f.name = ? AND d.device_key = ? AND r.mode = ? AND r.git_commit = ?
+                """,
+                (flow_name, device_key, mode, current_commit),
+            ).fetchone()[0]
+
+        no_commit = self._conn.execute(
+            """
+            SELECT COUNT(*) FROM run r
+            JOIN flow f ON f.flow_id = r.flow_id
+            JOIN device d ON d.device_id = r.device_id
+            WHERE f.name = ? AND d.device_key = ? AND r.mode = ? AND r.git_commit IS NULL
+            """,
+            (flow_name, device_key, mode),
+        ).fetchone()[0]
+        return same_commit, no_commit
 
     def latest_measure_summary(self, run_id: int) -> Sequence[MeasureSummaryPoint]:
         """Every measure-family metric's p90/sample-count for ONE run, in a
@@ -585,13 +813,14 @@ class SqliteStore:
         same-commit runs are returned as separate rows — the caller
         (`SqlAnalyzer`) applies `domain/statistics.median_by_commit`.
 
-        FIX 1 (BLOCKER, PR-B review): `run_metric_summary.p90_ms` is NULL
-        for an n=1 run (`CAST(0.9*1 AS INT)` truncates to 0, nothing
-        qualifies) — reachable via `perf run --iterations 1`. Such a run
-        has no meaningful tail percentile, so it contributes NO baseline
-        point at all (`s.p90_ms IS NOT NULL`, mirroring
-        `baseline_system_sample_points`'s `s.{field} IS NOT NULL` filter)
-        rather than leaking a `None` into `median_by_commit`."""
+        The `s.p90_ms IS NOT NULL` filter mirrors
+        `baseline_system_sample_points`'s `s.{field} IS NOT NULL` guard, so a
+        genuinely NULL percentile never leaks a `None` into
+        `median_by_commit`. NOTE: since the p90 CEIL nearest-rank fix
+        (0003_fix_p90_ceil_rank.sql) an n=1 run's p90 is its single value
+        (rank ceil(0.9)=1), NOT NULL — so n=1 runs now CONTRIBUTE a baseline
+        point; the filter remains as defensive backstop for any other
+        NULL-percentile edge."""
 
         current_commit_clause = ""
         params: list = [flow_name, device_key, mode]

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from perf.config import loader
-from perf.config.loader import DEFAULT_ITERATIONS, load_config
+from perf.config.loader import DEFAULT_ITERATIONS, ConfigError, load_config
 
 
 @pytest.fixture(autouse=True)
@@ -34,6 +34,37 @@ def test_defaults_when_nothing_configured(tmp_path):
     assert cfg.default_iterations == DEFAULT_ITERATIONS
     assert cfg.no_color is False
     assert cfg.flows == {}
+
+
+@pytest.mark.parametrize("raw", ["none", "None", "NONE", "  none  ", ""])
+def test_sampler_none_or_empty_resolves_to_none(tmp_path, raw):
+    """Task 4: `sampler = "none"`/`""` (case-insensitive, whitespace-tolerant)
+    resolves to `None` — no sampler selected — enabling marker-only runs."""
+    _write(tmp_path / "perfvibe.toml", f'sampler = "{raw}"\n')
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.sampler is None
+    # The other source is untouched by the sampler normalization.
+    assert cfg.marker_source == "adb-logcat"
+
+
+@pytest.mark.parametrize("raw", ["none", "NONE", ""])
+def test_marker_source_none_or_empty_resolves_to_none(tmp_path, raw):
+    """Task 4: `marker_source = "none"`/`""` resolves to `None` — enabling
+    sampler-only runs."""
+    _write(tmp_path / "perfvibe.toml", f'marker_source = "{raw}"\n')
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.marker_source is None
+    assert cfg.sampler == "flashlight"
+
+
+def test_real_source_names_pass_through_unchanged(tmp_path):
+    _write(
+        tmp_path / "perfvibe.toml",
+        'sampler = "flashlight"\nmarker_source = "adb-logcat"\n',
+    )
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.sampler == "flashlight"
+    assert cfg.marker_source == "adb-logcat"
 
 
 def test_base_dir_anchors_db_and_results_but_not_flows(tmp_path):
@@ -164,6 +195,7 @@ def test_compare_tuning_defaults_when_nothing_configured(tmp_path):
     assert cfg.min_baseline_commits == 3
     assert cfg.warmup_k == 1
     assert cfg.baseline_n == 10
+    assert cfg.adaptive_floor is True  # anti-false-positive batch: on by default
 
 
 def test_perf_toml_overrides_threshold_and_partial_floor(tmp_path):
@@ -189,6 +221,21 @@ def test_perf_toml_overrides_threshold_and_partial_floor(tmp_path):
     assert cfg.floors == {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 1.5}
 
 
+def test_adaptive_floor_can_be_disabled_via_toml(tmp_path):
+    """The `adaptive_floor` knob (anti-false-positive batch, Task 2) is on by
+    default but must be switchable off, restoring the pre-batch static-floor
+    behavior for teams that prefer a fixed threshold."""
+    _write(tmp_path / "perfvibe.toml", "adaptive_floor = false\n")
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.adaptive_floor is False
+
+
+def test_adaptive_floor_true_when_explicitly_enabled(tmp_path):
+    _write(tmp_path / "perfvibe.toml", "adaptive_floor = true\n")
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.adaptive_floor is True
+
+
 def test_baseline_n_zero_or_negative_clamps_to_one(tmp_path):
     """FIX 3 (SUGGESTION->fix, PR-B review): `baseline_n` is loaded via
     bare `int()`; a config value of 0 (or negative) would reach the
@@ -203,6 +250,51 @@ def test_baseline_n_zero_or_negative_clamps_to_one(tmp_path):
     _write(tmp_path / "perfvibe.toml", "baseline_n = -5\n")
     cfg = load_config(env={}, project_dir=tmp_path)
     assert cfg.baseline_n == 1
+
+
+# ===== config problems surface as ConfigError, never a raw traceback =====
+# A broken config previously escaped `load_config` as TOMLDecodeError /
+# ValueError and crashed the typer callback with exit 1 — poisoning the
+# exit-code contract (`run` must NEVER emit 1) for every command.
+
+
+def test_malformed_toml_raises_config_error_naming_the_file(tmp_path):
+    _write(tmp_path / "perfvibe.toml", 'driver = "maestro\n')  # unterminated string
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(env={}, project_dir=tmp_path)
+    assert "perfvibe.toml" in str(excinfo.value)
+    assert excinfo.value.cause  # carries the parser's line/col detail
+
+
+def test_ill_typed_value_raises_config_error(tmp_path):
+    _write(tmp_path / "perfvibe.toml", 'default_iterations = "ten"\n')
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(env={}, project_dir=tmp_path)
+    assert "default_iterations" in str(excinfo.value)
+
+
+def test_ill_typed_floor_value_raises_config_error(tmp_path):
+    _write(tmp_path / "perfvibe.toml", '[floors]\nfps = "fast"\n')
+    with pytest.raises(ConfigError):
+        load_config(env={}, project_dir=tmp_path)
+
+
+def test_explicit_config_path_missing_raises_config_error(tmp_path):
+    """An EXPLICITLY passed `--config` that does not exist must fail loudly —
+    silently falling back to defaults turns a typo'd path into a baffling
+    'unknown flow' error that never mentions the real problem. Only the
+    DISCOVERED project/global files may be silently absent."""
+    missing = tmp_path / "typo.toml"
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(cli_config_path=str(missing), env={}, project_dir=tmp_path)
+    assert "typo.toml" in str(excinfo.value)
+
+
+def test_absent_discovered_configs_still_fall_back_silently(tmp_path):
+    # The guard above must NOT change implicit discovery: no config anywhere
+    # (isolated global, empty project dir) keeps resolving to pure defaults.
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.driver == "maestro"
 
 
 def test_full_floors_override_replaces_all_units(tmp_path):

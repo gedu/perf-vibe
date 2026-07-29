@@ -33,6 +33,7 @@ from dataclasses import dataclass
 
 from perf.domain.model import (
     ExecutionPlan,
+    LoopMode,
     Marker,
     RunContext,
     SystemSample,
@@ -230,19 +231,36 @@ class RunFlowUseCase:
         # order) misattributed the failure. The dead-capture message is now
         # reserved for the case it was designed for: the flow ran fine but the
         # logcat capture itself died.
+        # Partial-coverage policy alignment (resilience batch): a
+        # DRIVER_MANAGED loop drives N separate subprocesses, so one flaky
+        # iteration used to throw away every GOOD measurement by hard-failing
+        # here. Mirror the TOOL_MANAGED (Flashlight) path, which already
+        # persists its successful iterations with `partial_coverage=True`:
+        # when AT LEAST ONE iteration succeeded, keep going and persist the
+        # good ones flagged partial. Only ALL-failed (or any TOOL_MANAGED
+        # whole-command failure) is a hard runtime/tooling error (exit 3).
+        outcomes = driver_result.iteration_outcomes
+        total = len(outcomes)
+        succeeded = sum(1 for outcome in outcomes if outcome == "ok")
+        driver_partial = False
+        driver_iteration_statuses: Sequence[bool] | None = None
         if not driver_result.ok:
-            # Summarize as a COUNT, never the raw per-iteration list: a run
-            # of N iterations that all fail (e.g. no device) dumped
-            # `['failed', 'failed', … xN]` — pure noise. `succeeded/total`
-            # tells the user exactly how far it got.
-            outcomes = driver_result.iteration_outcomes
-            total = len(outcomes)
-            succeeded = sum(1 for outcome in outcomes if outcome == "ok")
-            raise RunFailedError(
-                f"flow {request.flow_name!r} did not complete successfully "
-                f"— {succeeded}/{total} iterations succeeded.",
-                diagnostics=driver_result.diagnostics,
-            )
+            driver_managed = plan.loop_mode == LoopMode.DRIVER_MANAGED
+            if succeeded >= 1 and driver_managed:
+                # Persist the N-1 good iterations; the failed one(s) simply
+                # produced no markers/samples, so coverage is partial.
+                driver_partial = True
+                driver_iteration_statuses = tuple(o == "ok" for o in outcomes)
+            else:
+                # Summarize as a COUNT, never the raw per-iteration list: a run
+                # of N iterations that all fail (e.g. no device) dumped
+                # `['failed', 'failed', … xN]` — pure noise. `succeeded/total`
+                # tells the user exactly how far it got.
+                raise RunFailedError(
+                    f"flow {request.flow_name!r} did not complete successfully "
+                    f"— {succeeded}/{total} iterations succeeded.",
+                    diagnostics=driver_result.diagnostics,
+                )
         if driver_result.capture_failed:
             raise RunFailedError(
                 f"marker capture failed while running {request.flow_name!r} "
@@ -271,6 +289,12 @@ class RunFlowUseCase:
             samples = sample_result.samples
             samples_partial = sample_result.partial_coverage
             iteration_statuses = sample_result.iteration_statuses
+
+        # A DRIVER_MANAGED partial run surfaces its per-iteration ok/failed
+        # list here (the sampler never observed these — there was no wrap),
+        # so `recap()` can render a TRUE ✅/❌ table for the good/flaky mix.
+        if iteration_statuses is None and driver_iteration_statuses is not None:
+            iteration_statuses = driver_iteration_statuses
 
         markers: Sequence[Marker] = ()
         markers_partial = False
@@ -335,7 +359,7 @@ class RunFlowUseCase:
             markers=markers,
             samples=samples,
             raw_report_path=raw_report_path,
-            partial_coverage=bool(samples_partial or markers_partial),
+            partial_coverage=bool(samples_partial or markers_partial or driver_partial),
             iteration_statuses=iteration_statuses,
             marker_diagnostic=marker_diagnostic,
         )

@@ -27,6 +27,21 @@ _REQUIRED_KEYS_AND_TYPES = {
     "flashlight": list,
 }
 
+# Nested per-item shapes, pinned EXACTLY (SKILL rule 8: ANY shape change —
+# additive included — must fail without a `schema_version` bump).
+_MEASURE_ITEM_KEYS = {"unit", "values", "n"}
+_FLASHLIGHT_ITEM_KEYS = {
+    "iteration_idx",
+    "total_time_ms",
+    "start_time_ms",
+    "fps_avg",
+    "fps_min",
+    "ram_avg_mb",
+    "ram_peak_mb",
+    "cpu_avg_pct",
+    "cpu_peak_pct",
+}
+
 
 def _sample_result(**overrides) -> RunFlowResult:
     defaults = {
@@ -110,14 +125,17 @@ def test_no_secret_ever_appears_in_payload():
 
 
 def test_contract_rejects_a_shape_change_without_version_bump():
-    """A structural regression test: if a future change removes/renames a
-    required key WITHOUT bumping `SCHEMA_VERSION`, this test fails —
-    forcing the author to either preserve the key or bump the version and
-    update this contract deliberately."""
+    """A structural regression test: if a future change removes, renames,
+    OR ADDS a key — top-level or per-item — WITHOUT bumping
+    `SCHEMA_VERSION`, this test fails. Exact-set pinning (matching
+    `test_budget_check_v1`'s pattern): SKILL rule 8 says ANY shape change
+    needs a bump, additive changes included — a consumer pinning v1 must
+    see the exact v1 shape, byte-stable."""
 
     payload = build_run_payload(_sample_result())
-    assert set(_REQUIRED_KEYS_AND_TYPES).issubset(payload.keys())
-    if set(_REQUIRED_KEYS_AND_TYPES) != set(payload.keys()):
-        # New keys are allowed (additive); assert schema_version wasn't
-        # silently regressed to 0/None while the shape moved on.
-        assert payload["schema_version"] >= 1
+    assert set(payload.keys()) == set(_REQUIRED_KEYS_AND_TYPES)
+    for name, measure in payload["measures"].items():
+        assert set(measure.keys()) == _MEASURE_ITEM_KEYS, f"measure {name!r} shape drifted"
+    for sample in payload["flashlight"]:
+        assert set(sample.keys()) == _FLASHLIGHT_ITEM_KEYS
+    assert payload["schema_version"] >= 1

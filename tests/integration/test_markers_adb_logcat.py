@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from perf.adapters.markers_adb_logcat import AdbLogcatMarkerSource
 
 _FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "logcat_sample.txt"
@@ -124,6 +126,38 @@ def test_capture_spec_omits_device_flag_when_no_device_configured():
     source = AdbLogcatMarkerSource()
     spec = source.capture_spec()
     assert spec.argv == ["adb", "logcat", "-s", "ReactNativeJS:V"]
+
+
+@pytest.mark.parametrize(
+    "payload_line",
+    [
+        pytest.param("[PERF] [1, 2]", id="json-non-dict"),
+        pytest.param('[PERF] {"name": "x"}', id="json-missing-value"),
+        pytest.param('[PERF] {"value": 1}', id="json-missing-name"),
+        pytest.param('[PERF] {"name": "x", "value": "fast"}', id="json-non-numeric-value"),
+        pytest.param('[PERF] {"name": "x", "value": NaN}', id="json-nan-value"),
+        pytest.param('[PERF] {"name": "x", "value": Infinity}', id="json-inf-value"),
+        pytest.param('[PERF] {"name": "x", "value": -Infinity}', id="json-neg-inf-value"),
+        pytest.param('[PERF] {"name": "x", "value": -12.5}', id="json-negative-value"),
+    ],
+)
+def test_malformed_or_nonsense_json_values_are_skipped_never_persisted(payload_line):
+    """The full malformed-JSON matrix — every case skips, none crashes, none
+    emits a Marker. The non-finite cases matter most: Python's `json.loads`
+    ACCEPTS `NaN`/`Infinity`, and downstream a NaN binds as NULL into the
+    `NOT NULL duration_ms` column — one bad line would roll back the ENTIRE
+    N-iteration run at ingestion. Negative durations are clock-skew garbage
+    the text-form regex already rejects; the JSON path must agree."""
+    source = AdbLogcatMarkerSource()
+    result = source.parse([payload_line], iterations=1)
+    assert result.markers == ()
+    assert result.partial_coverage is True
+
+
+def test_empty_perf_payload_is_skipped():
+    source = AdbLogcatMarkerSource()
+    result = source.parse(["[PERF]", "[PERF]   "], iterations=1)
+    assert result.markers == ()
 
 
 def test_oversized_line_is_skipped_not_parsed():

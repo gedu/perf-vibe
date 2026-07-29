@@ -178,17 +178,19 @@ def run(
 
         # `run-live-progress` cleanup fix (post-review): the TOOL_MANAGED
         # framing header used to be emitted from inside
-        # `MaestroDriver._drive_tool_managed` via `relayed_line` (indented
-        # like a nested tool line, and requiring a mutable `_last_flow_name`
-        # field on the driver just to remember the flow name). This CLI
+        # `MaestroDriver._drive_tool_managed` via `relayed_line`. This CLI
         # layer already holds the concrete reporter and knows `flow`/
-        # `resolved_iterations`/`config.sampler` — so it calls the new,
-        # non-indented `reporter.run_header(...)` directly, guarded to only
-        # the Flashlight-sampler (TOOL_MANAGED) path, and only inside this
-        # SAME try block so an unexpected failure still maps to exit 3,
-        # never Python's default exit 1 (SKILL rule 7), and never touches
-        # stdout.
-        if config.sampler == "flashlight":
+        # `resolved_iterations` — so it calls the non-indented
+        # `reporter.run_header(...)` directly, inside this SAME try block so
+        # an unexpected failure still maps to exit 3, never Python's default
+        # exit 1 (SKILL rule 7), and never touches stdout.
+        #
+        # Task 4 fix: key the header off the BUILT sampler (the object the
+        # registry produced), never the config adapter NAME — a `sampler =
+        # "none"` marker-only run has no sampler and must show no
+        # tool-managed header, while a present sampler owns the iteration
+        # loop (TOOL_MANAGED) and frames the streamed output.
+        if sampler is not None:
             reporter.run_header(flow, resolved_iterations)
 
         result = use_case.execute(request)
