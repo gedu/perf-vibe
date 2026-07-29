@@ -86,12 +86,14 @@ def drive_picker(
     color: bool,
     read_key: Callable[[], str],
     write: Callable[[str], None],
+    multi: bool = True,
 ) -> list[str] | None:
     """Run the picker loop against an injected key source and writer. Returns
     the chosen flow names on accept (Enter) or `None` on cancel (Esc/Ctrl-C).
-    Pure w.r.t. the terminal — `pick_flows` supplies the real raw-mode I/O."""
+    `multi=False` runs the single-select mode (`run` picks one flow). Pure
+    w.r.t. the terminal — `pick_flows` supplies the real raw-mode I/O."""
 
-    state = initial_state(flows)
+    state = initial_state(flows, multi=multi)
     prev_lines = 0
 
     def paint() -> None:
@@ -110,10 +112,11 @@ def drive_picker(
         paint()
 
 
-def pick_flows(flows: tuple[str, ...], *, color: bool) -> list[str] | None:
+def pick_flows(flows: tuple[str, ...], *, color: bool, multi: bool = True) -> list[str] | None:
     """Interactive entry point: put `sys.stdin` in raw mode, run the picker
-    painting to `sys.stderr`, and always restore the terminal. Raises
-    `PickerUnavailable` if raw mode cannot be enabled."""
+    painting to `sys.stderr`, and always restore the terminal. `multi=False`
+    runs the single-select mode (`run`). Raises `PickerUnavailable` if raw
+    mode cannot be enabled."""
 
     import termios
     import tty
@@ -142,6 +145,7 @@ def pick_flows(flows: tuple[str, ...], *, color: bool) -> list[str] | None:
             color=color,
             read_key=lambda: decode_key(stdin.read),
             write=write,
+            multi=multi,
         )
     except KeyboardInterrupt:
         # ISIG is off in raw mode so this is belt-and-suspenders; a Ctrl-C

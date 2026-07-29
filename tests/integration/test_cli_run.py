@@ -1216,3 +1216,88 @@ def test_quiet_with_manual_driver_exits_2_before_any_prompt(monkeypatch, tmp_pat
     assert result.exit_code == 2, result.output
     assert "--quiet" in result.stderr
     assert "manual" in result.stderr.lower()
+
+
+# ===== Interactive run: no flow arg -> single-select picker + iterations
+# prompt (mirrors compare's interactive selection; run picks ONE flow) =====
+
+
+def test_no_flow_interactive_picks_flow_then_prompts_iterations_default(
+    monkeypatch, tmp_path: Path
+):
+    """No flow arg on a (simulated) interactive terminal: the picker chooses
+    one flow, then the iterations prompt offers the config default (2) which
+    Enter accepts. The chosen count reaches the driver's execution plan."""
+    config = _config(sampler=None, marker_source="adb-logcat", db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    driver = FakeDriver()
+    _patch_registry(monkeypatch, driver=driver, marker_factory=_happy_marker_factory)
+    # Force the picker gate open (CliRunner has no real TTY) and stub the pick.
+    monkeypatch.setattr(run_module, "_picker_available", lambda output: True)
+    monkeypatch.setattr(run_module, "pick_flows", lambda flows, *, color, multi: ["checkout"])
+
+    result = runner.invoke(main_module.app, ["run"], input="\n")
+
+    assert result.exit_code == 0, result.output
+    assert "perf run complete" in result.stdout
+    assert driver.drive_calls[0].iterations == 2  # config default, accepted via Enter
+
+
+def test_no_flow_interactive_prompt_overrides_iterations(monkeypatch, tmp_path: Path):
+    config = _config(sampler=None, marker_source="adb-logcat", db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    driver = FakeDriver()
+    _patch_registry(monkeypatch, driver=driver, marker_factory=_happy_marker_factory)
+    monkeypatch.setattr(run_module, "_picker_available", lambda output: True)
+    monkeypatch.setattr(run_module, "pick_flows", lambda flows, *, color, multi: ["checkout"])
+
+    result = runner.invoke(main_module.app, ["run"], input="5\n")
+
+    assert result.exit_code == 0, result.output
+    assert driver.drive_calls[0].iterations == 5
+
+
+def test_no_flow_with_explicit_iterations_skips_the_prompt(monkeypatch, tmp_path: Path):
+    """`-n` already given: the picker still resolves the flow, but the
+    iterations prompt is skipped entirely (no stdin needed)."""
+    config = _config(sampler=None, marker_source="adb-logcat", db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    driver = FakeDriver()
+    _patch_registry(monkeypatch, driver=driver, marker_factory=_happy_marker_factory)
+    monkeypatch.setattr(run_module, "_picker_available", lambda output: True)
+    monkeypatch.setattr(run_module, "pick_flows", lambda flows, *, color, multi: ["checkout"])
+
+    result = runner.invoke(main_module.app, ["run", "-n", "7"])  # no stdin provided
+
+    assert result.exit_code == 0, result.output
+    assert driver.drive_calls[0].iterations == 7
+
+
+def test_no_flow_non_interactive_exits_2_with_hint(monkeypatch, tmp_path: Path):
+    """No flow arg with no interactive terminal (CliRunner) and no `--json`:
+    stay explicit — usage error (exit 2), never a picker, never a hang."""
+    config = _config(sampler=None, marker_source="adb-logcat", db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_registry(monkeypatch, marker_factory=_happy_marker_factory)
+
+    result = runner.invoke(main_module.app, ["run"])
+
+    assert result.exit_code == 2, result.output
+    assert "no flow given" in result.stderr
+
+
+def test_no_flow_picker_cancel_exits_0(monkeypatch, tmp_path: Path):
+    """Esc/Ctrl-C in the picker (pick_flows returns None): the user chose not
+    to run — a clean exit 0 with a warning, never a failure (run never
+    exits 1)."""
+    config = _config(sampler=None, marker_source="adb-logcat", db_path=str(tmp_path / "perf.db"))
+    monkeypatch.setattr(main_module, "load_config", lambda **kw: config)
+    _patch_registry(monkeypatch, marker_factory=_happy_marker_factory)
+    monkeypatch.setattr(run_module, "_picker_available", lambda output: True)
+    monkeypatch.setattr(run_module, "pick_flows", lambda flows, *, color, multi: None)
+
+    result = runner.invoke(main_module.app, ["run"])
+
+    assert result.exit_code == 0, result.output
+    assert result.exit_code != 1
+    assert "no flow selected" in result.stderr
