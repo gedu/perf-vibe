@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from perf.adapters.markers_adb_logcat import AdbLogcatMarkerSource
+from perf.domain.model import Marker, MarkerParseResult
 
 _FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "logcat_sample.txt"
 
@@ -167,3 +168,205 @@ def test_oversized_line_is_skipped_not_parsed():
     huge_line = "[PERF] checkout: " + ("9" * 20000) + "ms"
     result = source.parse([huge_line], iterations=1)
     assert result.markers == ()
+
+
+# ===== characterization: parse()'s output must survive the classify_line
+# extraction byte-identical (markers-command design "Modified Capabilities":
+# parse()'s signature and observable MarkerParseResult stay UNCHANGED). This
+# test MUST pass against the OLD parse() BEFORE the refactor, and MUST still
+# pass unchanged AFTER parse() delegates to classify_line. =====
+
+
+@pytest.mark.parametrize(
+    ("lines", "iterations", "expected"),
+    [
+        pytest.param(
+            ["[PERF] checkout: 900ms"],
+            1,
+            MarkerParseResult(
+                markers=(Marker(name="checkout", value=900.0, unit="ms"),),
+                partial_coverage=False,
+                diagnostic=None,
+            ),
+            id="completed-text-marker",
+        ),
+        pytest.param(
+            ['[PERF] {"name":"login","value":450,"unit":"ms"}'],
+            1,
+            MarkerParseResult(
+                markers=(Marker(name="login", value=450.0, unit="ms"),),
+                partial_coverage=False,
+                diagnostic=None,
+            ),
+            id="completed-json-marker",
+        ),
+        pytest.param(
+            ["[PERF] markStart:onboarding"],
+            1,
+            MarkerParseResult(
+                markers=(),
+                partial_coverage=True,
+                diagnostic=(
+                    "saw 1 `[PERF]` line(s) but only 0 of 1 iteration(s) produced a "
+                    "COMPLETED marker — a `markStart` without a matching `markEnd` is "
+                    "skipped (a crash or early exit mid-flow?)."
+                ),
+            ),
+            id="bare-mark-start",
+        ),
+        pytest.param(
+            ['[PERF-META] {"app_version":"4.20.1"}'],
+            1,
+            MarkerParseResult(
+                markers=(),
+                partial_coverage=True,
+                diagnostic=(
+                    "captured 1 logcat line(s) but NONE carried a `[PERF]` marker "
+                    "(tag filter `ReactNativeJS:V`) — the app may not be emitting "
+                    "`[PERF]` markers, or they are logged under a different tag."
+                ),
+            ),
+            id="perf-meta-line",
+        ),
+        pytest.param(
+            ["[PERF] not-a-number: abcms"],
+            1,
+            MarkerParseResult(
+                markers=(),
+                partial_coverage=True,
+                diagnostic=(
+                    "saw 1 `[PERF]` line(s) but only 0 of 1 iteration(s) produced a "
+                    "COMPLETED marker — a `markStart` without a matching `markEnd` is "
+                    "skipped (a crash or early exit mid-flow?)."
+                ),
+            ),
+            id="malformed-text",
+        ),
+        pytest.param(
+            ["[PERF] {not valid json"],
+            1,
+            MarkerParseResult(
+                markers=(),
+                partial_coverage=True,
+                diagnostic=(
+                    "saw 1 `[PERF]` line(s) but only 0 of 1 iteration(s) produced a "
+                    "COMPLETED marker — a `markStart` without a matching `markEnd` is "
+                    "skipped (a crash or early exit mid-flow?)."
+                ),
+            ),
+            id="invalid-json",
+        ),
+        pytest.param(
+            ['[PERF] {"name": "x", "value": NaN}'],
+            1,
+            MarkerParseResult(
+                markers=(),
+                partial_coverage=True,
+                diagnostic=(
+                    "saw 1 `[PERF]` line(s) but only 0 of 1 iteration(s) produced a "
+                    "COMPLETED marker — a `markStart` without a matching `markEnd` is "
+                    "skipped (a crash or early exit mid-flow?)."
+                ),
+            ),
+            id="nan-value",
+        ),
+        pytest.param(
+            ['[PERF] {"name": "x", "value": -Infinity}'],
+            1,
+            MarkerParseResult(
+                markers=(),
+                partial_coverage=True,
+                diagnostic=(
+                    "saw 1 `[PERF]` line(s) but only 0 of 1 iteration(s) produced a "
+                    "COMPLETED marker — a `markStart` without a matching `markEnd` is "
+                    "skipped (a crash or early exit mid-flow?)."
+                ),
+            ),
+            id="negative-infinity-value",
+        ),
+        pytest.param(
+            ['[PERF] {"name": "x", "value": -12.5}'],
+            1,
+            MarkerParseResult(
+                markers=(),
+                partial_coverage=True,
+                diagnostic=(
+                    "saw 1 `[PERF]` line(s) but only 0 of 1 iteration(s) produced a "
+                    "COMPLETED marker — a `markStart` without a matching `markEnd` is "
+                    "skipped (a crash or early exit mid-flow?)."
+                ),
+            ),
+            id="negative-value",
+        ),
+        pytest.param(
+            ["[PERF] checkout: " + ("9" * 20000) + "ms"],
+            1,
+            MarkerParseResult(
+                markers=(),
+                partial_coverage=True,
+                diagnostic=(
+                    "captured 1 logcat line(s) but NONE carried a `[PERF]` marker "
+                    "(tag filter `ReactNativeJS:V`) — the app may not be emitting "
+                    "`[PERF]` markers, or they are logged under a different tag."
+                ),
+            ),
+            id="oversized-line",
+        ),
+        pytest.param(
+            ["garbage line without perf marker"],
+            1,
+            MarkerParseResult(
+                markers=(),
+                partial_coverage=True,
+                diagnostic=(
+                    "captured 1 logcat line(s) but NONE carried a `[PERF]` marker "
+                    "(tag filter `ReactNativeJS:V`) — the app may not be emitting "
+                    "`[PERF]` markers, or they are logged under a different tag."
+                ),
+            ),
+            id="non-perf-line",
+        ),
+        pytest.param(
+            [],
+            1,
+            MarkerParseResult(
+                markers=(),
+                partial_coverage=True,
+                diagnostic=(
+                    "no logcat output was captured at all — check the device is connected "
+                    "(`adb devices`) and streaming logs, and that the flow actually ran."
+                ),
+            ),
+            id="empty-input",
+        ),
+        pytest.param(
+            ["[PERF]   "],
+            1,
+            MarkerParseResult(
+                markers=(),
+                partial_coverage=True,
+                # An empty/whitespace-only payload after the `[PERF]` tag is
+                # skipped BEFORE `perf_lines_seen` is incremented — so the
+                # diagnostic is the "NONE carried a `[PERF]` marker" form, NOT
+                # the "saw N `[PERF]` line(s)" form. Pinning this guards the
+                # drift W1: a future change that counted the empty line would
+                # silently flip this diagnostic and every other test would
+                # still pass.
+                diagnostic=(
+                    "captured 1 logcat line(s) but NONE carried a `[PERF]` marker "
+                    "(tag filter `ReactNativeJS:V`) — the app may not be emitting "
+                    "`[PERF]` markers, or they are logged under a different tag."
+                ),
+            ),
+            id="empty-perf-payload",
+        ),
+    ],
+)
+def test_characterization_parse_output_is_pinned(lines, iterations, expected):
+    """Golden pin of `parse()`'s FULL `MarkerParseResult` (markers tuple,
+    partial_coverage, diagnostic) for representative inputs — MUST pass
+    against the current `parse()` before the `classify_line` extraction and
+    MUST still pass, byte-identical, after `parse()` delegates to it."""
+    source = AdbLogcatMarkerSource()
+    result = source.parse(lines, iterations=iterations)
+    assert result == expected

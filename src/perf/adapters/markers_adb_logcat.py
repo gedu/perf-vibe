@@ -28,6 +28,17 @@ Fix (resilience review): on a host with 2+ connected devices, an unpinned
 zero markers — indistinguishable from "the flow emitted none". `device`
 mirrors the same pinning `MaestroDriver`/`BashRunContextProvider` already
 apply.
+
+`classify_line` (markers-command design, "Shared Line-Classification
+Function") is the SOLE owner of tag/regex/JSON-detection logic: it
+classifies ONE raw line into a `LineVerdict` (`LineKind` + the extracted
+`Marker` when completed + the specific failure `reason` when malformed).
+`parse()` delegates every per-line decision to it — this module gains a
+new PUBLIC surface, but `parse()`'s signature, inputs, and
+`MarkerParseResult` output stay byte-identical (pinned by the
+characterization test in `tests/integration/test_markers_adb_logcat.py`).
+A future `markers doctor` command classifies through this SAME function
+so no tag/regex/JSON logic is ever duplicated.
 """
 
 from __future__ import annotations
@@ -36,10 +47,11 @@ import json
 import math
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
+from enum import StrEnum
 
-from perf.domain.model import CaptureSpec, Marker, MarkerParseResult
+from perf.domain.model import PERF_TAG, CaptureSpec, Marker, MarkerParseResult
 
-_PERF_TAG = "[PERF]"
 _PERF_META_TAG = "[PERF-META]"
 
 # Bound line length before any regex/JSON parsing touches it (SKILL rule 5:
@@ -53,6 +65,120 @@ _MARK_START_RE = re.compile(r"^markStart\b", re.IGNORECASE)
 # payload (e.g. a stray markStart line) simply fails to match and is
 # skipped rather than crashing.
 _TEXT_MARKER_RE = re.compile(r"^(?P<name>[^:]+):\s*(?P<value>\d+(?:\.\d+)?)(?P<unit>[a-zA-Z]*)\s*$")
+
+
+class LineKind(StrEnum):
+    """The verdict `classify_line` assigns to ONE raw logcat line — the
+    single shared vocabulary `parse()` (aggregation) and a future `markers
+    doctor` (per-line reporting) both classify against."""
+
+    COMPLETED = "completed"
+    MARK_START = "mark_start"
+    PERF_META = "perf_meta"
+    IGNORED = "ignored"
+    FAILURE = "failure"
+
+
+# Reason constants — set ONLY when `LineVerdict.kind is LineKind.FAILURE`
+# (markers spec "Diagnosis Categories"). String values double as the future
+# `markers doctor --json` `parse_failures[].reason` values (design
+# markers-command §Interfaces/Contracts) — defined ONCE here so nothing
+# downstream re-derives or duplicates them.
+REASON_MALFORMED_TEXT = "malformed_text"
+REASON_INVALID_JSON = "invalid_json"
+REASON_INVALID_VALUE = "invalid_value"
+REASON_OVERSIZED = "oversized"
+
+
+@dataclass(frozen=True)
+class LineVerdict:
+    """One `classify_line` result: the `kind`, the extracted `marker` when
+    `kind is COMPLETED`, and the specific failure `reason` when `kind is
+    FAILURE` (both stay `None` otherwise)."""
+
+    kind: LineKind
+    marker: Marker | None = None
+    reason: str | None = None
+
+
+def classify_line(raw_line: str) -> LineVerdict:
+    """Classify ONE raw logcat line — the SOLE owner of tag/regex/JSON-
+    detection logic (markers spec "Shared Line-Classification Function").
+    `parse()` and a future `markers doctor` both classify through this ONE
+    function so tag/regex/JSON logic never lives in two places."""
+
+    if len(raw_line) > _MAX_LINE_LENGTH:
+        # Bound line length before any regex/JSON parsing touches it
+        # (SKILL rule 5).
+        return LineVerdict(kind=LineKind.FAILURE, reason=REASON_OVERSIZED)
+
+    line = raw_line.strip()
+    if _PERF_META_TAG in line:
+        return LineVerdict(kind=LineKind.PERF_META)  # context only — RunContextProvider's concern
+
+    tag_index = line.find(PERF_TAG)
+    if tag_index == -1:
+        return LineVerdict(kind=LineKind.IGNORED)
+
+    payload = line[tag_index + len(PERF_TAG) :].strip()
+    if not payload:
+        return LineVerdict(kind=LineKind.IGNORED)
+
+    if payload.startswith("{"):
+        return _classify_json_payload(payload)
+    if _MARK_START_RE.match(payload):
+        # markStart with no matching markEnd — explicitly recognized and
+        # skipped (design §4 / spec guard).
+        return LineVerdict(kind=LineKind.MARK_START)
+
+    marker = _parse_text_payload(payload)
+    if marker is None:
+        return LineVerdict(kind=LineKind.FAILURE, reason=REASON_MALFORMED_TEXT)
+    return LineVerdict(kind=LineKind.COMPLETED, marker=marker)
+
+
+def _classify_json_payload(payload: str) -> LineVerdict:
+    try:
+        data = json.loads(payload)  # json.loads ONLY — never eval/exec (SKILL rule 5)
+    except (json.JSONDecodeError, ValueError):
+        return LineVerdict(kind=LineKind.FAILURE, reason=REASON_INVALID_JSON)
+
+    if not isinstance(data, dict):
+        return LineVerdict(kind=LineKind.FAILURE, reason=REASON_INVALID_JSON)
+
+    name = data.get("name")
+    value = data.get("value")
+    if name is None or value is None:
+        return LineVerdict(kind=LineKind.FAILURE, reason=REASON_INVALID_JSON)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return LineVerdict(kind=LineKind.FAILURE, reason=REASON_INVALID_JSON)
+
+    # Python's `json.loads` ACCEPTS the `NaN`/`Infinity` literals. A NaN
+    # here later binds as NULL into the `NOT NULL duration_ms` column and
+    # rolls back the ENTIRE run at ingestion; an inf silently poisons the
+    # baseline median forever. Negative durations are clock-skew garbage
+    # the text-form regex already rejects — the JSON path must agree.
+    # All three are malformed data: skip, never raise (SKILL rule 5).
+    if not math.isfinite(value) or value < 0:
+        return LineVerdict(kind=LineKind.FAILURE, reason=REASON_INVALID_VALUE)
+
+    unit = data.get("unit") or "ms"
+    return LineVerdict(
+        kind=LineKind.COMPLETED,
+        marker=Marker(name=str(name), value=value, unit=str(unit)),
+    )
+
+
+def _parse_text_payload(payload: str) -> Marker | None:
+    match = _TEXT_MARKER_RE.match(payload)
+    if match is None:
+        return None  # malformed — skip, never raise
+    name = match.group("name").strip()
+    value = float(match.group("value"))
+    unit = match.group("unit") or "ms"
+    return Marker(name=name, value=value, unit=unit)
 
 
 class AdbLogcatMarkerSource:
@@ -73,33 +199,19 @@ class AdbLogcatMarkerSource:
         perf_lines_seen = 0  # lines carrying a `[PERF]` tag (whether or not they completed)
 
         for raw_line in lines:
-            if len(raw_line) > _MAX_LINE_LENGTH:
-                continue  # bound line length — never regex/JSON-parse an oversized line
+            verdict = classify_line(raw_line)
 
-            line = raw_line.strip()
-            if _PERF_META_TAG in line:
-                continue  # context only — RunContextProvider's concern, not markers
+            # Reproduces the old `perf_lines_seen` accounting exactly: every
+            # line that reached the tag/payload check (COMPLETED, MARK_START,
+            # or a non-oversized FAILURE) was counted; PERF_META/IGNORED/
+            # oversized lines never were.
+            if verdict.kind in (LineKind.COMPLETED, LineKind.MARK_START) or (
+                verdict.kind is LineKind.FAILURE and verdict.reason != REASON_OVERSIZED
+            ):
+                perf_lines_seen += 1
 
-            tag_index = line.find(_PERF_TAG)
-            if tag_index == -1:
-                continue
-
-            payload = line[tag_index + len(_PERF_TAG) :].strip()
-            if not payload:
-                continue
-            perf_lines_seen += 1
-
-            if payload.startswith("{"):
-                marker = self._parse_json_payload(payload)
-            elif _MARK_START_RE.match(payload):
-                # markStart with no matching markEnd — explicitly
-                # recognized and skipped (design §4 / spec guard).
-                marker = None
-            else:
-                marker = self._parse_text_payload(payload)
-
-            if marker is not None:
-                markers.append(marker)
+            if verdict.marker is not None:
+                markers.append(verdict.marker)
 
         partial_coverage = len(markers) < iterations
         diagnostic = self._build_diagnostic(
@@ -143,43 +255,3 @@ class AdbLogcatMarkerSource:
             "iteration(s) produced a COMPLETED marker — a `markStart` without a matching "
             "`markEnd` is skipped (a crash or early exit mid-flow?)."
         )
-
-    @staticmethod
-    def _parse_text_payload(payload: str) -> Marker | None:
-        match = _TEXT_MARKER_RE.match(payload)
-        if match is None:
-            return None  # malformed — skip, never raise
-        name = match.group("name").strip()
-        value = float(match.group("value"))
-        unit = match.group("unit") or "ms"
-        return Marker(name=name, value=value, unit=unit)
-
-    @staticmethod
-    def _parse_json_payload(payload: str) -> Marker | None:
-        try:
-            data = json.loads(payload)  # json.loads ONLY — never eval/exec (SKILL rule 5)
-        except (json.JSONDecodeError, ValueError):
-            return None  # malformed JSON — skip, never raise
-
-        if not isinstance(data, dict):
-            return None
-
-        name = data.get("name")
-        value = data.get("value")
-        if name is None or value is None:
-            return None
-        try:
-            value = float(value)
-        except (TypeError, ValueError):
-            return None
-        # Python's `json.loads` ACCEPTS the `NaN`/`Infinity` literals. A NaN
-        # here later binds as NULL into the `NOT NULL duration_ms` column and
-        # rolls back the ENTIRE run at ingestion; an inf silently poisons the
-        # baseline median forever. Negative durations are clock-skew garbage
-        # the text-form regex already rejects — the JSON path must agree.
-        # All three are malformed data: skip, never raise (SKILL rule 5).
-        if not math.isfinite(value) or value < 0:
-            return None
-
-        unit = data.get("unit") or "ms"
-        return Marker(name=str(name), value=value, unit=str(unit))
