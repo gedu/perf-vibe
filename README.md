@@ -136,6 +136,11 @@ Only `budget-check` ever exits `1`. `run` persists, `compare`/`history` report, 
 | `2` | Usage error (unknown flow/metric, bad config, flags in the wrong place) |
 | `3` | Runtime / tooling failure (device, `adb`, `maestro`, `flashlight`, git, DB) |
 
+**Getting `INSUFFICIENT-DATA` in `compare` even after several runs?** The
+baseline is per-commit, not per-run, and an uncommitted tree gets tagged
+`<sha>-dirty` so it can't quietly pollute a real commit's history. See
+**[`docs/baselines-and-history.md`](./docs/baselines-and-history.md)**.
+
 ---
 
 ## The machine contract: always `--json`
