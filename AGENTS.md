@@ -16,6 +16,18 @@ from `run`/`compare` as "regression found"; read the verdict out of the
 `--json` payload. For `budget-check`, the exit code IS the gate signal — but
 still read `--json` for the offending metric names.
 
+If `compare`/`budget-check` returns `insufficient-data` for every metric even
+after multiple `run`s, do not assume a bug: check `perfvibe --json history
+<flow>` and inspect each run's `commit` field. The baseline needs
+`min_baseline_commits` (default 3) **distinct** commits, excluding the one
+being compared — repeated runs on one commit, or on an uncommitted (`-dirty`)
+tree, collapse into a single baseline point no matter how many times you run.
+Full mechanics in [`docs/baselines-and-history.md`](./docs/baselines-and-history.md);
+source-level: `-dirty` tagging in `perf.adapters.context_bash_perfmeta`,
+baseline windowing/exclusion in `perf.adapters.store_sqlite`, the
+median-by-commit + threshold logic in `perf.adapters.analyzer_sql` and
+`perf.domain.regression`, defaults in `perf.config.loader`.
+
 ## Commands
 
 Everything CI runs, and nothing is on `PATH` — go through the venv:

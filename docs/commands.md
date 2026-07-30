@@ -86,6 +86,11 @@ note: 1 run(s) excluded from baseline: 1 on the current commit — commit your c
 - **Config sanity label:** the `✓ reasonable — N of M runs would flag` footer (also
   in `--json` as `calibration`) tells you whether your thresholds are reasonable, too
   loose, or too strict. Informational only — it never changes the exit code.
+- **`INSUFFICIENT-DATA` for every metric?** The baseline is per-**commit**, not
+  per-run, and your own commit never backs itself — see the `excluded from
+  baseline` note above. The full mechanics (the `-dirty` tag, `min_baseline_commits`,
+  `baseline_n`, a worked walkthrough) are in
+  [`docs/baselines-and-history.md`](./baselines-and-history.md).
 
 **`--json`** → single flow emits a `compare` payload (`schema_version = 1`,
 top-level keys `calibration`, `verdicts`, `schema_version`); 2+ flows or `--all` emit
