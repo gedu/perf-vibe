@@ -269,6 +269,13 @@ GATE_PASS = "pass"
 GATE_FAIL = "fail"
 GATE_SKIPPED = "skipped"
 
+# ===== marker tag constants (markers-command design, shared producer/consumer) =====
+
+# The ONE tag both `AdbLogcatMarkerSource` (consumer) and `markers snippet`
+# (producer) import — no second, independently-maintained tag string may
+# exist (markers spec: "Shared PERF_TAG Constant").
+PERF_TAG = "[PERF]"
+
 
 @dataclass(frozen=True)
 class GatedVerdict:
