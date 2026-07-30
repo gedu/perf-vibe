@@ -34,10 +34,10 @@ Chain strategy: stacked-to-main
 - [x] 1.5 New `tests/unit/test_markers.py`: per-verdict `classify_line` tests (each FAILURE reason, MARK_START, PERF_META, IGNORED, COMPLETED, oversized).
 
 ## Phase 2 — JSON Contracts (PR2)
-- [ ] 2.1 `contracts/markers_snippet_v1.py`: `SCHEMA_VERSION=1`, `build_snippet_payload(*, lang, code)`.
-- [ ] 2.2 `tests/contract/test_markers_snippet_v1_contract.py`: required-keys/types + version-bump guard (mirror `test_init_v1_contract.py`).
-- [ ] 2.3 `contracts/markers_doctor_v1.py`: `SCHEMA_VERSION=1`, `build_doctor_payload(*, mode, lines_scanned, parsed, mark_start_without_end, perf_meta, parse_failures, ignored, coverage_ok, diagnostic)`.
-- [ ] 2.4 `tests/contract/test_markers_doctor_v1_contract.py`: same guard, both `mode` values.
+- [x] 2.1 `contracts/markers_snippet_v1.py`: `SCHEMA_VERSION=1`, `build_snippet_payload(*, lang, code)`.
+- [x] 2.2 `tests/contract/test_markers_snippet_v1_contract.py`: required-keys/types + version-bump guard (mirror `test_init_v1_contract.py`).
+- [x] 2.3 `contracts/markers_doctor_v1.py`: `SCHEMA_VERSION=1`, `build_doctor_payload(*, mode, lines_scanned, parsed, mark_start_without_end, perf_meta, parse_failures, ignored, coverage_ok, diagnostic)`.
+- [x] 2.4 `tests/contract/test_markers_doctor_v1_contract.py`: same guard, both `mode` values.
 
 ## Phase 3 — CLI Command + Wiring (PR3)
 - [ ] 3.1 `cli/commands/markers.py`: pure `render_snippet(lang)` + `emitted_sample()` (markStart/markEnd/measureMark + `MARKERS` map).

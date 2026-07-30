@@ -115,3 +115,164 @@ extracted with `parse()` delegating, and `tests/unit/test_markers.py` created
 and matches spec/design/tasks for its scope. Recommend proceeding — carry W1
 (add empty-payload golden) and W2 (oversized reason-attribution) forward into
 the PR3 work rather than blocking archive of this slice.
+
+
+---
+
+# Verify Report — markers-command (Phase 2 / PR2 slice ONLY)
+
+**Verdict: PASS WITH FINDINGS** (0 CRITICAL, 2 WARNING, 2 SUGGESTION)
+
+Scope verified: Phase 2 / PR2 only — two NEW pure builder modules
+(`contracts/markers_snippet_v1.py`, `contracts/markers_doctor_v1.py`) + their
+contract tests. No CLI/adapter/domain files touched this batch. Phases 3-4
+(CLI sub-app, docs) out of scope and correctly untouched.
+
+## Executive summary
+
+Both builders match design.md's `--json` shapes EXACTLY, both `SCHEMA_VERSION=1`,
+and the contract tests guard schema drift at every nesting level with exact
+key-set `==` assertions (stricter than the sibling `init_v1` test). All quality
+gates green. The one real risk — forward-coherence, i.e. whether PR3's `doctor`
+command can honestly FILL this pre-pinned contract from PR1's `classify_line`/
+`parse()` outputs — is **CONFIRMED FILLABLE with zero contortion**: every
+builder parameter maps cleanly to a real classifier output. Two forward
+WARNINGs (both PR3 concerns, neither a PR2 defect): `coverage_ok` degenerates
+semantically in stdin mode, and the oversized-in-`parse_failures` spec/design
+contradiction (carried from Phase 1's W2) is now PINNED by the doctor contract
+test. Nothing blocks archive of the PR2 slice.
+
+## Real evidence (this run)
+
+| Gate | Command | Result |
+|---|---|---|
+| Focused tests | `pytest -q tests/contract/test_markers_snippet_v1_contract.py tests/contract/test_markers_doctor_v1_contract.py` | **18 passed** in 0.07s (6 snippet + 12 doctor) |
+| Full suite + coverage | `pytest -q --cov=perf` | **901 passed** in 6.78s; TOTAL coverage **94.98%** (gate fail_under=93, branch on) — reached |
+| Per-file coverage | `--cov-report=term-missing` | `markers_snippet_v1.py` **100%** (6 stmts, 0 miss); `markers_doctor_v1.py` **100%** (12 stmts, 0 miss) |
+| Lint | `ruff check .` | All checks passed! |
+| Format | `ruff format --check .` | 125 files already formatted |
+| Types | `mypy src/perf` | Success: no issues found in 55 source files |
+
+## Priority 1 — Forward-coherence (the real risk): PR3 CAN fill this contract cleanly
+
+Contract-first pin verified against PR1's actual classifier surface
+(`classify_line -> LineVerdict{kind, marker, reason}`, the `REASON_*` constants,
+and `parse() -> MarkerParseResult{markers, partial_coverage, diagnostic}`).
+Field-by-field, `build_doctor_payload`'s parameters map to real outputs with
+NO contortion:
+
+| Builder param | PR3 source | Coherent? |
+|---|---|---|
+| `parsed: Sequence[Marker]` | `[v.marker for v in verdicts if v.kind is COMPLETED]` — COMPLETED verdicts carry `.marker` (domain `Marker{name, value: float, unit}`) | YES — direct |
+| `parse_failures: Sequence[tuple[str,str]]` | `[(raw, v.reason) for raw, v in ... if v.kind is FAILURE]`; `v.reason` is exactly one of `REASON_MALFORMED_TEXT/INVALID_JSON/INVALID_VALUE/OVERSIZED` | YES — and the contract test imports those SAME constants from the adapter, so drift is structurally impossible |
+| `mark_start_without_end` / `perf_meta` / `ignored` | counts of `MARK_START` / `PERF_META` / `IGNORED` verdicts | YES — direct |
+| `lines_scanned` | `len(buffer)` | YES |
+| `diagnostic` | `MarkerParseResult.diagnostic` verbatim | YES — direct |
+| `coverage_ok` | `bool(parsed) and not partial_coverage` (design.md), `partial_coverage` from `parse()` | Derivable — but see W-A |
+
+Conclusion: the shape does NOT fight the classifier. The `parse_failures`
+reason vocabulary is the single source of truth already owned by `classify_line`
+(PR1), and `parsed` is populated straight from COMPLETED verdicts' `.marker`.
+This is a clean contract-first pin, not one PR3 will have to bend to satisfy.
+
+## Priority 2 — Schema conformance (literal design comparison)
+
+- `build_snippet_payload` → exactly `{schema_version, lang, code}`. Matches
+  design.md `markers_snippet_v1: { "schema_version": 1, "lang": "ts"|"js",
+  "code": "<snippet>" }` EXACTLY. `SCHEMA_VERSION=1`. **PASS.**
+- `build_doctor_payload` → exactly `{schema_version, mode,
+  input_summary:{lines_scanned}, breakdown:{parsed:[{name,value,unit}],
+  mark_start_without_end, perf_meta, parse_failures:[{line,reason}], ignored},
+  coverage_ok, diagnostic}`. Field names + nesting match design.md's unified
+  JSON block LITERALLY (verified key-by-key). `SCHEMA_VERSION=1`. **PASS.**
+
+## Priority 3 — Contract-test quality
+
+- **Drift guards are exact-set, not presence-only.** snippet:
+  `set(payload.keys()) == set(_REQUIRED_KEYS_AND_TYPES)`. doctor pins the full
+  set at EVERY level — top-level, `input_summary`, `breakdown`, per-item
+  `parsed` (`{name,value,unit}`), per-item `parse_failures` (`{line,reason}`) —
+  all with `==`. This is STRICTER than the sibling `test_init_v1_contract.py`
+  (which used `.issubset()`), so any additive field now forces a
+  `SCHEMA_VERSION` bump — the desired discipline. **PASS.**
+- **"line vs stdin identical key set" IS tested**
+  (`test_mode_line_produces_the_same_shape_as_mode_stdin`) — asserts equal
+  top-level and equal `breakdown` keys across both modes, directly proving the
+  spec's "ONE coherent schema ... not two competing shapes." Note: at the
+  builder level this is near-tautological (the builder never branches on
+  `mode`); the CLI-level identical-keys guarantee across real captures lands in
+  PR3's `test_cli_markers.py`. Adequate for the PR2 contract. **PASS.**
+- **Reason strings imported from the adapter**, never redefined
+  (`REASON_MALFORMED_TEXT/INVALID_JSON/INVALID_VALUE/OVERSIZED` from
+  `perf.adapters.markers_adb_logcat`). **PASS.**
+- **No-unexpected-keys guard**: the exact-set `==` assertions serve as the
+  no-extra-keys guard. No explicit "no secrets" test, but N/A for a pure
+  builder over caller-provided data (the sibling contract tests omit it too).
+
+## Priority 4 — Convention fit (vs `init_v1.py` sibling)
+
+Both modules mirror the `init_v1.py` pattern: module docstring citing SKILL
+rules 6 & 8 + the design shape; `__all__`; module-level `SCHEMA_VERSION`; pure
+builder, no I/O; private `_*_payload` shaping helpers exactly like init_v1's
+`_flows_skipped_payload`. `markers_doctor_v1` imports `Marker` from
+`domain/model` for typing only — layer-clean (domain is the innermost layer;
+contracts depending on it is fine). **PASS.**
+
+## Findings (ranked, most severe first)
+
+- **W-A — WARNING (forward / PR3 semantics; not a PR2 defect).** `coverage_ok`
+  is mechanically derivable in both modes, but its MEANING degenerates in stdin
+  mode. The design treats a stdin buffer as one capture (`iterations=1`), so
+  `partial_coverage = len(markers) < 1` and `coverage_ok = bool(parsed) and not
+  partial_coverage ≡ bool(parsed)` — i.e. "found at least one marker," NOT a
+  coverage ratio. Meanwhile spec Non-Goals explicitly rejects "`doctor` as a
+  CI/coverage gate" and the stdin scenario is "INFORMATIONAL (no pass/fail
+  gate)." So a consumer could misread `coverage_ok` as a gate the spec says
+  does not exist. PR3 CAN fill it honestly (it is just `bool(parsed)` in
+  stdin), but PR3/docs should document `coverage_ok` as informational, not a
+  gate. This is the honest answer to the #1 concern: the shape does not fight
+  the classifier, but `coverage_ok` imports a single-capture "coverage" concept
+  into a mode where it collapses. Does not block PR2 archive.
+- **W-B — WARNING (spec/design contradiction; carries Phase 1's W2 forward,
+  now PINNED by the PR2 contract).** `classify_line` returns
+  `FAILURE/REASON_OVERSIZED`, and `test_oversized_lines_use_the_same_reason_vocabulary`
+  PINS `oversized` as a valid `parse_failures[].reason`. This matches design.md's
+  reason enum but CONTRADICTS spec "Diagnosis Categories" ("Oversized ... skipped
+  before the classifier, NOT reason-attributed"). Because `doctor` will iterate
+  the single-source `classify_line`, PR3 following the classifier faithfully
+  WILL land oversized lines in `parse_failures` — and echo the verbatim
+  >4096-char line into `parse_failures[].line`, bloating the JSON with garbage.
+  PR3 must reconcile: (a) drop `OVERSIZED` verdicts from `parse_failures` per
+  spec, or (b) keep them per design/contract (ideally truncating the echoed
+  line). The PR2 contract is internally consistent with design; the spec prose
+  is the outlier. Reconciliation is a PR3 / sdd-spec concern, not a PR2 defect.
+  Does not block PR2 archive.
+- **S1 — SUGGESTION (weak assertion, harmless).**
+  `test_mode_line_produces_the_same_shape_as_mode_stdin` is near-tautological at
+  the builder layer (the builder does not branch on `mode`). It still guards
+  the contract; the meaningful cross-mode-identical-keys proof belongs to PR3's
+  CLI integration test. No action for PR2.
+- **S2 — SUGGESTION (apply-progress bookkeeping, immaterial).** The
+  apply-progress entry said "13 doctor tests / 19 new" then self-corrected to
+  18 collected; the arithmetic "882 + 19 = 901" is loose (12 doctor + 6 snippet
+  = 18 new). Verified real numbers this run: 18 focused passing, 901 full-suite
+  passing, both modules 100% covered. No action.
+
+## Task completeness
+
+All 4 Phase 2 tasks (2.1-2.4) checked `[x]` in tasks.md and match code state:
+`markers_snippet_v1.py` (`build_snippet_payload`), its contract test (6 tests),
+`markers_doctor_v1.py` (`build_doctor_payload` with `_parsed_payload` /
+`_parse_failures_payload` helpers), its contract test (12 tests). Phases 3-4
+correctly remain unchecked/out of scope.
+
+## Verdict
+
+**PASS WITH FINDINGS.** The Phase 2 / PR2 slice pins both `--json` contracts to
+design.md exactly, is fully gated (18 focused + 901 full-suite passing, both
+modules 100% covered, lint/format/types green, coverage 94.98%), and matches
+spec/design/tasks for its scope. The forward-coherence risk is retired: PR3 can
+fill `build_doctor_payload` cleanly from `classify_line`/`parse()` outputs with
+no contortion. Recommend proceeding to archive — carry W-A (`coverage_ok` stdin
+semantics) and W-B (oversized reason-attribution, = Phase 1 W2) forward into PR3
+rather than blocking this slice.
