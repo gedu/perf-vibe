@@ -276,3 +276,173 @@ fill `build_doctor_payload` cleanly from `classify_line`/`parse()` outputs with
 no contortion. Recommend proceeding to archive — carry W-A (`coverage_ok` stdin
 semantics) and W-B (oversized reason-attribution, = Phase 1 W2) forward into PR3
 rather than blocking this slice.
+
+
+# Verify Report — markers-command (Phase 3 / PR3 slice ONLY)
+
+Adversarial verify of the heaviest, user-facing slice: first nested Typer in
+the repo + the copy-paste instrumentation snippet. Scope: `commands/markers.py`,
+`main.py` add_typer wiring, and the three test suites (integration/contract/unit).
+
+## Gates (REAL output, full run)
+
+- `./.venv/bin/ruff check .` -> **All checks passed!**
+- `./.venv/bin/ruff format --check .` -> **128 files already formatted**
+- `./.venv/bin/mypy src/perf` -> **Success: no issues found in 56 source files**
+- `./.venv/bin/pytest -q --cov=perf` -> **928 passed; coverage 95.01%** (gate fail_under=93)
+
+All green. Matches apply-progress exactly (928 passed / 95.01%).
+
+## Spec/tasks/apply conformance
+
+Tasks 3.1-3.6 all `[x]` and genuinely implemented; Phase 4 (docs) correctly
+untouched. `coverage_ok` reconciliation verified conformant (see below). ctx.obj
+propagation (design #1 risk) verified live. Every spec Requirement in scope has a
+passing behavioral match. Verdict: **PASS-WITH-FINDINGS** — gates green, spec
+conformant, tests solid; one HIGH/CRITICAL fidelity finding on the snippet that
+should be reconciled BEFORE Phase 4 bakes it into the README.
+
+## Findings (most severe first)
+
+### C-1 (CRITICAL — fidelity deviation + correctness risk) — snippet diverges from the user's proven-working module on TWO counts
+
+The emitted `render_snippet('ts'/'js')` is an ORIGINAL variant, not a mirror of
+the user's actual `react-native-performance` module. Two divergences carry real
+runtime risk in copy-paste code (the whole product of this slice):
+
+1. **Import style changed from default to named.**
+   - User (proven working): `import performance from 'react-native-performance';`  (DEFAULT import)
+   - Emitted snippet:          `import { performance } from 'react-native-performance';`  (NAMED import)
+   `react-native-performance`'s documented public API is the DEFAULT export
+   (`import performance from '...'`). If the installed version does not ALSO
+   expose a named `performance` export, `{ performance }` binds `undefined` and
+   the first `performance.mark(...)` throws "undefined is not an object" at
+   runtime. (context7 was not reachable in this executor to confirm the exact
+   export map across versions; regardless, deviating from the user's
+   known-good default import introduces risk for zero benefit.)
+
+2. **Dropped the user's defensive try/catch around `performance.measure`.**
+   - User: wraps `performance.measure(...)` in try/catch, `console.warn`s on failure.
+   - Emitted snippet: `measureMark` calls `performance.measure(name, ...)` with
+     NO guard. Per the W3C User Timing spec that RN-performance implements,
+     `measure()` THROWS when a referenced start/end mark is absent — exactly the
+     `markStart`-without-`markEnd` case (crash / early-exit mid-flow) the parser
+     and spec explicitly care about. The emitted snippet therefore throws an
+     UNHANDLED exception in that scenario, where the user's module degrades
+     gracefully. This is a robustness regression baked into copy-paste code.
+
+Faithful/defensible parts (no action): the emitted `console.log` shape is
+EXACTLY `[PERF] ${name}: ${measureEntry.duration}ms` -> substitutes to
+`[PERF] <name>: <n>ms`, byte-identical to the text form the parser accepts
+(verified: `classify_line("[PERF] example: 123ms")` -> COMPLETED
+Marker(example,123,ms)). The markStart/markEnd/measureMark trio + a `MARKERS`
+map are present (spec "Text-Form Emitter Contract" satisfied literally). The
+example `MARKERS` content (`{Home,Checkout}` vs the user's `{LENDING:'/loans'}`)
+and exporting `measureMark` are neutral/defensible.
+
+Verdict on the variant: **unwanted deviation on the import + missing try/catch;
+faithful on the load-bearing log shape.** Recommend reconciling to match the
+user's module (default import + try/catch) BEFORE Phase 4 embeds it in README.
+Classification: correctness bug / fidelity deviation.
+
+### W-1 (WARNING — coverage gap / hollow anti-drift) — `emitted_sample()` is NOT derived from the snippet body
+
+Spec scenario "Emitted line parses cleanly (anti-drift)" reads "the sample
+marker line EMBEDDED IN the generated snippet ... fed through parse()". Proven
+otherwise: the snippet emits `console.log(`[PERF] ${name}: ${measureEntry.duration}ms`)`
+while `emitted_sample()` returns an INDEPENDENTLY hand-authored
+`f"{PERF_TAG} example: 123ms"` — the strings "example"/"123ms" appear nowhere in
+the snippet body. They share ONLY `PERF_TAG`. So the contract test guarantees
+the TAG cannot drift, but NOT the line structure (`: ` separator, `ms` unit). If
+someone edited the snippet's `console.log` to e.g. `[PERF] ${name}=${...}ms`, the
+anti-drift test would STILL PASS and the pasted snippet would emit lines the
+parser rejects — the exact drift the test claims to prevent. Recommend deriving
+the tested line FROM `render_snippet` (regex the console.log template and
+substitute a name/value) or asserting the snippet body contains the
+`emitted_sample`-shaped substring. Classification: coverage gap / test integrity.
+
+### W-2 (WARNING — usability, untested) — `markers --help` / `markers -h` error with exit 2 "No such option: --help"
+
+The root app disables auto-help (`context_settings={"help_option_names": []}`,
+main.py:33) and each FLAT command re-enables it. `add_typer(markers_app, ...)`
+(main.py:141) inherits the empty list; only the two SUBCOMMANDS re-enable help
+via their own `context_settings`. Result: the natural discovery command for the
+FIRST nested group fails:
+  - `perfvibe markers --help` -> "No such option: --help", **exit 2**
+  - `perfvibe markers -h`     -> **exit 2**
+  - `perfvibe markers snippet --help` -> exit 0 (works)
+  - `perfvibe markers` (no subcommand) -> "Missing command.", exit 2
+No integration test covers group-level `--help`. Not spec-violating (spec is
+silent on group help) and never exits 1, but a real discoverability regression
+for a user-facing command group. One-line fix: pass
+`context_settings={"help_option_names":["--help","-h"]}` to the `markers_app`
+`typer.Typer(...)`. Classification: usability defect / coverage gap.
+
+### S-1 (SUGGESTION — spec-conformant sharp edge) — non-TTY-but-empty stdin + arg is rejected as "both"
+
+`detect_mode` keys off `sys.stdin.isatty()` alone (per design). So
+`perfvibe markers doctor "[PERF] x: 1ms" < /dev/null` (or any CI/subprocess
+context where stdin is a non-TTY but nothing meaningful is piped) resolves to
+"both a <logcat line> argument and piped stdin" -> exit 2, even though the user
+supplied ONLY an argument. Matches the spec's literal wording ("both an argument
+AND non-TTY piped stdin"), but makes single-line mode unusable from any non-TTY
+script unless stdin is explicitly a TTY. Flagging as a known sharp edge, not a
+defect. Classification: spec ambiguity / UX.
+
+### S-2 (SUGGESTION) — a name containing a colon is reported `malformed_text`
+
+The text regex `^(?P<name>[^:]+):...` cannot represent a name with a `:` in it,
+so `[PERF] my:weird:name: 42ms` -> FAILURE/malformed_text. The spec's own
+"surprising name chars" example `my-weird/name.v2` DOES parse (verified
+COMPLETED), so this is narrow, but a route name like `foo:bar` would be reported
+malformed. Inherited from the existing parser (out of PR3 scope to change);
+noted for honesty. Classification: coverage gap (pre-existing).
+
+### S-3 (SUGGESTION) — reused `parse()` diagnostic reads oddly in doctor context
+
+Empty piped stdin -> `doctor` surfaces `parse()`'s verbatim diagnostic
+"no logcat output was captured at all — check the device is connected
+(`adb devices`) ...". Spec REQUIRES surfacing `MarkerParseResult.diagnostic`, so
+this is conformant, but the run-capture-centric wording ("device connected") is
+confusing when the user simply piped an empty buffer to `doctor`. Cosmetic.
+
+## Positive verifications (no finding)
+
+- **coverage_ok honesty CONFIRMED conformant.** Code uses `coverage_ok =
+  bool(breakdown.parsed)` (markers.py:385). With `parse(lines, iterations=1)`
+  in BOTH modes, design's `bool(parsed) and not partial_coverage` reduces
+  algebraically to exactly `bool(parsed)` — matches the reconciled spec
+  ("this line parsed" / "any marker parsed", never a ratio). Verified
+  `coverage_ok:false` NEVER changes the exit code: single-line-fail -> exit 0
+  coverage_ok False; zero-perf-lines stdin -> exit 0 coverage_ok False. Not a
+  gate, consistent with the Non-Goal.
+- **ctx.obj propagation (design #1 risk) verified live** for BOTH the happy path
+  (`--json markers doctor "[PERF] x: 12ms"` -> exit 0, payload mode=line,
+  parsed=[{x,12,ms}]) and a global flag before the subcommand
+  (`--config <bad> markers snippet` -> ConfigError -> exit 2, proving
+  main_callback runs before the sub-app resolves). Never exits 1.
+- **Exit-code discipline: doctor NEVER exits 1** across empty stdin, only-oversized,
+  only-PERF-META, only-markStart, mixed, both-arg-and-pipe (2), unknown-flag (2),
+  stdin OSError (3). snippet: 0 / unknown-lang 2. Verified live + by tests.
+- **Oversized truncation applied IN the payload:** a 5000-char line -> payload
+  574 bytes, echoed `line` exactly 121 chars (120 + `…`). Multibyte (`界`x5000)
+  and an emoji ZWJ family straddling char 120 truncate cleanly on a code-point
+  boundary — no crash, no mojibake (str slicing, not bytes).
+- **snippet `--json` round-trips losslessly:** keys exactly {schema_version,
+  lang, code}; `[PERF]` present in code; `__PERF_TAG__` placeholder never leaks.
+- **Pretty snippet stays paste-clean:** the NON_TTY_NUDGE is emitted to STDERR
+  (err=True), so `perfvibe markers snippet > x.ts` yields pure code on stdout.
+
+## Verdict
+
+**PASS-WITH-FINDINGS.** Gates fully green (928 passed, 95.01%, ruff/format/mypy
+clean); Phase 3 tasks 3.1-3.6 conform to spec/design and are genuinely
+implemented; the CLI wiring, exit-code discipline, oversized truncation,
+coverage_ok semantics, and ctx.obj propagation all verified live and correct.
+The blocking concern is **C-1**: the copy-paste snippet deviates from the user's
+proven-working module (named import + dropped try/catch) with real runtime-crash
+risk — this should be reconciled before Phase 4 embeds it in the README.
+Secondary: **W-1** (anti-drift shares only the tag, not the line shape) and
+**W-2** (`markers --help` errors). If a human accepts the snippet variant as-is,
+this slice can proceed to archive; otherwise loop back through apply to fix C-1
+(and ideally W-1/W-2).

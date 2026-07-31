@@ -17,7 +17,14 @@ from perf.adapters.markers_adb_logcat import (
     LineVerdict,
     classify_line,
 )
-from perf.domain.model import Marker
+from perf.cli.commands.markers import (
+    AmbiguousDoctorInputError,
+    bucket_lines,
+    detect_mode,
+    emitted_sample,
+    render_snippet,
+)
+from perf.domain.model import PERF_TAG, Marker
 
 # ===== COMPLETED =====
 
@@ -134,3 +141,116 @@ def test_classify_oversized_line_is_oversized_failure():
     huge_line = "[PERF] checkout: " + ("9" * 20000) + "ms"
     verdict = classify_line(huge_line)
     assert verdict == LineVerdict(kind=LineKind.FAILURE, reason=REASON_OVERSIZED)
+
+
+# ===== Phase 3: `cli/commands/markers.py` pure helpers =====
+
+# ----- render_snippet / emitted_sample (spec "Text-Form Emitter Contract") -----
+
+
+def test_render_snippet_ts_includes_trio_markers_map_and_type_annotations():
+    code = render_snippet("ts")
+    assert "markStart" in code
+    assert "markEnd" in code
+    assert "measureMark" in code
+    assert "MARKERS" in code
+    assert ": string" in code  # TS-only type annotation
+    assert PERF_TAG in code
+    assert "__PERF_TAG__" not in code  # placeholder must always be substituted
+
+
+def test_render_snippet_js_includes_trio_and_markers_map_without_ts_annotations():
+    code = render_snippet("js")
+    assert "markStart" in code
+    assert "markEnd" in code
+    assert "measureMark" in code
+    assert "MARKERS" in code
+    assert ": string" not in code
+    assert PERF_TAG in code
+    assert "__PERF_TAG__" not in code
+
+
+def test_emitted_sample_is_one_representative_perf_tag_line():
+    assert emitted_sample() == f"{PERF_TAG} example: 123ms"
+
+
+# ----- render_snippet fidelity vs the user's proven-working module (C-1) -----
+
+
+def test_render_snippet_ts_mirrors_the_reference_module_faithfully():
+    code = render_snippet("ts")
+    assert "import performance from 'react-native-performance';" in code
+    assert "import { performance }" not in code  # never the named-import variant
+    assert "try {" in code
+    assert "console.warn(`Performance measure failed for ${name}:`, error);" in code
+    assert "measureEntry.duration" in code
+    assert "MARKERS" in code
+
+
+def test_render_snippet_js_mirrors_the_reference_module_faithfully():
+    code = render_snippet("js")
+    assert "import performance from 'react-native-performance';" in code
+    assert "import { performance }" not in code
+    assert "try {" in code
+    assert "console.warn(`Performance measure failed for ${name}:`, error);" in code
+    assert "measureEntry.duration" in code
+    assert "MARKERS" in code
+
+
+# ----- detect_mode (spec "Doctor Input Mode Detection") -----
+
+
+def test_detect_mode_is_line_when_arg_present_and_stdin_is_a_tty():
+    assert detect_mode("[PERF] x: 1ms", stdin_is_tty=True) == "line"
+
+
+def test_detect_mode_is_stdin_when_no_arg_and_stdin_is_not_a_tty():
+    assert detect_mode(None, stdin_is_tty=False) == "stdin"
+
+
+def test_detect_mode_raises_when_both_arg_and_piped_stdin():
+    with pytest.raises(AmbiguousDoctorInputError):
+        detect_mode("[PERF] x: 1ms", stdin_is_tty=False)
+
+
+def test_detect_mode_raises_when_neither_arg_nor_piped_stdin():
+    with pytest.raises(AmbiguousDoctorInputError):
+        detect_mode(None, stdin_is_tty=True)
+
+
+# ----- bucket_lines (spec "Diagnosis Categories") -----
+
+
+def test_bucket_lines_categorizes_each_kind_in_one_pass():
+    lines = [
+        "[PERF] checkout: 900ms",
+        "[PERF] markStart:onboarding",
+        '[PERF-META] {"app_version":"4.20.1"}',
+        "[PERF] not-a-number: abcms",
+        "unrelated log line",
+    ]
+    breakdown = bucket_lines(lines)
+    assert breakdown.parsed == (Marker(name="checkout", value=900.0, unit="ms"),)
+    assert breakdown.mark_start_without_end == 1
+    assert breakdown.perf_meta == 1
+    assert breakdown.parse_failures == (("[PERF] not-a-number: abcms", REASON_MALFORMED_TEXT),)
+    assert breakdown.ignored == 1
+
+
+def test_bucket_lines_truncates_the_echoed_oversized_line_to_120_chars_plus_ellipsis():
+    huge_line = "[PERF] checkout: " + ("9" * 20000) + "ms"
+    breakdown = bucket_lines([huge_line])
+    assert len(breakdown.parse_failures) == 1
+    echoed, reason = breakdown.parse_failures[0]
+    assert reason == REASON_OVERSIZED
+    assert echoed == huge_line[:120] + "…"
+    assert len(echoed) == 121
+
+
+def test_bucket_lines_empty_input_returns_a_zeroed_breakdown():
+    breakdown = bucket_lines([])
+    assert breakdown.parsed == ()
+    assert breakdown.mark_start_without_end == 0
+    assert breakdown.perf_meta == 0
+    assert breakdown.parse_failures == ()
+    assert breakdown.ignored == 0
