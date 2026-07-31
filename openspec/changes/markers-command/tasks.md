@@ -40,12 +40,12 @@ Chain strategy: stacked-to-main
 - [x] 2.4 `tests/contract/test_markers_doctor_v1_contract.py`: same guard, both `mode` values.
 
 ## Phase 3 — CLI Command + Wiring (PR3)
-- [ ] 3.1 `cli/commands/markers.py`: pure `render_snippet(lang)` + `emitted_sample()` (markStart/markEnd/measureMark + `MARKERS` map).
-- [ ] 3.2 Same file: `detect_mode(arg, stdin_is_tty)` + doctor bucketing helper iterating `classify_line` into parsed/mark_start_without_end/perf_meta/parse_failures/ignored.
-- [ ] 3.3 Same file: `markers_app` (`snippet`/`doctor` callbacks) reading `ctx.obj`, using `emit_error`/`render_json`, never exit `1`.
-- [ ] 3.4 `cli/main.py`: import `markers_app`; `app.add_typer(markers_app, name="markers")`.
-- [ ] 3.5 `tests/contract/test_markers_snippet_parses.py`: anti-drift — `emitted_sample()` through real `parse()`, assert exact `Marker`.
-- [ ] 3.6 `tests/integration/test_cli_markers.py`: `--json` propagation through `ctx.obj`; exit-code matrix (0/2/3, never 1); stdin mode; ambiguous both/neither; `snippet --lang ts/js`.
+- [x] 3.1 `cli/commands/markers.py`: pure `render_snippet(lang)` + `emitted_sample()` (markStart/markEnd/measureMark + `MARKERS` map).
+- [x] 3.2 Same file: `detect_mode(arg, stdin_is_tty)` + doctor bucketing helper iterating `classify_line` into parsed/mark_start_without_end/perf_meta/parse_failures/ignored.
+- [x] 3.3 Same file: `markers_app` (`snippet`/`doctor` callbacks) reading `ctx.obj`, using `emit_error`/`render_json`, never exit `1`.
+- [x] 3.4 `cli/main.py`: import `markers_app`; `app.add_typer(markers_app, name="markers")`.
+- [x] 3.5 `tests/contract/test_markers_snippet_parses.py`: anti-drift — `emitted_sample()` through real `parse()`, assert exact `Marker`.
+- [x] 3.6 `tests/integration/test_cli_markers.py`: `--json` propagation through `ctx.obj`; exit-code matrix (0/2/3, never 1); stdin mode; ambiguous both/neither; `snippet --lang ts/js`.
 
 ## Phase 4 — Docs (PR4)
 - [ ] 4.1 RED: `tests/unit/test_readme_markers_sync.py` — README fenced snippet == `render_snippet("ts")`.

@@ -20,6 +20,7 @@ from perf.cli.commands.budget_check import budget_check as budget_check_command
 from perf.cli.commands.compare import compare as compare_command
 from perf.cli.commands.history import history as history_command
 from perf.cli.commands.init import init as init_command
+from perf.cli.commands.markers import markers_app
 from perf.cli.commands.run import run as run_command
 from perf.cli.output.context import OutputContext, resolve_output_context
 from perf.cli.output.errors import emit_error
@@ -132,6 +133,12 @@ app.command(
     name="init",
     context_settings={"help_option_names": ["--help", "-h"]},
 )(init_command)
+
+# First nested-Typer sub-app in the repo (markers-command design "Technical
+# Approach"): `markers snippet`/`markers doctor`. Typer/Click propagate the
+# root `Context.obj` (set once by `main_callback` above) down through
+# `add_typer` automatically — no extra plumbing needed.
+app.add_typer(markers_app, name="markers")
 
 
 def main() -> None:

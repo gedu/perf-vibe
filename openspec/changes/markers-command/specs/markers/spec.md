@@ -113,9 +113,15 @@ modify an existing one.
 
 Both modes MUST classify each observed line into exactly one category via the shared
 classification function. For every `[PERF]`-tagged parse FAILURE, the SPECIFIC reason MUST be
-reported on a PER-LINE basis (malformed text form / invalid JSON / non-finite-or-negative value).
-Oversized lines are skipped before reaching the classifier and are NOT reason-attributed.
-`MarkerParseResult.diagnostic`, when set, MUST be surfaced.
+reported on a PER-LINE basis (malformed text form / invalid JSON / non-finite-or-negative value /
+oversized). `MarkerParseResult.diagnostic`, when set, MUST be surfaced.
+
+An oversized line (>4096 chars) is reported by `markers doctor` as a `parse_failures` entry with
+reason `oversized`; this is doctor-OUTPUT behavior only — `parse()`'s marker extraction still
+excludes oversized lines from any produced `Marker`, exactly as before (unchanged). Because the
+line itself may be arbitrarily long, the echoed `line` field for an `oversized` entry MUST be
+TRUNCATED to its first 120 characters followed by a single `…` (ellipsis), never the raw
+oversized line.
 
 | Category | Trigger | Reported as |
 |---|---|---|
@@ -125,7 +131,7 @@ Oversized lines are skipped before reaching the classifier and are NOT reason-at
 | Malformed text | non-numeric value after `:` | per-line failure: malformed text form |
 | Invalid JSON | unparsable `{...}` payload | per-line failure: invalid JSON |
 | Non-finite/negative | JSON `value` is NaN/Infinity/negative | per-line failure: invalid value |
-| Oversized (>4096) | line exceeds parser bound | skipped before classifier, no reason |
+| Oversized (>4096) | line exceeds parser bound | per-line failure: `oversized`, echoed line truncated to 120 chars + `…` |
 | Non-`[PERF]` line | no tag match | ignored |
 | Empty input | no `[PERF]` payload present | no marker: no payload |
 | Surprising name chars | e.g. `my-weird/name.v2` | name reported as-is, unvalidated |
@@ -136,6 +142,15 @@ Oversized lines are skipped before reaching the classifier and are NOT reason-at
 - WHEN diagnosed in stdin mode
 - THEN the report is INFORMATIONAL (no pass/fail gate), enumerating each category's count and,
   for failures, the specific reason per line
+
+#### Scenario: Oversized line is reported truncated
+- GIVEN a line longer than 4096 characters (single-line argument or one line within a piped
+  capture)
+- WHEN diagnosed
+- THEN `markers doctor` reports a `parse_failures` entry with reason `oversized`, whose echoed
+  `line` is exactly the first 120 characters followed by `…`
+- AND `parse()`'s marker extraction still excludes that line from any produced `Marker`,
+  unchanged from its existing behavior
 
 #### Scenario: Nothing parsed is still a successful diagnosis
 - GIVEN a piped buffer with zero `[PERF]` lines
@@ -158,7 +173,20 @@ usage error, `3` only on a runtime failure (e.g. stdin read failure). It MUST NE
 BOTH single-line and stdin modes, not two competing shapes. Exact field naming/nesting is a
 design-phase decision.
 
+The payload's `coverage_ok` field is INFORMATIONAL and mode-dependent: in single-line mode it
+reports whether THIS line parsed into a marker; in stdin mode it reports whether ANY marker
+parsed in the buffer. It MUST NOT be construed or used as a pass/fail gate — consistent with the
+Non-Goal that `doctor` is not a CI/coverage gate.
+
 #### Scenario: Same schema shape across modes
 - GIVEN `markers doctor --json` invoked once per mode
 - WHEN both payloads are inspected
 - THEN both carry the same top-level `schema_version` and the same overall schema shape
+
+#### Scenario: coverage_ok is informational, never a gate
+- GIVEN `markers doctor --json` returns `coverage_ok: false` (single-line: the line did not
+  parse; stdin: nothing in the buffer parsed)
+- WHEN the exit code is determined
+- THEN it is decided solely by the Doctor Exit-Code Discipline requirement (still `0` for a
+  successful diagnosis) — `coverage_ok: false` MUST NOT cause a non-zero exit or be treated as a
+  failure
