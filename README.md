@@ -112,7 +112,7 @@ python3.11 -m venv .venv          # any Python 3.11+ works — see Development
 
 ---
 
-## The five commands
+## The six commands
 
 | Command | What it does | Exits `1`? |
 |---|---|:--:|
@@ -120,10 +120,12 @@ python3.11 -m venv .venv          # any Python 3.11+ works — see Development
 | `perfvibe compare <flow>…` | Show a **verdict** vs. history (per metric, direction-aware). Read-only. | never |
 | `perfvibe budget-check <flow>` | The **CI gate** — reuses `compare`'s verdict; any regression fails. | **on regression** |
 | `perfvibe history <flow>` | Export a flow's full run series (machine-readable chart data). | never |
+| `perfvibe markers snippet` / `markers doctor` | Emit a paste-ready `[PERF]` marker snippet / diagnose a logcat line against the same parser `run` uses. Read-only. | never |
 | `perfvibe init <flows-dir>` | Scaffold or merge the `perfvibe.toml` flow config. | never |
 
-Only `budget-check` ever exits `1`. `run` persists, `compare`/`history` report, and
-`init` configures — none of them gate, so a regression under `compare` still exits `0`.
+Only `budget-check` ever exits `1`. `run` persists, `compare`/`history` report,
+`markers` diagnoses, and `init` configures — none of them gate, so a regression
+under `compare` still exits `0`.
 **Full flags, JSON payloads, and per-command detail live in
 [`docs/commands.md`](./docs/commands.md).**
 
@@ -186,6 +188,78 @@ perfvibe init tests/fixtures/flows --yes --bundle-id com.example.app
 it at CI time. The full story on `init` (adding/removing flows, `--force`,
 `--prune-missing`, the comment-loss guard, CI guidance) is in
 **[`docs/configuring-flows.md`](./docs/configuring-flows.md).**
+
+---
+
+## Instrumenting your app with `[PERF]` markers
+
+`perfvibe run` reads in-app timing from logcat lines shaped
+`[PERF] <name>: <n>ms` — your app has to emit those itself.
+`perfvibe markers snippet` prints a paste-ready module that does exactly
+that (built on [`react-native-performance`](https://github.com/oblador/react-native-performance)),
+and `perfvibe markers doctor` validates a real logcat line or a piped
+capture against the SAME parser `run` uses, so you can confirm your
+instrumentation lands correctly before ever wiring up a flow.
+
+```bash
+perfvibe markers snippet          # --lang ts (default) or --lang js
+```
+<!-- markers-snippet-ts:start -->
+```ts
+import performance from 'react-native-performance';
+
+const MARKERS = {
+  LENDING: '/loans',
+};
+
+function markStart(name: string) {
+  performance.mark(`${name}_start`);
+}
+
+function markEnd(name: string) {
+  performance.mark(`${name}_end`);
+  measureMark(name);
+}
+
+function measureMark(name: string) {
+  try {
+    const measureEntry = performance.measure(`${name}_measure`, `${name}_start`, `${name}_end`);
+    console.log(`[PERF] ${name}: ${measureEntry.duration}ms`);
+  } catch (error) {
+    console.warn(`Performance measure failed for ${name}:`, error);
+  }
+}
+
+export { markStart, markEnd, MARKERS };
+```
+<!-- markers-snippet-ts:end -->
+
+Call `markStart("checkout")` / `markEnd("checkout")` around the code path you
+want to measure — the name you pass becomes the metric name `perfvibe run`
+reports (e.g. `checkout: n=2 avg=801.0ms` in the tour above).
+
+Validate a captured line — or a whole logcat dump piped in — against that
+exact same parser, no device required:
+
+```bash
+perfvibe markers doctor "[PERF] checkout: 812ms"
+```
+```text
+mode: line
+lines scanned: 1
+parsed: 1
+  - checkout: 812.0ms
+mark_start_without_end: 0
+perf_meta: 0
+ignored: 0
+parse_failures: 0
+coverage_ok: True
+```
+
+Both subcommands are read-only, touch no device, and — like every command
+here — never exit `1`; a failed-to-parse line is a per-line diagnosis, not a
+gate. Full flags and the `--json` payload shapes are in
+[`docs/commands.md`](./docs/commands.md).
 
 ---
 

@@ -12,9 +12,9 @@ Full per-command detail for `perfvibe`. For the big picture start at the
   `--config`.
 - **Always parse `--json`, never the pretty view.** Every `--json` payload carries a
   `schema_version` integer. Today: `run`, `compare`, `compare-all`, `budget-check`,
-  and `history` payloads are `schema_version = 1`; `init` is `schema_version = 2`
-  (bumped when `flows_pruned` was added). Branch on the field — don't assume a
-  constant.
+  `history`, and `markers snippet`/`markers doctor` payloads are `schema_version = 1`;
+  `init` is `schema_version = 2` (bumped when `flows_pruned` was added). Branch on
+  the field — don't assume a constant.
 - **Exit codes** are uniform: `0` success · `1` **`budget-check` gate only** · `2`
   usage error · `3` runtime/tooling failure. Only `budget-check` ever returns `1`.
 
@@ -162,6 +162,75 @@ checkout (ms)  ▁▁▁▁█
 
 **`--json`** → history payload (`schema_version = 1`) — the per-flow historical
 series. This is the export you feed a chart.
+
+---
+
+## `markers` — instrumentation snippet + logcat diagnostics
+
+```
+perfvibe markers snippet [--lang ts|js]
+perfvibe markers doctor [<logcat line>]
+perfvibe markers doctor            # or: <logcat dump> | perfvibe markers doctor
+```
+
+A command **group** (`snippet` and `doctor` are sub-commands of `markers`), read-only,
+and never touches a device, `adb`, or the run history. See the README's
+[Instrumenting your app with `[PERF]` markers](../README.md#instrumenting-your-app-with-perf-markers)
+for a worked example of both.
+
+### `markers snippet`
+
+Prints a paste-ready TS/JS module — built on
+[`react-native-performance`](https://github.com/oblador/react-native-performance) —
+implementing a `markStart`/`markEnd`/`measureMark` trio that emits the exact
+`[PERF] <name>: <n>ms` text form `perfvibe run` parses from logcat. `--lang ts`
+(default) keeps parameter type annotations; `--lang js` is the identical module
+with them stripped. Any other `--lang` value is a usage error (exit `2`). Pretty
+output is the raw code only — no decoration that would break a copy-paste.
+
+**`--json`** → snippet payload (`schema_version = 1`) with exactly `lang` and
+`code` alongside `schema_version` — no other keys.
+
+### `markers doctor`
+
+Diagnoses a single logcat line (positional argument) or a piped capture (no
+argument, non-TTY stdin) against the SAME parser `perfvibe run` uses — never a
+second, independently-maintained tag/regex/JSON detector. Exactly one input
+source is required: an argument **and** piped stdin together, or neither with
+stdin left as an interactive TTY, is a usage error (exit `2`).
+
+Every observed line is classified into exactly one category: a completed
+marker, a bare `markStart` with no matching `markEnd`, a `[PERF-META]` context
+line, a per-line parse failure (with the SPECIFIC reason — `malformed_text`,
+`invalid_json`, `invalid_value`, or `oversized`), or an ignored (non-`[PERF]`)
+line. An oversized line's echoed text is truncated to its first 120 characters
+plus `…`. `doctor` is informational, never a gate: finding zero markers, or
+every line failing to parse, still exits `0` — `coverage_ok` in the `--json`
+payload reports whether anything parsed, but never changes the exit code.
+
+```text
+mode: line
+lines scanned: 1
+parsed: 1
+  - checkout: 812.0ms
+mark_start_without_end: 0
+perf_meta: 0
+ignored: 0
+parse_failures: 0
+coverage_ok: True
+```
+
+**`--json`** → doctor payload (`schema_version = 1`), ONE coherent shape shared
+by both modes: `mode` (`"line"`/`"stdin"`), `input_summary.lines_scanned`, a
+`breakdown` (`parsed`, `mark_start_without_end`, `perf_meta`, `parse_failures`,
+`ignored`), `coverage_ok`, and `diagnostic`.
+
+### Exit codes (both sub-commands)
+
+`0` success (including `doctor` finding zero markers — that is a successful
+diagnosis, not a failure) · `2` usage error (unknown `--lang`, ambiguous or
+missing `doctor` input, unknown flag) · `3` runtime failure (a piped-stdin read
+error). Like every other command, `markers` **never** exits `1`.
 
 ---
 

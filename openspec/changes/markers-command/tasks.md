@@ -48,6 +48,6 @@ Chain strategy: stacked-to-main
 - [x] 3.6 `tests/integration/test_cli_markers.py`: `--json` propagation through `ctx.obj`; exit-code matrix (0/2/3, never 1); stdin mode; ambiguous both/neither; `snippet --lang ts/js`.
 
 ## Phase 4 — Docs (PR4)
-- [ ] 4.1 RED: `tests/unit/test_readme_markers_sync.py` — README fenced snippet == `render_snippet("ts")`.
-- [ ] 4.2 GREEN: add instrumentation section to `README.md` with the fenced snippet.
-- [ ] 4.3 `docs/commands.md`: add `## markers` entry; extend schema_version list with markers snippet/doctor = 1.
+- [x] 4.1 RED: `tests/unit/test_readme_markers_sync.py` — README fenced snippet == `render_snippet("ts")`.
+- [x] 4.2 GREEN: add instrumentation section to `README.md` with the fenced snippet.
+- [x] 4.3 `docs/commands.md`: add `## markers` entry; extend schema_version list with markers snippet/doctor = 1.
