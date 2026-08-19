@@ -36,6 +36,7 @@ from perf.domain.model import (
     HistoryRun,
     Marker,
     MarkerParseResult,
+    ReassureParseResult,
     RunContext,
     RunPoint,
     SamplerCommand,
@@ -99,6 +100,15 @@ class RunContextProvider(Protocol):
     """Assembles run metadata from env facts + app-emitted [PERF-META]."""
 
     def context(self) -> RunContext: ...
+
+
+class ReassureParser(Protocol):
+    """Parses a reassure `.perf` JSON-Lines file into a `ReassureParseResult`
+    (never a bare list) so partial coverage and per-line skip reasons travel
+    with the data. Tolerant per line, strict per file: a malformed line is
+    skipped and reported; an unreadable file raises."""
+
+    def parse(self, path: str) -> ReassureParseResult: ...
 
 
 class Store(Protocol):

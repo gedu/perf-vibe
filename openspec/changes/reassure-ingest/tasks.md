@@ -84,41 +84,41 @@ the whole existing suite stays green throughout. **Independently revertable**: d
 `adapters/reassure_jsonl.py` and revert the `domain/model.py`/`domain/ports.py`/
 `adapters/registry.py` additions — nothing else imports them.
 
-- [ ] 2.1 RED — `tests/unit/test_reassure_jsonl.py`
+- [x] 2.1 RED — `tests/unit/test_reassure_jsonl.py`
   [**load-bearing non-alignment test**]: a fixture entry with exactly 8 `counts` and 6
   `durations` parses into two sequences of their own true lengths — 6 durations, 8
   counts — each with contiguous `idx` from 0 within its own series, no padding, no
   truncation, no `None` filler, and the two are never zipped.
-- [ ] 2.2 RED — `tests/unit/test_reassure_jsonl.py`: `durations: []` with non-empty
+- [x] 2.2 RED — `tests/unit/test_reassure_jsonl.py`: `durations: []` with non-empty
   `counts` parses to a valid entry (not skipped) with zero duration values.
-- [ ] 2.3 RED — `tests/unit/test_reassure_jsonl.py`: header absent, header present with a
+- [x] 2.3 RED — `tests/unit/test_reassure_jsonl.py`: header absent, header present with a
   field subset (e.g. only `branch`), `type` absent defaults to `'render'`.
-- [ ] 2.4 RED — `tests/unit/test_reassure_jsonl.py`: malformed-line tolerance — invalid
+- [x] 2.4 RED — `tests/unit/test_reassure_jsonl.py`: malformed-line tolerance — invalid
   JSON, missing/non-string `name`, missing/non-array `durations` or `counts`, unknown
   `type`, oversized line, `NaN`/`Infinity` values — each skipped with a `REASON_*` code,
   never fatal.
-- [ ] 2.5 RED — `tests/unit/test_reassure_jsonl.py`: sha256 computed over the exact raw
+- [x] 2.5 RED — `tests/unit/test_reassure_jsonl.py`: sha256 computed over the exact raw
   bytes (before decode); a missing or unreadable path raises `ReassureParseError`.
-- [ ] 2.6 RED — `tests/unit/test_reassure_jsonl.py`: `outlierDurations` absent -> `None`
+- [x] 2.6 RED — `tests/unit/test_reassure_jsonl.py`: `outlierDurations` absent -> `None`
   on the entry; present-and-empty -> `"[]"` (absent vs. empty distinction preserved).
-- [ ] 2.7 Create `tests/fixtures/reassure_sample.perf`: real sample containing an entry
+- [x] 2.7 Create `tests/fixtures/reassure_sample.perf`: real sample containing an entry
   with `len(durations) < len(counts)`, one with `durations: []`, one with
   `outlierDurations` absent, plus the malformed-line cases from 2.4.
-- [ ] 2.8 GREEN — `src/perf/domain/model.py`: add `ReassureHeader`, `ReassureEntry`,
+- [x] 2.8 GREEN — `src/perf/domain/model.py`: add `ReassureHeader`, `ReassureEntry`,
   `ReassureParseResult` frozen dataclasses per `design.md`, with the non-alignment
   invariant stated in `ReassureEntry`'s docstring.
-- [ ] 2.9 GREEN — `src/perf/domain/ports.py`: add the `ReassureParser` Protocol
+- [x] 2.9 GREEN — `src/perf/domain/ports.py`: add the `ReassureParser` Protocol
   (`parse(self, path: str) -> ReassureParseResult`).
-- [ ] 2.10 GREEN — `src/perf/adapters/reassure_jsonl.py`: `ReassureParseError` +
+- [x] 2.10 GREEN — `src/perf/adapters/reassure_jsonl.py`: `ReassureParseError` +
   `ReassureJsonlParser` — read bytes, sha256, decode, per-line header/entry detection,
   `json.loads`-only parsing with the `REASON_*` vocabulary, `_is_finite_number` guard,
   `json.dumps` only when `warmupDurations`/`outlierDurations` keys are present.
-- [ ] 2.11 GREEN — `src/perf/adapters/registry.py`: add `build_reassure_parser` factory.
-- [ ] 2.12 Verify slice: `./.venv/bin/pytest -q tests/unit/test_reassure_jsonl.py`
+- [x] 2.11 GREEN — `src/perf/adapters/registry.py`: add `build_reassure_parser` factory.
+- [x] 2.12 Verify slice: `./.venv/bin/pytest -q tests/unit/test_reassure_jsonl.py`
   green; `tests/unit/test_domain_boundary.py` and
   `tests/unit/test_application_boundary.py` still pass (no adapter import in
   `domain/`).
-- [ ] 2.13 Verify gates: `./.venv/bin/ruff check .`, `./.venv/bin/ruff format --check .`,
+- [x] 2.13 Verify gates: `./.venv/bin/ruff check .`, `./.venv/bin/ruff format --check .`,
   `./.venv/bin/mypy src/perf`, `./.venv/bin/pytest -q --cov=perf` (>= 93%).
 
 ---

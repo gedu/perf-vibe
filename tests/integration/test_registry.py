@@ -155,6 +155,29 @@ def test_build_commit_log_threads_repo_path_and_runner():
     assert isinstance(commit_log, GitCommitLog)
 
 
+def test_build_reassure_parser_returns_reassure_jsonl_parser():
+    """`reassure-ingest` PR2: `ReassureParser` has exactly one implementation
+    — a plain factory, no name-keyed map needed (mirrors `build_commit_log`/
+    `build_context_provider`/`build_store`)."""
+    from perf.adapters.reassure_jsonl import ReassureJsonlParser
+
+    parser = registry.build_reassure_parser()
+    assert isinstance(parser, ReassureJsonlParser)
+
+
+def test_build_reassure_parser_threads_max_line_bytes(tmp_path):
+    from perf.adapters.reassure_jsonl import REASON_OVERSIZED
+
+    oversized_line = '{"name": "' + ("x" * 200) + '", "durations": [], "counts": []}'
+    path = tmp_path / "oversized.perf"
+    path.write_text(oversized_line + "\n")
+
+    parser = registry.build_reassure_parser(max_line_bytes=32)
+    result = parser.parse(str(path))
+
+    assert result.skipped == ((1, REASON_OVERSIZED),)
+
+
 def test_unknown_driver_name_raises_clear_error():
     with pytest.raises(ValueError, match="maestro"):
         registry.build_driver("not-a-real-driver")
