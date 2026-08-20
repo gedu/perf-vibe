@@ -16,6 +16,16 @@ PR2 store-half. Owns:
   - a minimal read (`get_run_summary`) for `run`'s own confirmation
     output.
 
+`reassure-ingest` PR3 additionally owns `save_reassure_import` — the
+one-transaction ingest of a parsed reassure `.perf` file into the four
+additive `reassure_*` tables (PR1's `0005_add_reassure_tables.sql`).
+`durations[]` and `counts[]` are NOT index-aligned (design "Load-Bearing
+Invariant"), so they are persisted via TWO INDEPENDENT insert loops into
+their own sibling sample tables — never one zipped loop. Duplicate
+detection is `cur.rowcount == 0` after `ON CONFLICT(content_hash) DO
+NOTHING`, returning `None`; ANY failure rolls back the whole import,
+leaving zero rows in all four tables.
+
 PR-B (`compare` Phase 2, Rev 3) additionally owns the bounded `compare`
 read models: `history` (the naive per-metric window), `latest_run` /
 `latest_measure_summary` / `latest_system_sample_points` (the LATEST run
@@ -53,6 +63,8 @@ from perf.domain.model import (
     HistoryMetric,
     HistoryRun,
     Marker,
+    ReassureEntry,
+    ReassureParseResult,
     RunContext,
     RunPoint,
     SystemSample,
@@ -284,6 +296,126 @@ class SqliteStore:
         except Exception:
             conn.execute("ROLLBACK")
             raise
+
+    # ----- reassure ingest transaction (PR3, design "Transaction Boundary")
+    # -----
+    #
+    # Follows `save_run`'s shape exactly: literal `BEGIN`, private insert
+    # helpers, `COMMIT`, `except Exception: ROLLBACK; raise`. `durations`
+    # and `counts` are NOT index-aligned (design "Load-Bearing Invariant"),
+    # so they are persisted via TWO INDEPENDENT loops into their own sample
+    # tables — never one zipped loop.
+
+    def save_reassure_import(self, result: ReassureParseResult, source_path: str) -> int | None:
+        conn = self._conn
+        conn.execute("BEGIN")
+        try:
+            import_id = self._insert_reassure_import(conn, result, source_path)
+            if import_id is None:
+                # Byte-identical re-import: `rowcount == 0` after
+                # `ON CONFLICT(content_hash) DO NOTHING` — zero rows
+                # written anywhere, `COMMIT` closes the (empty) transaction.
+                conn.execute("COMMIT")
+                return None
+
+            for entry in result.entries:
+                entry_id = self._insert_reassure_entry(conn, import_id, entry)
+                # TWO independent loops over TWO independent series — never
+                # one zipped loop (design "Load-Bearing Invariant").
+                self._insert_reassure_duration_samples(conn, entry_id, entry.durations)
+                self._insert_reassure_count_samples(conn, entry_id, entry.counts)
+
+            conn.execute("COMMIT")
+            return import_id
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+    def _insert_reassure_import(
+        self, conn: sqlite3.Connection, result: ReassureParseResult, source_path: str
+    ) -> int | None:
+        header = result.header
+        branch = header.branch if header is not None else None
+        commit_hash = header.commit_hash if header is not None else None
+        created_date = header.created_date if header is not None else None
+
+        cur = conn.execute(
+            """
+            INSERT INTO reassure_import (
+                content_hash, imported_at, source_path, branch, commit_hash, created_date
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(content_hash) DO NOTHING
+            """,
+            (
+                result.content_hash,
+                self._clock.now_utc_iso(),
+                source_path,
+                branch,
+                commit_hash,
+                created_date,
+            ),
+        )
+        # Duplicate detection is `rowcount == 0` (design "Duplicate
+        # detection"): a pre-`SELECT` is a second round trip and a TOCTOU
+        # window inside this same transaction; `lastrowid` retains a STALE
+        # value after a no-op insert, so reading it here would report a
+        # bogus `import_id`.
+        if cur.rowcount == 0:
+            return None
+
+        import_id = cur.lastrowid
+        if import_id is None:
+            raise RuntimeError(
+                "INSERT INTO reassure_import did not return a row id (lastrowid is None)"
+            )
+        return import_id
+
+    @staticmethod
+    def _insert_reassure_entry(
+        conn: sqlite3.Connection, import_id: int, entry: ReassureEntry
+    ) -> int:
+        cur = conn.execute(
+            """
+            INSERT INTO reassure_entry (
+                import_id, name, entry_type, runs, warmup_durations, outlier_durations
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                import_id,
+                entry.name,
+                entry.entry_type,
+                entry.runs,
+                entry.warmup_durations_json,
+                entry.outlier_durations_json,
+            ),
+        )
+        entry_id = cur.lastrowid
+        if entry_id is None:
+            raise RuntimeError(
+                "INSERT INTO reassure_entry did not return a row id (lastrowid is None)"
+            )
+        return entry_id
+
+    @staticmethod
+    def _insert_reassure_duration_samples(
+        conn: sqlite3.Connection, entry_id: int, durations: Sequence[float]
+    ) -> None:
+        for idx, duration in enumerate(durations):
+            conn.execute(
+                "INSERT INTO reassure_duration_sample (entry_id, idx, duration_ms) "
+                "VALUES (?, ?, ?)",
+                (entry_id, idx, duration),
+            )
+
+    @staticmethod
+    def _insert_reassure_count_samples(
+        conn: sqlite3.Connection, entry_id: int, counts: Sequence[float]
+    ) -> None:
+        for idx, count in enumerate(counts):
+            conn.execute(
+                "INSERT INTO reassure_count_sample (entry_id, idx, render_count) VALUES (?, ?, ?)",
+                (entry_id, idx, count),
+            )
 
     # ----- dimension upserts (device/flow/metric) -----
 
