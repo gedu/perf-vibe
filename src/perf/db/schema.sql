@@ -121,7 +121,12 @@ CREATE TABLE reassure_entry (
   name              TEXT NOT NULL,     -- Jest `describe > test` chain; the ONLY identity.
                                        -- Intentionally NOT UNIQUE(import_id, name).
   entry_type        TEXT NOT NULL DEFAULT 'render',
-  runs              INTEGER NOT NULL,  -- reassure's DECLARED runs (== len(counts))
+  runs              INTEGER NOT NULL,  -- DECLARED by the file; NEVER reconciled against
+                                       -- the stored samples. A well-formed file has
+                                       -- runs == COUNT(reassure_count_sample), but that
+                                       -- is NOT an invariant here: the independence is
+                                       -- what makes a truncated .perf detectable, so
+                                       -- never derive either value from the other.
   warmup_durations  TEXT,              -- verbatim JSON passthrough, diagnostic only.
   outlier_durations TEXT               -- NULL = key ABSENT; '[]' = present but empty.
 );

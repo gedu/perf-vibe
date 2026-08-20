@@ -27,6 +27,7 @@ from perf.adapters.driver_manual import ManualDriver
 from perf.adapters.driver_replay import ReplayDriver
 from perf.adapters.markers_adb_logcat import AdbLogcatMarkerSource
 from perf.adapters.process import SubprocessRunner
+from perf.adapters.reassure_jsonl import ReassureJsonlParser
 from perf.adapters.sampler_flashlight import FlashlightSampler
 from perf.adapters.store_sqlite import SqliteStore
 from perf.domain.ports import (
@@ -36,6 +37,7 @@ from perf.domain.ports import (
     FlowDriver,
     MarkerSource,
     ProgressReporter,
+    ReassureParser,
     RunContextProvider,
     SystemSampler,
 )
@@ -254,3 +256,12 @@ def build_clock() -> Clock:
     the registry entirely."""
 
     return SystemClock()
+
+
+def build_reassure_parser(*, max_line_bytes: int = 1_048_576) -> ReassureParser:
+    """`ReassureParser` has exactly one implementation — a single factory,
+    no name-keyed map needed (`registry.py:174-177`'s rule of three; mirrors
+    `build_context_provider`/`build_store`/`build_commit_log`). Kwonly
+    params mirror `ReassureJsonlParser.__init__` exactly."""
+
+    return ReassureJsonlParser(max_line_bytes=max_line_bytes)

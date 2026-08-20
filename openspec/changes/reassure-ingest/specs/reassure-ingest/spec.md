@@ -49,13 +49,32 @@ missing or not an array (an EMPTY array `[]` is valid and MUST NOT cause a skip 
 "required" means present-and-correctly-typed, not non-empty; a `.perf` file legitimately
 carries `durations: []` when every post-warmup run is classified an outlier); `counts`
 is missing or not an array (an empty array is likewise valid, though an empty `counts`
-is not expected in practice); or `type` is present but not one of `'render' | 'function'
-| 'async function'`. `runs`, `meanDuration`, `stdevDuration`, `meanCount`, `stdevCount`,
-`warmupDurations`, `outlierDurations`, and `issues` are never required — their absence
-never causes a skip. `counts` being present for `'function'`/`'async function'` entries
-is relied upon from reassure's own zod schema (`packages/compare/src/type-schemas.ts`,
-which lists `counts` as required for all three `type` values), not from an observed
-real sample of those two types.
+is not expected in practice); `runs` is missing or is not an integer (`bool` is not an
+integer here); or `type` is present but not one of `'render' | 'function' | 'async
+function'`.
+
+`runs` is REQUIRED, and its absence MUST NEVER be filled in from `len(counts)` or from
+anything else. An earlier revision of this requirement listed `runs` as optional, which
+contradicted the persistence requirement below: if `runs` may be absent, then either a
+value is invented — making declared == actual BY CONSTRUCTION for that entry, silently
+destroying the only signal the column exists to carry — or the column must be nullable,
+which the schema (`runs INTEGER NOT NULL`) does not permit. Reassure's own zod schema
+(`packages/compare/src/type-schemas.ts`) types `runs` as required, so a line without it
+is malformed, not a line we may complete on reassure's behalf.
+
+`meanDuration`, `stdevDuration`, `meanCount`, `stdevCount`, `warmupDurations`,
+`outlierDurations`, and `issues` are never required — their absence never causes a skip.
+`counts` being present for `'function'`/`'async function'` entries is relied upon from
+reassure's own zod schema (which lists `counts` as required for all three `type` values),
+not from an observed real sample of those two types.
+
+#### Scenario: An entry with no declared `runs` is skipped, never completed
+- GIVEN a line that is valid JSON with a valid `name`, `durations` and `counts`, but no
+  `runs` key at all
+- WHEN the file is parsed
+- THEN that line is skipped with reason `missing_field` and no entry is produced
+- AND no `runs` value is synthesised from `len(counts)`, `len(durations)`, or any other
+  observed quantity
 
 #### Scenario: Mixed-quality file imports every good line
 - GIVEN a file with one invalid-JSON line, one line missing `durations`, one line with

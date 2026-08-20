@@ -506,3 +506,71 @@ def compose_execution_plan(
         capture=capture,
         results_path=results_path,
     )
+
+
+# ===== reassure ingest domain types (`reassure-ingest` design, PR2) =====
+
+
+@dataclass(frozen=True)
+class ReassureHeader:
+    """The optional first-line `{"metadata": {...}}` of a `.perf` file. All
+    three fields are optional — nothing may depend on `commit_hash`."""
+
+    branch: str | None = None
+    commit_hash: str | None = None
+    created_date: str | None = None  # reassure's ISO-8601 `creationDate`, verbatim
+
+
+@dataclass(frozen=True)
+class ReassureEntry:
+    """One measurement line. `name` is the ONLY identity (no component, no
+    test file).
+
+    `durations` and `counts` are TWO INDEPENDENT raw series and are NOT
+    index-aligned: reassure builds `durations` from the outlier-FILTERED set
+    and `counts` from the UNFILTERED post-warmup set (`processRunResults` in
+    `measure-helpers.tsx`), with outlier removal ON by default. So
+    `len(durations) <= len(counts)`, and `durations[i]` does NOT describe the
+    same run as `counts[i]`. NEVER `zip()` them, never assume equal length,
+    and never treat `idx` as a run identifier — doing so produces
+    plausible-looking corrupt data with no error. `durations` may be empty
+    (every post-warmup run classified an outlier) while `counts` is not; that
+    is valid input, NOT a malformed entry.
+
+    `runs` is NOT an invariant over these series. A well-formed reassure file
+    emits `runs == len(counts)` (both are `runResults.length`), but `runs` is
+    stored as the value the file DECLARED and is never reconciled against the
+    samples actually carried — that independence is the entire reason the
+    field is kept, since it is what makes a truncated or hand-edited `.perf`
+    detectable. So `runs == len(counts)` MUST NOT be relied on, and neither
+    value may ever be derived from the other.
+
+    reassure's own mean/stdev are derivable from these series and deliberately
+    absent, so there is only one source of truth."""
+
+    name: str
+    entry_type: str  # JSON `type`; defaults to 'render' at parse time
+    runs: int  # DECLARED by the file; never reconciled against the samples
+    durations: Sequence[float]  # outlier-filtered series
+    counts: Sequence[float]  # unfiltered post-warmup series — NOT aligned above
+    warmup_durations_json: str | None = None  # opaque passthrough text, never parsed
+    outlier_durations_json: str | None = None  # here. `None` = JSON key ABSENT;
+    # `"[]"` = present but empty.
+
+
+@dataclass(frozen=True)
+class ReassureParseResult:
+    """Result of `ReassureParser.parse()`. `content_hash` is the sha256 of the
+    raw file bytes (computed where the bytes are read — the adapter — since it
+    must hash the EXACT bytes, before decoding). `skipped` pairs each rejected
+    line's 1-based number with a reason from this adapter's own vocabulary;
+    `partial_coverage` is `bool(skipped)`, and `diagnostic` explains a zero-
+    or partial-coverage import in one actionable sentence (`None` on a clean
+    full-coverage parse)."""
+
+    header: ReassureHeader | None
+    entries: Sequence[ReassureEntry]
+    content_hash: str
+    skipped: Sequence[tuple[int, str]]
+    partial_coverage: bool
+    diagnostic: str | None = None
