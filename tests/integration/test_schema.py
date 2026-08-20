@@ -20,6 +20,9 @@ SCHEMA_SQL = DB_DIR / "schema.sql"
 MIGRATION_0001 = DB_DIR / "migrations" / "0001_init.sql"
 MIGRATION_0002 = DB_DIR / "migrations" / "0002_compare_baseline_index.sql"
 MIGRATION_0003 = DB_DIR / "migrations" / "0003_fix_p90_ceil_rank.sql"
+# 0004_fix_system_sample_units.sql is data-only (no DDL) and is intentionally
+# absent here — only DDL migrations join the equivalence test below.
+MIGRATION_0005 = DB_DIR / "migrations" / "0005_add_reassure_tables.sql"
 
 EXPECTED_TABLES = {"device", "flow", "metric", "run", "iteration", "measure", "system_sample"}
 EXPECTED_INDEXES = {"idx_run_flow_device_time", "idx_measure_metric", "idx_measure_run"}
@@ -184,6 +187,7 @@ def test_schema_sql_and_migrations_are_fully_equivalent():
         conn_migration.executescript(MIGRATION_0001.read_text())
         conn_migration.executescript(MIGRATION_0002.read_text())
         conn_migration.executescript(MIGRATION_0003.read_text())
+        conn_migration.executescript(MIGRATION_0005.read_text())
         assert _introspect_full_schema(conn_schema) == _introspect_full_schema(conn_migration)
     finally:
         conn_schema.close()

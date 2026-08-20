@@ -106,3 +106,43 @@ SELECT run_id, metric_id, n,
        AVG(CASE WHEN rn IN ((n+1)/2,(n+2)/2) THEN duration_ms END) AS p50_ms,
        MAX(CASE WHEN rn <= (9*n + 9) / 10 THEN duration_ms END) AS p90_ms
 FROM ranked GROUP BY run_id, metric_id;
+
+-- ===== REASSURE (reassure-ingest design, 0005_add_reassure_tables.sql) =====
+CREATE TABLE reassure_import (
+  import_id    INTEGER PRIMARY KEY,
+  content_hash TEXT NOT NULL UNIQUE,   -- sha256 of RAW file bytes = the whole idempotency key
+  imported_at  TEXT NOT NULL,          -- ISO-8601 UTC from the injected Clock
+  source_path  TEXT NOT NULL,          -- internal storage name; the PAYLOAD key is `path`
+  branch       TEXT, commit_hash TEXT, created_date TEXT   -- optional header metadata
+);
+CREATE TABLE reassure_entry (
+  entry_id          INTEGER PRIMARY KEY,
+  import_id         INTEGER NOT NULL REFERENCES reassure_import(import_id) ON DELETE CASCADE,
+  name              TEXT NOT NULL,     -- Jest `describe > test` chain; the ONLY identity.
+                                       -- Intentionally NOT UNIQUE(import_id, name).
+  entry_type        TEXT NOT NULL DEFAULT 'render',
+  runs              INTEGER NOT NULL,  -- reassure's DECLARED runs (== len(counts))
+  warmup_durations  TEXT,              -- verbatim JSON passthrough, diagnostic only.
+  outlier_durations TEXT               -- NULL = key ABSENT; '[]' = present but empty.
+);
+-- LOAD-BEARING: durations[] and counts[] are NOT index-aligned and MUST NEVER be zipped
+-- (durations = outlier-FILTERED set, counts = UNFILTERED post-warmup set, removal ON by
+-- default). Each `idx` is an ordinal WITHIN ITS OWN SERIES: not a run id, not comparable
+-- across the two tables. Neither table needs an extra index (UNIQUE is entry_id-leading).
+CREATE TABLE reassure_duration_sample (
+  duration_sample_id INTEGER PRIMARY KEY,
+  entry_id           INTEGER NOT NULL REFERENCES reassure_entry(entry_id) ON DELETE CASCADE,
+  idx                INTEGER NOT NULL,
+  duration_ms        REAL NOT NULL,
+  UNIQUE (entry_id, idx)
+);
+CREATE TABLE reassure_count_sample (
+  count_sample_id INTEGER PRIMARY KEY,
+  entry_id        INTEGER NOT NULL REFERENCES reassure_entry(entry_id) ON DELETE CASCADE,
+  idx             INTEGER NOT NULL,
+  render_count    REAL NOT NULL,   -- REAL, not INTEGER: reassure types it `number[]`
+  UNIQUE (entry_id, idx)
+);
+CREATE INDEX idx_reassure_entry_name   ON reassure_entry(name, import_id);
+CREATE INDEX idx_reassure_entry_import ON reassure_entry(import_id);
+CREATE INDEX idx_reassure_import_time  ON reassure_import(imported_at);
