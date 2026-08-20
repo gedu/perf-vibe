@@ -21,6 +21,16 @@ Complete SDD artifacts for Phase 1 remain in:
 - `docs/specs/perf-run/` — full SDD record (proposal, spec, design, tasks, README)
 - engram — all decisions and observations (topic keys: perf-cli/propose/perf-run, sdd/perf-run/spec, perf-cli/design/perf-run, perf-cli/tasks/perf-run, sdd/perf-run/verify-report, and related decisions/apply-reports)
 
+## Updates from Subsequent Changes
+
+**2026-08-19**: The `run-live-progress` change (#34–#37) added the following to the perf-run spec:
+- New streaming execution path (Backward-Compatible Streaming Introduction requirement)
+- ManualDriver output routed to STDERR (Composable Optional Sources update)
+- --quiet flag for silencing all stderr progress (CLI Options update)
+- Progress renderer failure handling (Exit-Code Discipline update)
+
+These additions were merged directly into `openspec/specs/perf-run.md` per the archive convention for cross-capability changes. See `openspec/changes/archive/run-progress.md` for the complete run-live-progress history.
+
 ## Known Limitations
 
 Two non-critical gaps documented in verify report #47:
