@@ -133,27 +133,27 @@ on `main` (landed in PR1), tested end-to-end against a real SQLite file.
 **Independently revertable**: drop the method and its 4 helpers — the tables stay
 unused, exactly the proposal's rollback plan.
 
-- [ ] 3.1 RED — `tests/integration/test_store_reassure.py`
+- [x] 3.1 RED — `tests/integration/test_store_reassure.py`
   [**load-bearing non-alignment-at-rest test**]: an 8-count/6-duration entry persists
   exactly 6 `reassure_duration_sample` rows and 8 `reassure_count_sample` rows, each
   with contiguous `idx` from 0 within its own table, and no row in either table asserts
   a cross-series pair.
-- [ ] 3.2 RED — `tests/integration/test_store_reassure.py`: `runs` is persisted verbatim
+- [x] 3.2 RED — `tests/integration/test_store_reassure.py`: `runs` is persisted verbatim
   even when it disagrees with the actual `counts` row count (e.g. `runs: 10` with only
   3 count rows) — the mismatch is recorded, never repaired, never causes a skip.
-- [ ] 3.3 RED — `tests/integration/test_store_reassure.py`: a `durations: []` entry
+- [x] 3.3 RED — `tests/integration/test_store_reassure.py`: a `durations: []` entry
   persists with zero duration-sample rows (not skipped); `warmup_durations`/
   `outlier_durations` persist as SQL `NULL` when the JSON key was absent and `'[]'`
   when present-but-empty (both states asserted).
-- [ ] 3.4 RED — `tests/integration/test_store_reassure.py`: importing a byte-identical
+- [x] 3.4 RED — `tests/integration/test_store_reassure.py`: importing a byte-identical
   file a second time returns `None` and inserts zero rows across all four tables.
-- [ ] 3.5 RED — `tests/integration/test_store_reassure.py`: a forced mid-transaction
+- [x] 3.5 RED — `tests/integration/test_store_reassure.py`: a forced mid-transaction
   failure (patched helper) leaves 0 rows in `reassure_import`, `reassure_entry`,
   `reassure_duration_sample`, and `reassure_count_sample` — full rollback.
-- [ ] 3.6 GREEN — `src/perf/domain/ports.py`: add
+- [x] 3.6 GREEN — `src/perf/domain/ports.py`: add
   `Store.save_reassure_import(result: ReassureParseResult, source_path: str) -> int |
   None` to the `Store` Protocol.
-- [ ] 3.7 GREEN — `src/perf/adapters/store_sqlite.py`: implement
+- [x] 3.7 GREEN — `src/perf/adapters/store_sqlite.py`: implement
   `save_reassure_import` — literal `BEGIN`, insert import row with
   `ON CONFLICT(content_hash) DO NOTHING`, `rowcount == 0` -> `COMMIT; return None`;
   otherwise insert entries then two INDEPENDENT loops over `durations`/`counts` (never
@@ -161,9 +161,9 @@ unused, exactly the proposal's rollback plan.
   ROLLBACK; raise`. Add the 4 private helpers (`_insert_reassure_import`,
   `_insert_reassure_entry`, `_insert_reassure_duration_samples`,
   `_insert_reassure_count_samples`); every value bound with `?`.
-- [ ] 3.8 Verify slice: `./.venv/bin/pytest -q tests/integration/test_store_reassure.py`
+- [x] 3.8 Verify slice: `./.venv/bin/pytest -q tests/integration/test_store_reassure.py`
   green.
-- [ ] 3.9 Verify gates: `./.venv/bin/ruff check .`, `./.venv/bin/ruff format --check .`,
+- [x] 3.9 Verify gates: `./.venv/bin/ruff check .`, `./.venv/bin/ruff format --check .`,
   `./.venv/bin/mypy src/perf`, `./.venv/bin/pytest -q --cov=perf` (>= 93%).
 
 ---
