@@ -546,7 +546,18 @@ class ReassureEntry:
     value may ever be derived from the other.
 
     reassure's own mean/stdev are derivable from these series and deliberately
-    absent, so there is only one source of truth."""
+    absent, so there is only one source of truth.
+
+    `initial_update_count` and `redundant_updates_json` carry reassure's
+    `issues` DIAGNOSTICS. A non-zero `initial_update_count` means the component
+    performed an EXTRA RENDER ON MOUNT — reassure's own actionable finding, and
+    the reason these are persisted rather than discarded. `None` on either
+    field means the JSON key was ABSENT, which is a DIFFERENT fact from a
+    present zero or a present empty array: reassure's schema marks `issues`
+    itself optional, so "we never measured this" must never be read as "we
+    measured it and found nothing". Because `issues` is diagnostic and not
+    measurement, a malformed one degrades the offending field to `None` at
+    parse time and NEVER discards the entry."""
 
     name: str
     entry_type: str  # JSON `type`; defaults to 'render' at parse time
@@ -556,6 +567,10 @@ class ReassureEntry:
     warmup_durations_json: str | None = None  # opaque passthrough text, never parsed
     outlier_durations_json: str | None = None  # here. `None` = JSON key ABSENT;
     # `"[]"` = present but empty.
+    initial_update_count: int | None = None  # `issues.initialUpdateCount`, an INTEGER.
+    # `None` = key ABSENT; `0` = present and zero. NEVER collapsed.
+    redundant_updates_json: str | None = None  # `issues.redundantUpdates`, an ARRAY, as
+    # opaque passthrough text. `None` = key ABSENT; `"[]"` = present but empty.
 
 
 @dataclass(frozen=True)

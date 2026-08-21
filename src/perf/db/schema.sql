@@ -108,18 +108,27 @@ SELECT run_id, metric_id, n,
 FROM ranked GROUP BY run_id, metric_id;
 
 -- ===== REASSURE (reassure-ingest design, 0005_add_reassure_tables.sql;
--- `kind` added by 0006_add_reassure_import_kind.sql) =====
+-- `kind` added by 0006_add_reassure_import_kind.sql; `issues_*` added by
+-- 0007_add_reassure_entry_issues.sql) =====
 CREATE TABLE reassure_import (
   import_id    INTEGER PRIMARY KEY,
   content_hash TEXT NOT NULL UNIQUE,   -- sha256 of RAW file bytes = the whole idempotency key
   imported_at  TEXT NOT NULL,          -- ISO-8601 UTC from the injected Clock
   source_path  TEXT NOT NULL,          -- internal storage name; the PAYLOAD key is `path`
   branch       TEXT, commit_hash TEXT, created_date TEXT,  -- optional header metadata
-  -- File provenance ONLY -- 'current' | 'baseline' | 'unknown' by convention,
-  -- no CHECK constraint (matches `run.mode`/`reassure_entry.entry_type`).
-  -- A `baseline.perf` and a `current.perf` can share the same commit_hash
-  -- and differ only by `creationDate` (observed in real data), so neither
-  -- column above discriminates the two files reliably -- `kind` does.
+  -- WHICH FILE THE BYTES CAME FROM -- nothing more. 'current' | 'baseline' |
+  -- 'unknown' by convention, no CHECK constraint (matches
+  -- `run.mode`/`reassure_entry.entry_type`). This is provenance for
+  -- traceability and debugging, and it is NOT perf-vibe's baseline concept:
+  -- reassure needs a baseline/current PAIR because its whole comparison is a
+  -- two-file diff, while perf-vibe models a TIME SERIES where "which
+  -- measurement came first" is `ORDER BY reassure_import.created_date`, never
+  -- a label. `kind` MUST NEVER drive a query or a comparison. Nothing in the
+  -- codebase reads it today; it is write-only provenance.
+  -- It is harmless to keep because it is not load-bearing: a `baseline.perf`
+  -- and a `current.perf` were observed sharing the same commit_hash and
+  -- branch, differing only by `creationDate`, so no other column here
+  -- recovers which file the bytes came from once they are stored.
   -- Whether this is the FIRST import for a given entry name is DERIVED at
   -- read time, never stored here: files are not guaranteed to import in
   -- chronological order (see 0006_add_reassure_import_kind.sql).
@@ -141,7 +150,23 @@ CREATE TABLE reassure_entry (
                                        -- what makes a truncated .perf detectable, so
                                        -- never derive either value from the other.
   warmup_durations  TEXT,              -- verbatim JSON passthrough, diagnostic only.
-  outlier_durations TEXT               -- NULL = key ABSENT; '[]' = present but empty.
+  outlier_durations TEXT,              -- NULL = key ABSENT; '[]' = present but empty.
+  -- reassure's `issues` diagnostics (0007). Observed across 101 real entries:
+  -- `initialUpdateCount` is an INTEGER (0 and 1 seen, non-zero on roughly one
+  -- entry in eight) and `redundantUpdates` is an ARRAY ('[]' in every real
+  -- entry; reassure's zod schema types it `number[]`). A non-zero
+  -- `initialUpdateCount` means the component performs an EXTRA RENDER ON
+  -- MOUNT -- reassure's actionable finding, and the reason to persist this.
+  -- BOTH NULLABLE, load-bearing: reassure's schema marks `issues` itself
+  -- optional, so NULL ("the file carried no `issues` object") and 0
+  -- ("present and reported zero") are DIFFERENT facts and are never
+  -- collapsed -- the same distinction the two passthrough columns above keep
+  -- as NULL vs '[]'. A NOT NULL DEFAULT 0 would manufacture the reassuring
+  -- answer for every entry whose file never reported one.
+  issues_initial_update_count INTEGER,
+  issues_redundant_updates    TEXT     -- verbatim JSON passthrough, diagnostic
+                                       -- only. NULL = key ABSENT; '[]' =
+                                       -- present but empty.
 );
 -- LOAD-BEARING: durations[] and counts[] are NOT index-aligned and MUST NEVER be zipped
 -- (durations = outlier-FILTERED set, counts = UNFILTERED post-warmup set, removal ON by

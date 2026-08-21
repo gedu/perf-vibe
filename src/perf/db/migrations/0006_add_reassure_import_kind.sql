@@ -1,24 +1,41 @@
 -- Migration 0006: add `reassure_import.kind` (reassure-ingest PR4a).
 --
--- WHY this column exists: verified against real reassure output, a
--- `baseline.perf` file and a `current.perf` file can declare the SAME
--- `commitHash` and `branch` (observed: both carried commit `f4bf0f05...`
--- and branch `feature/reassure_base`), differing ONLY in `creationDate` --
--- and the *baseline* file's timestamp was three hours NEWER than the
--- *current* file's. Neither the commit hash nor `source_path` is therefore
--- a reliable discriminator between "this is the current measurement" and
--- "this is the baseline to compare against" -- `kind` is.
+-- WHAT this column records: WHICH FILE THE BYTES CAME FROM. Nothing more.
+-- It exists for traceability and debugging -- so that a stored import can
+-- still be traced back to `baseline.perf` or `current.perf` after the fact.
 --
--- `kind` stores FILE PROVENANCE ONLY. Allowed values by convention:
--- 'current' | 'baseline' | 'unknown' -- no `CHECK` constraint, matching the
--- house style already set by `run.mode` and `reassure_entry.entry_type`
--- (`db/schema.sql`): validation belongs at the adapter boundary, not the
--- schema.
+-- `kind` IS NOT perf-vibe's baseline concept, and an earlier revision of
+-- this comment was wrong to frame it as the discriminator between "this is
+-- the current measurement" and "this is the baseline to compare against".
+-- That is REASSURE's model, not ours: reassure needs a baseline/current
+-- PAIR because its entire comparison is a two-file diff. perf-vibe models a
+-- TIME SERIES, where "which measurement came first" is DERIVED BY ORDERING
+-- and never labelled -- `ORDER BY reassure_import.created_date`. So:
 --
--- The semantically useful question this unlocks -- "is this the FIRST
--- measurement ever recorded for this component name?" -- is DERIVED at
--- read time (a `NOT EXISTS` check over earlier imports of the same
--- `reassure_entry.name`) and must NEVER be cached in a column here: real
+--   * `kind` MUST NEVER drive a query, a filter, a join, or a comparison.
+--   * Nothing in the codebase reads it today. It is write-only provenance,
+--     and it should stay that way.
+--
+-- The observed evidence below is why this column is HARMLESS TO HAVE -- not
+-- why it is needed. Verified against real reassure output, a `baseline.perf`
+-- file and a `current.perf` file can declare the SAME `commitHash` and
+-- `branch` (observed: both carried commit `f4bf0f05...` and branch
+-- `feature/reassure_base`), differing ONLY in `creationDate` -- and the
+-- *baseline* file's timestamp was three hours NEWER than the *current*
+-- file's. So once the bytes are stored, no other column here recovers which
+-- file they came from; recording it costs one TEXT column and loses nothing.
+-- It is emphatically NOT evidence that a stored baseline/current LABEL is
+-- something perf-vibe's read models should consult.
+--
+-- Allowed values by convention: 'current' | 'baseline' | 'unknown' -- no
+-- `CHECK` constraint, matching the house style already set by `run.mode` and
+-- `reassure_entry.entry_type` (`db/schema.sql`): validation belongs at the
+-- adapter boundary, not the schema.
+--
+-- Relatedly, and for the same reason: "is this the FIRST measurement ever
+-- recorded for this component name?" is a question `kind` does NOT answer.
+-- It is DERIVED at read time (a `NOT EXISTS` check over earlier imports of
+-- the same `reassure_entry.name`) and must NEVER be cached here: real
 -- files are not guaranteed to arrive in chronological order (the
 -- baseline/current pair above is direct proof -- the baseline file's own
 -- `creationDate` was newer than the current file's), so a stored "is

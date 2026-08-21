@@ -194,6 +194,48 @@ def test_warmup_and_outlier_durations_present_empty_persist_as_literal_bracket_p
     assert row[1] == "[]"
 
 
+def test_issues_diagnostics_persist_with_their_real_observed_types(store):
+    """`issues.initialUpdateCount` (INTEGER) and `issues.redundantUpdates`
+    (verbatim JSON ARRAY passthrough) land in the `0007` columns inside the
+    same single transaction as everything else."""
+    entry = _entry(initial_update_count=1, redundant_updates_json="[1, 2, 3]")
+    result = _result(entries=(entry,))
+
+    store.save_reassure_import(result, "path/to/current.perf", "current")
+
+    row = store._conn.execute(
+        "SELECT issues_initial_update_count, issues_redundant_updates FROM reassure_entry"
+    ).fetchone()
+    assert row[0] == 1
+    assert row[1] == "[1, 2, 3]"
+
+
+def test_issues_absent_persists_as_sql_null_while_zero_persists_as_zero(store):
+    """The load-bearing distinction, at rest: `None` (`issues` was absent)
+    persists as SQL `NULL`, while a present `0` persists as `0` and a present
+    empty array persists as the literal `'[]'`. Collapsing either pair would
+    turn "we never measured this" into "we measured it and found nothing"."""
+    absent = _entry(name="issues absent", initial_update_count=None, redundant_updates_json=None)
+    present_zero = _entry(
+        name="issues present and zero", initial_update_count=0, redundant_updates_json="[]"
+    )
+    result = _result(entries=(absent, present_zero))
+
+    store.save_reassure_import(result, "path/to/current.perf", "current")
+
+    rows = store._conn.execute(
+        "SELECT issues_initial_update_count, issues_redundant_updates "
+        "FROM reassure_entry ORDER BY entry_id"
+    ).fetchall()
+    assert rows[0] == (None, None)
+    assert rows[1] == (0, "[]")
+    # A NULL and a 0 must remain separable by SQL, not merely by Python.
+    null_count = store._conn.execute(
+        "SELECT COUNT(*) FROM reassure_entry WHERE issues_initial_update_count IS NULL"
+    ).fetchone()[0]
+    assert null_count == 1
+
+
 def test_duplicate_byte_identical_import_returns_none_and_inserts_zero_rows(store):
     """A byte-identical re-import (same `content_hash`) inserts ZERO rows
     across ALL FOUR tables and returns `None` — `rowcount == 0` after

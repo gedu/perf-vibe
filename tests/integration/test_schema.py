@@ -24,6 +24,7 @@ MIGRATION_0003 = DB_DIR / "migrations" / "0003_fix_p90_ceil_rank.sql"
 # absent here — only DDL migrations join the equivalence test below.
 MIGRATION_0005 = DB_DIR / "migrations" / "0005_add_reassure_tables.sql"
 MIGRATION_0006 = DB_DIR / "migrations" / "0006_add_reassure_import_kind.sql"
+MIGRATION_0007 = DB_DIR / "migrations" / "0007_add_reassure_entry_issues.sql"
 
 EXPECTED_TABLES = {"device", "flow", "metric", "run", "iteration", "measure", "system_sample"}
 EXPECTED_INDEXES = {"idx_run_flow_device_time", "idx_measure_metric", "idx_measure_run"}
@@ -174,7 +175,7 @@ def _introspect_full_schema(conn: sqlite3.Connection) -> dict:
 def test_schema_sql_and_migrations_are_fully_equivalent():
     """Strong drift guard (hardens the earlier subset check): applying
     schema.sql on one fresh DB, and applying EVERY DDL migration in order
-    (0001, 0002, 0003, 0005, 0006 -- 0004 is data-only, see above) on
+    (0001, 0002, 0003, 0005, 0006, 0007 -- 0004 is data-only, see above) on
     another, must yield IDENTICAL schemas across ALL tables — columns,
     types, NOT NULL, defaults, PK, foreign keys — plus indexes and views.
     A one-sided edit to ANY table/column, or a missing/extra index (e.g.
@@ -190,10 +191,68 @@ def test_schema_sql_and_migrations_are_fully_equivalent():
         conn_migration.executescript(MIGRATION_0003.read_text())
         conn_migration.executescript(MIGRATION_0005.read_text())
         conn_migration.executescript(MIGRATION_0006.read_text())
+        conn_migration.executescript(MIGRATION_0007.read_text())
         assert _introspect_full_schema(conn_schema) == _introspect_full_schema(conn_migration)
     finally:
         conn_schema.close()
         conn_migration.close()
+
+
+# ===== reassure `issues` diagnostics (0007_add_reassure_entry_issues.sql) =====
+
+_EXPECTED_ISSUES_COLUMNS = {"issues_initial_update_count", "issues_redundant_updates"}
+
+
+def test_reassure_entry_carries_nullable_issues_columns(fresh_connection):
+    """`0007` persists reassure's `issues` diagnostics on `reassure_entry`.
+
+    BOTH columns must be NULLABLE, because reassure's own zod schema marks
+    `issues` itself optional: `NULL` means "the file carried no `issues`
+    object" while `0` means "present and zero". Those are DIFFERENT facts
+    and collapsing them would destroy the only signal the column exists to
+    carry — the same absent-vs-empty distinction `warmup_durations` and
+    `outlier_durations` already keep as `NULL` vs `'[]'`.
+    """
+    fresh_connection.executescript(SCHEMA_SQL.read_text())
+
+    assert _column_names(fresh_connection, "reassure_entry") >= _EXPECTED_ISSUES_COLUMNS
+
+    # PRAGMA table_info row: (cid, name, type, notnull, dflt_value, pk).
+    count_column = _column_info(fresh_connection, "reassure_entry", "issues_initial_update_count")
+    assert count_column[2] == "INTEGER"
+    assert count_column[3] == 0, "NULL must stay available to mean `issues` was absent"
+
+    array_column = _column_info(fresh_connection, "reassure_entry", "issues_redundant_updates")
+    assert array_column[2] == "TEXT"
+    assert array_column[3] == 0, "NULL = key absent; '[]' = present but empty — never collapsed"
+
+
+def test_reassure_entry_issues_columns_accept_null_and_zero_distinctly(fresh_connection):
+    """The nullable-vs-zero distinction is observable at rest: one row with
+    both keys absent stores SQL `NULL`, another with `initialUpdateCount: 0`
+    and `redundantUpdates: []` stores `0` and the literal `'[]'`."""
+    fresh_connection.executescript(SCHEMA_SQL.read_text())
+
+    fresh_connection.execute(
+        "INSERT INTO reassure_import (content_hash, imported_at, source_path) "
+        "VALUES ('h', '2026-01-01T00:00:00Z', 'current.perf')"
+    )
+    fresh_connection.execute(
+        "INSERT INTO reassure_entry (import_id, name, runs) VALUES (1, 'issues absent', 1)"
+    )
+    fresh_connection.execute(
+        "INSERT INTO reassure_entry "
+        "(import_id, name, runs, issues_initial_update_count, issues_redundant_updates) "
+        "VALUES (1, 'issues present and zero', 1, 0, '[]')"
+    )
+    fresh_connection.commit()
+
+    rows = fresh_connection.execute(
+        "SELECT issues_initial_update_count, issues_redundant_updates "
+        "FROM reassure_entry ORDER BY entry_id"
+    ).fetchall()
+    assert rows[0] == (None, None)
+    assert rows[1] == (0, "[]")
 
 
 # ===== Rev 2 schema shape (decision #40: corrected directly in 0001) =====

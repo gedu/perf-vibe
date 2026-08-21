@@ -94,6 +94,7 @@ def _render_import_pretty(payload: dict) -> str:
         f"entries_skipped: {payload['entries_skipped']}",
         f"duration_samples_imported: {payload['duration_samples_imported']}",
         f"count_samples_imported: {payload['count_samples_imported']}",
+        f"entries_with_render_issues: {payload['entries_with_render_issues']}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -143,6 +144,19 @@ def reassure_import(
     count_samples_imported = (
         0 if already_imported else sum(len(entry.counts) for entry in result.entries)
     )
+    # Entries reassure flagged with an EXTRA RENDER ON MOUNT. Strictly
+    # `> 0`: an absent `issues` (`None`) and a present zero are both "not
+    # flagged", and neither is counted. `0` on a duplicate re-import, like
+    # every other `*_imported` counter — nothing was imported to flag.
+    entries_with_render_issues = (
+        0
+        if already_imported
+        else sum(
+            1
+            for entry in result.entries
+            if entry.initial_update_count is not None and entry.initial_update_count > 0
+        )
+    )
 
     for line_number, reason in result.skipped:
         emit_warning(output, f"line {line_number}: skipped ({reason})")
@@ -158,6 +172,7 @@ def reassure_import(
         entries_skipped=len(result.skipped),
         duration_samples_imported=duration_samples_imported,
         count_samples_imported=count_samples_imported,
+        entries_with_render_issues=entries_with_render_issues,
     )
 
     try:

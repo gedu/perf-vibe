@@ -154,6 +154,57 @@ surface introduced by this change.
 - WHEN imported with `--json`
 - THEN neither key appears anywhere in the `reassure_import_v1` payload
 
+### Requirement: issues Diagnostics Persistence
+
+`issues.initialUpdateCount` and `issues.redundantUpdates` MUST be persisted, as
+`reassure_entry.issues_initial_update_count` and
+`reassure_entry.issues_redundant_updates` respectively. A non-zero
+`initialUpdateCount` means the component performs an EXTRA RENDER ON MOUNT — that is
+reassure's own actionable finding, and it is what makes `issues` worth persisting
+rather than discarding. Measured across 101 real entries from two real `.perf` files:
+`issues` was present on 100% of entries, always carrying BOTH subkeys;
+`initialUpdateCount` is an INTEGER (values `0` and `1` observed, non-zero on roughly
+one entry in eight); and `redundantUpdates` is an ARRAY (`[]` in every real entry —
+reassure's own zod schema types it `number[]`, so reading it as a scalar is wrong even
+though every observed value happened to be empty).
+
+Both columns MUST be NULLABLE, because reassure's schema marks `issues` ITSELF
+optional, so its absence MUST remain tolerable even though real output always carries
+it. `NULL` means "the file carried no such key" while `0` means "present and reported
+zero" and `'[]'` means "present but empty"; those states MUST NOT be collapsed — the
+same absent-vs-empty distinction the two passthrough fields above already keep. A
+`NOT NULL DEFAULT 0` would manufacture the reassuring answer for every entry whose file
+never reported one.
+
+`issues_redundant_updates` MUST be stored as verbatim JSON passthrough, with the same
+treatment as the two existing passthrough columns: no typed field beyond the opaque
+string, no index, no query surface.
+
+A malformed `issues` MUST NOT be fatal and MUST NOT skip the entry: `issues` is
+DIAGNOSTIC, not identity and not measurement, so the offending FIELD degrades to `None`
+and the entry — whose durations/counts series are the actual data — is kept. This
+applies when `issues` is not an object, when `initialUpdateCount` is not an integer
+(`bool` is not an integer here), and when `redundantUpdates` is not an array.
+Degradation is per-FIELD: one malformed subkey MUST NOT discard its well-formed
+sibling. This is deliberately unlike `name`/`runs`/`durations`/`counts`, whose absence
+or wrong type DOES skip the line.
+
+#### Scenario: All three issues states stay distinguishable at rest
+- GIVEN one entry with `issues` absent entirely, one with `initialUpdateCount: 0` and
+  `redundantUpdates: []`, and one with a populated `redundantUpdates`
+- WHEN imported and read back from the store
+- THEN the first persists `NULL` in both columns, the second persists `0` and the
+  literal `'[]'`, and the third persists its array verbatim — no two of those states
+  are collapsed into one
+
+#### Scenario: A malformed issues block degrades per field, never skipping the entry
+- GIVEN an entry whose `issues` is not an object, or whose `initialUpdateCount` is a
+  string, or whose `redundantUpdates` is a number
+- WHEN imported
+- THEN the entry is persisted with its durations and counts intact, the offending field
+  alone is stored as `NULL`, any well-formed sibling field is still stored, and the line
+  is NOT counted as skipped
+
 ### Requirement: Content-Hash Idempotency
 
 The system MUST compute a sha256 hash of the raw file bytes and MUST insert zero rows
@@ -202,26 +253,55 @@ already_imported == false` — no dedicated boolean key is introduced for it (se
 `--json` output MUST be `reassure_import_v1` with top-level keys EXACTLY:
 `schema_version`, `path`, `content_hash`, `kind`, `already_imported`,
 `entries_imported`, `entries_skipped`, `duration_samples_imported`,
-`count_samples_imported`. `kind` is the ninth key, joining the original eight-key
-draft: `reassure_import.kind` (the file-provenance column — `'current'`, `'baseline'`,
-or `'unknown'`, derived from the file's basename unless overridden by `--kind`) is
-data this command derives and persists on every import, so it MUST be reported — a
-contract pins exactly the key set the payload has data to report, and `kind` did not
-exist to report until the column and its write path did. There MUST be no
+`count_samples_imported`, `entries_with_render_issues` — TEN keys.
+
+`kind` is the ninth key, joining the original eight-key draft:
+`reassure_import.kind` records ONLY WHICH FILE THE BYTES CAME FROM — `'current'`,
+`'baseline'`, or `'unknown'`, derived from the file's basename unless overridden by
+`--kind`. It is data this command derives and persists on every import, so it MUST be
+reported; a contract pins exactly the key set the payload has data to report, and
+`kind` did not exist to report until the column and its write path did.
+
+`entries_with_render_issues` is the TENTH key: the count of imported entries whose
+`issues.initialUpdateCount` is GREATER THAN ZERO — entries where reassure found an
+extra render on mount. The `issues` persistence requirement above is the first thing
+that gives the payload this fact to report. Entries whose `issues` was absent MUST NOT
+be counted — an absent diagnostic is not a finding. On a byte-identical re-import it
+MUST be `0`, like every other `*_imported` counter. Unlike `zero_entries` below, this
+count is NOT derivable from any other key in the payload, which is what earns it a
+place rather than a consumer-side computation.
+
+Adding it bumped `schema_version` to **2**. The rule governing that lives in
+`perf-cli-standards` rule 8 — "A contract test MUST fail on any `--json` shape change
+without a `schema_version` bump" — and this capability spec does not restate, qualify,
+or override it. `init_v1` already sits at `SCHEMA_VERSION = 2`, so bumping while the
+module keeps its `_v1` family name is the established house shape.
+
+There MUST be no
 `samples_imported` key — one count cannot describe two independently-sized series,
 so the payload reports each series separately. There MUST be no `zero_entries` key
 either: that state is `entries_imported == 0 AND already_imported == false`, fully
 derivable from two fields already in the payload — a dedicated boolean would repeat the
 exact second-source-of-truth problem this change already rejects for the statistics
 fields (`meanDuration`/`stdevDuration`/`meanCount`/`stdevCount`). No other top-level key
-MUST exist; no field may be added or removed without a `schema_version` bump. Stdout
-MUST stay byte-pure under `--json` — all warnings go to stderr only.
+MUST exist. Stdout MUST stay byte-pure under `--json` — all warnings go to stderr only.
+
+Any change to this key set — adding, removing, renaming, retyping, or changing what an
+existing key MEANS — MUST bump `schema_version` and widen the exact-set contract test in
+the same change. That rule is owned by `perf-cli-standards` rule 8 and applies to every
+`--json` contract in this repo; it is deliberately NOT restated with exceptions here,
+because a capability spec that qualifies a project-wide rule leaves a future reader with
+two contradicting authorities.
+
+For the record: `kind` joined as the ninth key without a bump. That was an oversight, not
+a precedent — it shipped before anyone asked whether the payload needed to report it, and
+nothing reads it to this day. `entries_with_render_issues` bumped to `2` instead.
 
 #### Scenario: Exact key set, series counted independently
 - GIVEN any successful `reassure-import --json` invocation of one entry with
   `durations: [10, 12]` (length 2) and `counts: [1, 1, 1]` (length 3)
 - WHEN the payload is inspected
-- THEN its top-level keys are exactly the nine listed above, no more, no fewer, and
+- THEN its top-level keys are exactly the ten listed above, no more, no fewer, and
   `duration_samples_imported` is `2` while `count_samples_imported` is `3` — neither is
   forced to match the other
 
@@ -264,3 +344,32 @@ MUST NOT be hardcoded, because the convention belongs to the project, not to the
 - THEN it is persisted and identified by that exact string, with no separate
   component/test-file field anywhere in the schema or payload
 - AND no component value is stored, even though the leading token would group it
+
+## Note (non-normative): Read Model for Follow-Ups
+
+**This section is GUIDANCE for the follow-up trend/compare view, not a requirement of
+this capability.** Ingest stores data and nothing here changes what it stores. It is
+recorded on the published spec because the finding below is easy to rediscover the hard
+way, after a read model has already been built the wrong way.
+
+**The set of test names is NOT stable between runs, so imports MUST NOT be collapsed
+into one point per commit.** Observed on real data: name counts went **38 → 50 → 51 →
+60** across four runs on the *same* commit, and the superset/subset relation between
+`current.perf` and `baseline.perf` INVERTED between runs — neither file is reliably the
+larger one.
+
+Therefore any trend or comparison read model must be **one independent series per
+`reassure_entry.name`**, over whatever imports contain that name, ordered by
+`reassure_import.created_date`. Import-level aggregation loses per-name coverage: if
+import A contains a name and import B does not, collapsing them either drops that
+datapoint or misattributes it.
+
+`median_by_commit` (`domain/statistics.py`) is therefore structurally unsuitable for
+reassure data — not merely because commits repeat, but because of that coverage loss.
+
+Consistent with this, `reassure_import.kind` records ONLY which file the bytes came
+from. It is provenance for traceability and debugging, it is NOT perf-vibe's baseline
+concept, and it MUST NEVER drive a query or a comparison: reassure needs a
+baseline/current pair because its whole comparison is a two-file diff, whereas
+perf-vibe models a time series in which "which measurement came first" is
+`ORDER BY reassure_import.created_date`, never a label.

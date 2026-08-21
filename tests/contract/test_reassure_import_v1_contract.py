@@ -1,6 +1,6 @@
 """Contract test for `contracts/reassure_import_v1.build_reassure_import_payload`
 (SKILL rule 8: "A contract test MUST fail on any `--json` shape change
-without a `schema_version` bump."). Pins the exact NINE top-level keys —
+without a `schema_version` bump."). Pins the exact TEN top-level keys —
 mirrors `test_markers_doctor_v1_contract.py`'s exact-set discipline.
 
 `kind` is the ninth key: PR4a added the `reassure_import.kind` column, and
@@ -8,6 +8,16 @@ PR4b is the first slice that WRITES it, so only now can the contract report
 it — a contract pins a key set that already exists to report; `kind`
 could not have been frozen before its column landed (spec requirement
 "reassure_import_v1 --json Contract").
+
+`entries_with_render_issues` is the tenth key, added the same way and for
+the same reason `kind` was: `0007_add_reassure_entry_issues.sql` is the
+first slice that parses and persists reassure's `issues` diagnostics, so
+only now does the payload have this fact to report. It counts imported
+entries whose `initialUpdateCount` is GREATER THAN ZERO — i.e. entries where
+reassure found an extra render on mount, its own actionable finding. It is
+NOT derivable from any other key in the payload, which is exactly why it is
+a key rather than a consumer-side computation (unlike `zero_entries`, below,
+which IS derivable and is therefore refused).
 
 Deliberately absent, and asserted absent: `samples_imported` (one count
 cannot describe two independently-sized series — `duration_samples_imported`
@@ -33,6 +43,7 @@ _REQUIRED_KEYS_AND_TYPES = {
     "entries_skipped": int,
     "duration_samples_imported": int,
     "count_samples_imported": int,
+    "entries_with_render_issues": int,
 }
 
 
@@ -46,15 +57,16 @@ def _sample_payload(**overrides: object) -> dict:
         "entries_skipped": 6,
         "duration_samples_imported": 10,
         "count_samples_imported": 12,
+        "entries_with_render_issues": 1,
     }
     defaults.update(overrides)
     return build_reassure_import_payload(**defaults)
 
 
 def test_schema_version_is_1():
-    assert SCHEMA_VERSION == 1
+    assert SCHEMA_VERSION == 2
     payload = _sample_payload()
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
 
 
 def test_required_keys_present_with_correct_types():
@@ -66,9 +78,10 @@ def test_required_keys_present_with_correct_types():
         )
 
 
-def test_exact_nine_keys_no_more_no_fewer():
+def test_exact_ten_keys_no_more_no_fewer():
     payload = _sample_payload()
     assert set(payload.keys()) == set(_REQUIRED_KEYS_AND_TYPES)
+    assert len(payload) == 10
 
 
 def test_no_samples_imported_key_anywhere_in_the_payload():
@@ -92,6 +105,19 @@ def test_kind_round_trips_verbatim():
     assert _sample_payload(kind="unknown")["kind"] == "unknown"
 
 
+def test_entries_with_render_issues_is_reported_independently_of_the_other_counters():
+    """The count of entries reassure flagged with an extra mount render is
+    its own fact: it is bounded by `entries_imported` but is NOT derivable
+    from it, nor from either sample counter. Zero is a legitimate, reportable
+    value — it means "imported, and none of them was flagged", which is a
+    different statement from "we have no diagnostics"."""
+    flagged = _sample_payload(entries_imported=3, entries_with_render_issues=2)
+    assert flagged["entries_with_render_issues"] == 2
+
+    none_flagged = _sample_payload(entries_imported=3, entries_with_render_issues=0)
+    assert none_flagged["entries_with_render_issues"] == 0
+
+
 def test_payload_is_flat_no_nested_objects_or_arrays():
     payload = _sample_payload()
     for key, value in payload.items():
@@ -110,6 +136,6 @@ def test_contract_rejects_a_shape_change_without_version_bump():
     pinning, matching `test_markers_doctor_v1_contract.py`'s pattern)."""
     payload = _sample_payload()
     assert set(payload.keys()) == set(_REQUIRED_KEYS_AND_TYPES)
-    assert payload["schema_version"] == 1, (
+    assert payload["schema_version"] == 2, (
         "a shape change needs a SCHEMA_VERSION bump, not an inequality"
     )
