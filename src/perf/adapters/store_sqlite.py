@@ -397,8 +397,9 @@ class SqliteStore:
         cur = conn.execute(
             """
             INSERT INTO reassure_entry (
-                import_id, name, entry_type, runs, warmup_durations, outlier_durations
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                import_id, name, entry_type, runs, warmup_durations, outlier_durations,
+                issues_initial_update_count, issues_redundant_updates
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 import_id,
@@ -407,6 +408,12 @@ class SqliteStore:
                 entry.runs,
                 entry.warmup_durations_json,
                 entry.outlier_durations_json,
+                # `None` binds to SQL NULL, which MEANS "the file carried no
+                # `issues` object" — never coerced to 0 or '[]', because a
+                # present zero and a present empty array are different facts
+                # (`0007_add_reassure_entry_issues.sql`).
+                entry.initial_update_count,
+                entry.redundant_updates_json,
             ),
         )
         entry_id = cur.lastrowid

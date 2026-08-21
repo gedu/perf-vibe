@@ -193,7 +193,7 @@ def test_malformed_lines_are_skipped_with_reason_and_never_fatal():
     assert len(result.skipped) == 6
     assert result.partial_coverage is True
     # Good lines are still imported despite the bad ones interleaved.
-    assert len(result.entries) == 3
+    assert len(result.entries) == 4
 
 
 def test_oversized_line_is_skipped_without_being_handed_to_json_loads(tmp_path):
@@ -266,6 +266,100 @@ def test_warmup_durations_passthrough_serializes_verbatim():
     )
 
     assert entry.warmup_durations_json == json.dumps([5.0, 5.1])
+
+
+def test_issues_diagnostics_are_parsed_with_their_real_observed_types():
+    """`issues.initialUpdateCount` is an INTEGER and `issues.redundantUpdates`
+    is an ARRAY carried verbatim as passthrough JSON. A non-zero
+    `initialUpdateCount` is reassure's actionable finding — the component
+    performed an extra render on mount — which is the whole reason this is
+    persisted rather than discarded."""
+    result = ReassureJsonlParser().parse(str(_FIXTURE_PATH))
+
+    entry = _entry_by_name(
+        result.entries, "WidgetPanel Performance Tests WidgetPanel renders correctly"
+    )
+
+    assert entry.initial_update_count == 1
+    assert entry.redundant_updates_json == json.dumps([1, 2, 3])
+
+
+def test_issues_present_and_zero_is_distinct_from_issues_absent():
+    """The three states are pinned separately: `issues` ABSENT -> both fields
+    `None`; present with `initialUpdateCount: 0` -> `0` (NOT `None`); present
+    with an empty `redundantUpdates` -> the literal `"[]"` (NOT `None`).
+    Collapsing "we never measured this" into "we measured it and found
+    nothing" is the exact failure these assertions exist to catch."""
+    result = ReassureJsonlParser().parse(str(_FIXTURE_PATH))
+
+    present_zero = _entry_by_name(
+        result.entries,
+        "NotificationBanner Performance Tests NotificationBanner renders after dismiss",
+    )
+    absent = _entry_by_name(
+        result.entries, "ToggleRow Performance Tests ToggleRow renders when checked"
+    )
+
+    assert present_zero.initial_update_count == 0
+    assert present_zero.redundant_updates_json == "[]"
+    assert absent.initial_update_count is None
+    assert absent.redundant_updates_json is None
+
+
+@pytest.mark.parametrize("literal", ["[]", '"nope"', "5", "null", "true"])
+def test_issues_that_is_not_an_object_degrades_to_none_and_keeps_the_entry(tmp_path, literal):
+    """`issues` is DIAGNOSTIC, never identity or measurement, so a malformed
+    one must NOT skip the whole entry: it degrades to `None` per field and
+    the durations/counts series — the actual data — are still kept."""
+    path = tmp_path / "bad_issues.perf"
+    path.write_text(
+        f'{{"name": "bad issues", "runs": 1, "durations": [1.0], '
+        f'"counts": [1.0], "issues": {literal}}}\n'
+    )
+
+    result = ReassureJsonlParser().parse(str(path))
+
+    assert result.skipped == (), f"issues={literal} must never cause a skip"
+    assert len(result.entries) == 1
+    assert result.entries[0].initial_update_count is None
+    assert result.entries[0].redundant_updates_json is None
+    assert result.entries[0].durations == (1.0,)
+
+
+@pytest.mark.parametrize(
+    ("issues_json", "expected_count", "expected_array"),
+    [
+        # A non-integer `initialUpdateCount` degrades ONLY that field; the
+        # well-formed `redundantUpdates` beside it survives.
+        ('{"initialUpdateCount": "1", "redundantUpdates": []}', None, "[]"),
+        ('{"initialUpdateCount": 1.5, "redundantUpdates": []}', None, "[]"),
+        # `bool` is an `int` subclass in Python but is not a count.
+        ('{"initialUpdateCount": true, "redundantUpdates": []}', None, "[]"),
+        # A `redundantUpdates` that is not an ARRAY degrades ONLY that field.
+        ('{"initialUpdateCount": 2, "redundantUpdates": 3}', 2, None),
+        ('{"initialUpdateCount": 2, "redundantUpdates": {}}', 2, None),
+        # Each subkey is independently optional within a well-formed object.
+        ('{"initialUpdateCount": 2}', 2, None),
+        ('{"redundantUpdates": [7]}', None, "[7]"),
+    ],
+)
+def test_malformed_issues_subkey_degrades_only_itself(
+    tmp_path, issues_json, expected_count, expected_array
+):
+    """Per-FIELD degradation, not per-entry and not per-object: one bad
+    subkey must never take its well-formed sibling down with it."""
+    path = tmp_path / "partial_issues.perf"
+    path.write_text(
+        f'{{"name": "partial issues", "runs": 1, "durations": [1.0], '
+        f'"counts": [1.0], "issues": {issues_json}}}\n'
+    )
+
+    result = ReassureJsonlParser().parse(str(path))
+
+    assert result.skipped == ()
+    assert len(result.entries) == 1
+    assert result.entries[0].initial_update_count == expected_count
+    assert result.entries[0].redundant_updates_json == expected_array
 
 
 def test_blank_lines_are_ignored_silently_never_counted_as_skipped(tmp_path):

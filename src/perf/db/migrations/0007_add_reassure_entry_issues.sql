@@ -1,0 +1,54 @@
+-- Migration 0007: persist reassure's `issues` diagnostics on
+-- `reassure_entry` (reassure-ingest follow-up).
+--
+-- NUMBERING: `reassure-ingest`'s design.md predicted this column set would
+-- land as a `0006` ("a `0007` adds `issues_json` (`0006` shipped as
+-- `kind`)"). `0006` did ship as `kind`, so this is `0007`. Nothing about
+-- the design's reasoning changed -- only the number.
+--
+-- WHY these columns exist: a non-zero `initialUpdateCount` means the
+-- component performed an EXTRA RENDER ON MOUNT. That is reassure's own
+-- actionable finding, and it is the whole reason `issues` is worth
+-- persisting rather than discarding. Measured across 101 real entries from
+-- two real `.perf` files: `issues` was present on 100% of entries, always
+-- carrying BOTH subkeys, and `initialUpdateCount` was non-zero on roughly
+-- one entry in eight.
+--
+-- OBSERVED TYPES (do not re-derive these):
+--   * `issues.initialUpdateCount` is an INTEGER. Values `0` and `1` seen.
+--   * `issues.redundantUpdates` is an ARRAY -- `[]` in every real entry
+--     observed. Reassure's own zod schema types it `number[]`, so a
+--     consumer that reads it as a scalar is wrong even though every
+--     observed value happened to be empty.
+--
+-- WHY BOTH COLUMNS ARE NULLABLE (load-bearing): reassure's zod schema
+-- marks `issues` ITSELF optional, so absence must stay tolerable even
+-- though real output always carries it. That makes `NULL` and `0` two
+-- DIFFERENT facts:
+--   * `issues_initial_update_count` NULL = the file carried NO `issues`
+--     object at all; 0 = `issues` was present and reported zero extra
+--     mount renders.
+--   * `issues_redundant_updates` NULL = the `redundantUpdates` key was
+--     ABSENT; '[]' = present but empty.
+-- Collapsing either pair would turn "we never measured this" into "we
+-- measured it and found nothing" -- exactly the distinction
+-- `reassure_entry.warmup_durations` / `outlier_durations` already keep as
+-- NULL vs '[]'. A `NOT NULL DEFAULT 0` here would silently manufacture the
+-- reassuring answer for every entry whose file never reported one.
+--
+-- `issues_redundant_updates` is verbatim JSON PASSTHROUGH, diagnostic
+-- only: no typed domain field beyond the opaque string, no index, no query
+-- surface -- identical treatment to the two existing passthrough columns.
+-- A malformed `issues` degrades the OFFENDING FIELD to NULL and keeps the
+-- entry (see `adapters/reassure_jsonl.py`); it never skips a measurement,
+-- because `issues` is diagnostic and the durations/counts series are the
+-- data.
+--
+-- Additive only: two nullable `ALTER TABLE ... ADD COLUMN` statements, so
+-- every row already on disk is valid unchanged and no DEFAULT is needed
+-- (unlike `0006`'s `NOT NULL` `kind`, which required `DEFAULT 'unknown'`).
+-- No pragmas and no `PRAGMA user_version` bump -- the runner
+-- (`SqliteStore._migrate`) owns both.
+
+ALTER TABLE reassure_entry ADD COLUMN issues_initial_update_count INTEGER;
+ALTER TABLE reassure_entry ADD COLUMN issues_redundant_updates TEXT;

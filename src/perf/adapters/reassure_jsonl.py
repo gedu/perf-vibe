@@ -9,7 +9,9 @@ post-warmup set, and `removeOutliers` defaults to `true`, so
 same run as index `i` of the other (design "Load-Bearing Invariant").
 
 Tolerant per line, strict per file: a malformed line is skipped and
-reported in `ReassureParseResult.skipped`, never fatal. An unreadable file
+reported in `ReassureParseResult.skipped`, never fatal. Tolerance goes one
+step further for the `issues` DIAGNOSTICS, which degrade per FIELD and never
+discard the entry at all (see `_parse_issues`). An unreadable file
 (missing, unreadable, not UTF-8) raises `ReassureParseError`, mapped by the
 CLI to exit 2 in a later slice. This adapter prints nothing — it only
 returns data; the CLI renders warnings from `skipped`.
@@ -214,6 +216,8 @@ def _parse_entry(data: dict[str, object]) -> tuple[ReassureEntry | None, str | N
         return None, REASON_INVALID_VALUE
     runs = runs_raw
 
+    initial_update_count, redundant_updates_json = _parse_issues(data)
+
     return (
         ReassureEntry(
             name=name,
@@ -223,9 +227,57 @@ def _parse_entry(data: dict[str, object]) -> tuple[ReassureEntry | None, str | N
             counts=tuple(float(v) for v in counts_raw),
             warmup_durations_json=_passthrough_json(data, "warmupDurations"),
             outlier_durations_json=_passthrough_json(data, "outlierDurations"),
+            initial_update_count=initial_update_count,
+            redundant_updates_json=redundant_updates_json,
         ),
         None,
     )
+
+
+def _parse_issues(data: dict[str, object]) -> tuple[int | None, str | None]:
+    """Parses reassure's `issues` diagnostics into
+    `(initial_update_count, redundant_updates_json)`.
+
+    DECISION — a malformed `issues` is NEVER fatal and NEVER skips the entry.
+    `issues` is DIAGNOSTIC, not identity and not measurement: the
+    durations/counts series are the data, and discarding a real measurement
+    because its optional diagnostic block was junk would lose more than it
+    protects. So every failure mode here degrades the OFFENDING FIELD to
+    `None` and keeps the entry — `issues` not an object, `initialUpdateCount`
+    not an integer, or `redundantUpdates` not an array. Degradation is
+    per-FIELD, so one bad subkey never takes its well-formed sibling with it.
+    This is deliberately unlike `name`/`runs`/`durations`/`counts`, whose
+    absence or wrong type DOES skip the line.
+
+    `None` means the key was ABSENT, which stays distinct from a present `0`
+    and from a present `"[]"` (see `ReassureEntry`'s docstring and
+    `0007_add_reassure_entry_issues.sql`).
+    """
+
+    issues = data.get("issues")
+    if not isinstance(issues, dict):
+        # Absent, `null`, or the wrong shape entirely — indistinguishable at
+        # rest (all three mean "no usable diagnostics"), and none of them is
+        # a reason to drop the measurement.
+        return None, None
+
+    raw_count = issues.get("initialUpdateCount")
+    # `bool` is an `int` subclass in Python but is not a count — the same
+    # exclusion `_is_finite_number` makes for measurements.
+    initial_update_count = (
+        raw_count if isinstance(raw_count, int) and not isinstance(raw_count, bool) else None
+    )
+
+    # An ARRAY, verbatim: reassure's zod schema types `redundantUpdates` as
+    # `number[]` (every observed real value was `[]`), so anything that is
+    # not a list is degraded rather than stored as a misleading scalar.
+    redundant_updates_json = (
+        _passthrough_json(issues, "redundantUpdates")
+        if isinstance(issues.get("redundantUpdates"), list)
+        else None
+    )
+
+    return initial_update_count, redundant_updates_json
 
 
 def _passthrough_json(data: dict[str, object], key: str) -> str | None:

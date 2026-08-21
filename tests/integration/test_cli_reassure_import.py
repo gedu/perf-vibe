@@ -78,9 +78,9 @@ def test_successful_import_then_reimport_is_already_imported(monkeypatch, tmp_pa
     first = runner.invoke(main_module.app, ["--json", "reassure-import", str(_FIXTURE)])
     assert first.exit_code == 0, first.output
     payload = json.loads(first.stdout)
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert payload["already_imported"] is False
-    assert payload["entries_imported"] == 3
+    assert payload["entries_imported"] == 4
     assert payload["duration_samples_imported"] > 0
     assert payload["count_samples_imported"] > 0
     assert payload["entries_skipped"] == 6
@@ -92,6 +92,52 @@ def test_successful_import_then_reimport_is_already_imported(monkeypatch, tmp_pa
     assert payload2["entries_imported"] == 0
     assert payload2["duration_samples_imported"] == 0
     assert payload2["count_samples_imported"] == 0
+
+
+def test_entries_with_render_issues_counted_end_to_end_from_the_real_fixture(
+    monkeypatch, tmp_path: Path
+):
+    """The committed fixture carries exactly ONE entry with
+    `issues.initialUpdateCount` greater than zero (the WidgetPanel entry, at
+    `1`); the other three are `0`, `0`, and `issues` absent entirely. So the
+    payload must report `1` — proving the counter counts NON-ZERO entries, not
+    entries that merely HAVE an `issues` block (which would be 3) and not all
+    imported entries (4). A duplicate re-import reports `0`, like every other
+    `*_imported` counter, because nothing was imported."""
+    db_path = tmp_path / "perf.db"
+    _patch_load_config(monkeypatch, db_path=str(db_path))
+
+    first = runner.invoke(main_module.app, ["--json", "reassure-import", str(_FIXTURE)])
+    assert first.exit_code == 0, first.output
+    payload = json.loads(first.stdout)
+    assert payload["entries_imported"] == 4
+    assert payload["entries_with_render_issues"] == 1
+
+    second = runner.invoke(main_module.app, ["--json", "reassure-import", str(_FIXTURE)])
+    assert second.exit_code == 0, second.output
+    assert json.loads(second.stdout)["entries_with_render_issues"] == 0
+
+
+def test_entries_with_render_issues_is_zero_when_no_entry_is_flagged(monkeypatch, tmp_path: Path):
+    """A file whose entries all report `initialUpdateCount: 0` (or omit
+    `issues`) imports cleanly and reports `0` — the counter never confuses
+    "flagged nothing" with "imported nothing"."""
+    db_path = tmp_path / "perf.db"
+    _patch_load_config(monkeypatch, db_path=str(db_path))
+    clean = _write(
+        tmp_path,
+        "clean.perf",
+        '{"name": "a", "runs": 1, "durations": [1.0], "counts": [1.0], '
+        '"issues": {"initialUpdateCount": 0, "redundantUpdates": []}}\n'
+        '{"name": "b", "runs": 1, "durations": [2.0], "counts": [2.0]}\n',
+    )
+
+    result = runner.invoke(main_module.app, ["--json", "reassure-import", str(clean)])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["entries_imported"] == 2
+    assert payload["entries_with_render_issues"] == 0
 
 
 def test_duration_and_count_counters_are_independently_reported(monkeypatch, tmp_path: Path):
