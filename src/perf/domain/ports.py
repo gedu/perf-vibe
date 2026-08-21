@@ -114,7 +114,9 @@ class ReassureParser(Protocol):
 class Store(Protocol):
     """Persists a run and answers history queries."""
 
-    def save_reassure_import(self, result: ReassureParseResult, source_path: str) -> int | None: ...
+    def save_reassure_import(
+        self, result: ReassureParseResult, source_path: str, kind: str
+    ) -> int | None: ...
 
     def save_run(
         self,

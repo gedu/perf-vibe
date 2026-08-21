@@ -78,6 +78,12 @@ from perf.domain.ports import Clock
 _PACKAGE_DB_DIR = Path(__file__).resolve().parent.parent / "db"
 _MIGRATIONS_DIR = _PACKAGE_DB_DIR / "migrations"
 
+# `reassure_import.kind` (`0006_add_reassure_import_kind.sql`) carries NO
+# `CHECK` constraint by design (house style: matches `run.mode`/
+# `reassure_entry.entry_type`) — validation lives here, at the adapter
+# boundary, instead.
+_VALID_REASSURE_KINDS = frozenset({"current", "baseline", "unknown"})
+
 # The `system_sample` aggregate field names (excluding the join key) —
 # derived from the domain model, not hardcoded twice, so the "metric"
 # dimension direction-metadata upsert (spec: "Direction-Aware Metric
@@ -306,11 +312,24 @@ class SqliteStore:
     # so they are persisted via TWO INDEPENDENT loops into their own sample
     # tables — never one zipped loop.
 
-    def save_reassure_import(self, result: ReassureParseResult, source_path: str) -> int | None:
+    def save_reassure_import(
+        self, result: ReassureParseResult, source_path: str, kind: str
+    ) -> int | None:
+        # Validated HERE, at the adapter boundary, before `BEGIN` — the
+        # `reassure_import.kind` column deliberately carries no `CHECK`
+        # constraint (house style: matches `run.mode`/
+        # `reassure_entry.entry_type`), so this is the ONE place a bad value
+        # is rejected, and it is rejected before any row is written (not a
+        # rolled-back partial write).
+        if kind not in _VALID_REASSURE_KINDS:
+            raise ValueError(
+                f"invalid reassure import kind {kind!r}; "
+                f"must be one of {sorted(_VALID_REASSURE_KINDS)!r}"
+            )
         conn = self._conn
         conn.execute("BEGIN")
         try:
-            import_id = self._insert_reassure_import(conn, result, source_path)
+            import_id = self._insert_reassure_import(conn, result, source_path, kind)
             if import_id is None:
                 # Byte-identical re-import: `rowcount == 0` after
                 # `ON CONFLICT(content_hash) DO NOTHING` — zero rows
@@ -332,7 +351,7 @@ class SqliteStore:
             raise
 
     def _insert_reassure_import(
-        self, conn: sqlite3.Connection, result: ReassureParseResult, source_path: str
+        self, conn: sqlite3.Connection, result: ReassureParseResult, source_path: str, kind: str
     ) -> int | None:
         header = result.header
         branch = header.branch if header is not None else None
@@ -342,8 +361,8 @@ class SqliteStore:
         cur = conn.execute(
             """
             INSERT INTO reassure_import (
-                content_hash, imported_at, source_path, branch, commit_hash, created_date
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                content_hash, imported_at, source_path, branch, commit_hash, created_date, kind
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(content_hash) DO NOTHING
             """,
             (
@@ -353,6 +372,7 @@ class SqliteStore:
                 branch,
                 commit_hash,
                 created_date,
+                kind,
             ),
         )
         # Duplicate detection is `rowcount == 0` (design "Duplicate

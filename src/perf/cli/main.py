@@ -21,6 +21,7 @@ from perf.cli.commands.compare import compare as compare_command
 from perf.cli.commands.history import history as history_command
 from perf.cli.commands.init import init as init_command
 from perf.cli.commands.markers import markers_app
+from perf.cli.commands.reassure_import import reassure_import as reassure_import_command
 from perf.cli.commands.run import run as run_command
 from perf.cli.output.context import OutputContext, resolve_output_context
 from perf.cli.output.errors import emit_error
@@ -133,6 +134,11 @@ app.command(
     name="init",
     context_settings={"help_option_names": ["--help", "-h"]},
 )(init_command)
+
+app.command(
+    name="reassure-import",
+    context_settings={"help_option_names": ["--help", "-h"]},
+)(reassure_import_command)
 
 # First nested-Typer sub-app in the repo (markers-command design "Technical
 # Approach"): `markers snippet`/`markers doctor`. Typer/Click propagate the

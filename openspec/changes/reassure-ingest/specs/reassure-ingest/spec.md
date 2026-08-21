@@ -200,9 +200,15 @@ already_imported == false` — no dedicated boolean key is introduced for it (se
 ### Requirement: reassure_import_v1 --json Contract
 
 `--json` output MUST be `reassure_import_v1` with top-level keys EXACTLY:
-`schema_version`, `path`, `content_hash`, `already_imported`, `entries_imported`,
-`entries_skipped`, `duration_samples_imported`, `count_samples_imported`. There MUST be
-no `samples_imported` key — one count cannot describe two independently-sized series,
+`schema_version`, `path`, `content_hash`, `kind`, `already_imported`,
+`entries_imported`, `entries_skipped`, `duration_samples_imported`,
+`count_samples_imported`. `kind` is the ninth key, joining the original eight-key
+draft: `reassure_import.kind` (the file-provenance column — `'current'`, `'baseline'`,
+or `'unknown'`, derived from the file's basename unless overridden by `--kind`) is
+data this command derives and persists on every import, so it MUST be reported — a
+contract pins exactly the key set the payload has data to report, and `kind` did not
+exist to report until the column and its write path did. There MUST be no
+`samples_imported` key — one count cannot describe two independently-sized series,
 so the payload reports each series separately. There MUST be no `zero_entries` key
 either: that state is `entries_imported == 0 AND already_imported == false`, fully
 derivable from two fields already in the payload — a dedicated boolean would repeat the
@@ -216,7 +222,7 @@ all warnings go to stderr only.
 - GIVEN any successful `reassure-import --json` invocation of one entry with
   `durations: [10, 12]` (length 2) and `counts: [1, 1, 1]` (length 3)
 - WHEN the payload is inspected
-- THEN its top-level keys are exactly the eight listed above, no more, no fewer, and
+- THEN its top-level keys are exactly the nine listed above, no more, no fewer, and
   `duration_samples_imported` is `2` while `count_samples_imported` is `3` — neither is
   forced to match the other
 

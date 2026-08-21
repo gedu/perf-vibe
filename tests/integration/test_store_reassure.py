@@ -90,7 +90,7 @@ def test_non_alignment_load_bearing_persists_two_independent_series(store):
     entry = _entry()
     result = _result(entries=(entry,))
 
-    import_id = store.save_reassure_import(result, "path/to/current.perf")
+    import_id = store.save_reassure_import(result, "path/to/current.perf", "current")
 
     assert import_id is not None
     counts = _row_counts(store._conn)
@@ -134,7 +134,7 @@ def test_runs_persisted_verbatim_never_reconciled_against_actual_counts(store):
     entry = _entry(name="mismatched runs", runs=10, durations=(1.0,), counts=(1.0, 2.0, 3.0))
     result = _result(entries=(entry,))
 
-    store.save_reassure_import(result, "path/to/current.perf")
+    store.save_reassure_import(result, "path/to/current.perf", "current")
 
     row = store._conn.execute(
         "SELECT runs FROM reassure_entry WHERE name = ?", ("mismatched runs",)
@@ -151,7 +151,7 @@ def test_empty_durations_persists_entry_with_zero_duration_rows(store):
     entry = _entry(name="every run an outlier", runs=3, durations=(), counts=(4.0, 5.0, 6.0))
     result = _result(entries=(entry,))
 
-    store.save_reassure_import(result, "path/to/current.perf")
+    store.save_reassure_import(result, "path/to/current.perf", "current")
 
     duration_rows = store._conn.execute("SELECT COUNT(*) FROM reassure_duration_sample").fetchone()[
         0
@@ -169,7 +169,7 @@ def test_warmup_and_outlier_durations_absent_persist_as_sql_null(store):
     entry = _entry(warmup_durations_json=None, outlier_durations_json=None)
     result = _result(entries=(entry,))
 
-    store.save_reassure_import(result, "path/to/current.perf")
+    store.save_reassure_import(result, "path/to/current.perf", "current")
 
     row = store._conn.execute(
         "SELECT warmup_durations, outlier_durations FROM reassure_entry"
@@ -185,7 +185,7 @@ def test_warmup_and_outlier_durations_present_empty_persist_as_literal_bracket_p
     entry = _entry(warmup_durations_json="[]", outlier_durations_json="[]")
     result = _result(entries=(entry,))
 
-    store.save_reassure_import(result, "path/to/current.perf")
+    store.save_reassure_import(result, "path/to/current.perf", "current")
 
     row = store._conn.execute(
         "SELECT warmup_durations, outlier_durations FROM reassure_entry"
@@ -202,11 +202,11 @@ def test_duplicate_byte_identical_import_returns_none_and_inserts_zero_rows(stor
     entry = _entry()
     result = _result(entries=(entry,), content_hash="samehash" * 8)
 
-    first_id = store.save_reassure_import(result, "path/to/current.perf")
+    first_id = store.save_reassure_import(result, "path/to/current.perf", "current")
     assert first_id is not None
     before = _row_counts(store._conn)
 
-    second_id = store.save_reassure_import(result, "path/to/current.perf")
+    second_id = store.save_reassure_import(result, "path/to/current.perf", "current")
 
     assert second_id is None
     after = _row_counts(store._conn)
@@ -226,7 +226,7 @@ def test_zero_entries_still_commits_one_import_row_with_no_entry_or_sample_rows(
     rolled-back transaction."""
     result = _result(entries=())
 
-    import_id = store.save_reassure_import(result, "path/to/current.perf")
+    import_id = store.save_reassure_import(result, "path/to/current.perf", "current")
 
     assert import_id is not None
     counts = _row_counts(store._conn)
@@ -240,7 +240,7 @@ def test_source_path_stored_in_source_path_column(store):
     entry = _entry()
     result = _result(entries=(entry,))
 
-    store.save_reassure_import(result, "reports/current.perf")
+    store.save_reassure_import(result, "reports/current.perf", "current")
 
     row = store._conn.execute("SELECT source_path FROM reassure_import").fetchone()
     assert row[0] == "reports/current.perf"
@@ -250,7 +250,7 @@ def test_imported_at_comes_from_injected_clock(store):
     entry = _entry()
     result = _result(entries=(entry,))
 
-    store.save_reassure_import(result, "path/to/current.perf")
+    store.save_reassure_import(result, "path/to/current.perf", "current")
 
     row = store._conn.execute("SELECT imported_at FROM reassure_import").fetchone()
     assert row[0] == "2026-08-20T00:00:00+00:00"
@@ -261,7 +261,7 @@ def test_header_metadata_persisted_when_present(store):
     entry = _entry()
     result = _result(entries=(entry,), header=header)
 
-    store.save_reassure_import(result, "path/to/current.perf")
+    store.save_reassure_import(result, "path/to/current.perf", "current")
 
     row = store._conn.execute(
         "SELECT branch, commit_hash, created_date FROM reassure_import"
@@ -273,7 +273,7 @@ def test_header_absent_persists_null_metadata_columns(store):
     entry = _entry()
     result = _result(entries=(entry,), header=None)
 
-    store.save_reassure_import(result, "path/to/current.perf")
+    store.save_reassure_import(result, "path/to/current.perf", "current")
 
     row = store._conn.execute(
         "SELECT branch, commit_hash, created_date FROM reassure_import"
@@ -303,13 +303,52 @@ def test_mid_transaction_failure_rolls_back_leaving_zero_rows_in_all_four_tables
     result = _result(entries=(good_entry, bad_entry))
 
     with pytest.raises(sqlite3.IntegrityError, match="NOT NULL"):
-        store.save_reassure_import(result, "path/to/current.perf")
+        store.save_reassure_import(result, "path/to/current.perf", "current")
 
     counts = _row_counts(store._conn)
     assert all(count == 0 for count in counts.values()), counts
 
     # The store must remain usable after a rolled-back transaction, and the
     # rolled-back `content_hash` must NOT have been consumed as a duplicate.
-    reimport_id = store.save_reassure_import(_result(entries=(good_entry,)), "path/to/current.perf")
+    reimport_id = store.save_reassure_import(
+        _result(entries=(good_entry,)), "path/to/current.perf", "current"
+    )
     assert reimport_id is not None
     assert _row_counts(store._conn)["reassure_import"] == 1
+
+
+def test_kind_persisted_verbatim_for_each_allowed_value(store):
+    """`kind` (PR4a's `0006_add_reassure_import_kind.sql` column, unwritten
+    until this slice) is persisted verbatim for each of the three allowed
+    values — no rewriting, no normalization."""
+    for kind, content_hash in (
+        ("current", "current-hash" * 5),
+        ("baseline", "baseline-hash" * 5),
+        ("unknown", "unknown-hash" * 5),
+    ):
+        entry = _entry(name=f"{kind} entry")
+        result = _result(entries=(entry,), content_hash=content_hash)
+
+        import_id = store.save_reassure_import(result, "path/to/file.perf", kind)
+
+        assert import_id is not None
+        row = store._conn.execute(
+            "SELECT kind FROM reassure_import WHERE import_id = ?", (import_id,)
+        ).fetchone()
+        assert row[0] == kind
+
+
+def test_invalid_kind_raises_value_error_before_any_row_is_written(store):
+    """The store validates `kind` at the adapter boundary (the schema
+    deliberately carries no `CHECK` constraint — house style, matches
+    `run.mode`/`reassure_entry.entry_type`). An invalid value raises
+    `ValueError` before `BEGIN`, leaving the transaction untouched — not a
+    rolled-back partial write, no write attempted at all."""
+    entry = _entry()
+    result = _result(entries=(entry,))
+
+    with pytest.raises(ValueError, match="kind"):
+        store.save_reassure_import(result, "path/to/current.perf", "nightly")
+
+    counts = _row_counts(store._conn)
+    assert all(count == 0 for count in counts.values()), counts
