@@ -28,6 +28,7 @@ __all__ = [
     "DEFAULT_FLOORS",
     "DEFAULT_ITERATIONS",
     "DEFAULT_MIN_BASELINE_COMMITS",
+    "DEFAULT_REASSURE_PATH",
     "DEFAULT_THRESHOLD_PCT",
     "DEFAULT_WARMUP_K",
     "GLOBAL_CONFIG_PATH",
@@ -72,6 +73,12 @@ DEFAULT_BASELINE_N = 10
 # `adaptive_floor = false` to restore the pre-batch static-floor behavior.
 DEFAULT_ADAPTIVE_FLOOR = True
 
+# `reassure-import`'s default input path (reassure-ingest PR4b). An INPUT
+# path the user points at, like `flows[].maestro_path` — deliberately NOT
+# anchored under `base_dir`/`_under_base` (see `PerfConfig.reassure_path`
+# below and `_under_base`'s docstring).
+DEFAULT_REASSURE_PATH = ".reassure/current.perf"
+
 GLOBAL_CONFIG_PATH = Path.home() / ".config" / "perf" / "config.toml"
 PROJECT_CONFIG_FILENAMES: tuple[str, ...] = ("perfvibe.toml", ".perfvibe.toml")
 
@@ -105,6 +112,12 @@ class PerfConfig:
     tool_version: str = DEFAULT_TOOL_VERSION
     replay_logcat: str | None = None
     replay_flashlight: str | None = None
+    # `reassure-import`'s default input path (reassure-ingest PR4b) — an
+    # INPUT path the user points at, deliberately NOT run through
+    # `_under_base` (matches `flows[].maestro_path`/`replay_logcat`/
+    # `replay_flashlight` above: perfvibe reads FROM here, it does not
+    # write here).
+    reassure_path: str = DEFAULT_REASSURE_PATH
     flows: Mapping[str, FlowConfig] = field(default_factory=dict)
 
     # ===== compare tuning knobs (design Rev 2/3, decision #58) =====
@@ -308,6 +321,7 @@ def load_config(
         tool_version=str(layers.get("tool_version", DEFAULT_TOOL_VERSION)),
         replay_logcat=layers.get("replay_logcat"),
         replay_flashlight=layers.get("replay_flashlight"),
+        reassure_path=str(layers.get("reassure_path", DEFAULT_REASSURE_PATH)),
         flows=flows,
         threshold_pct=_typed_float(layers, "threshold_pct", DEFAULT_THRESHOLD_PCT),
         floors=floors,

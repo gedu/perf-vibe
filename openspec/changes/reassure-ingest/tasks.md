@@ -249,60 +249,96 @@ and revert independently of the column.
 
 ## PR4b — CLI Command, Config, `--json` Contract
 
-**Branch**: `reassure-ingest/pr4-cli` · **Base**: `reassure-ingest/pr4a-kind-and-test-debt`
+**Branch**: `reassure-ingest/pr4b-cli` · **Base**: `reassure-ingest/pr4a-kind-and-test-debt`
 (stacked-to-main: retarget to `main` once PR4a merges) · **Est. lines**: ~280
 
-**Note on the contract shape**: `design.md`'s "Contract" section describes a NESTED
-payload (`source_path`, `import_id`, `imported`, `header{...}`, `summary{...}`,
-`skipped[]`, `diagnostic`) that predates the final decision. The authoritative shape is
-`spec.md`'s flat 8-key contract, confirmed as final in Engram decision #280
-(`sdd/reassure-ingest/state`): `schema_version`, `path`, `content_hash`,
+**Note on the contract shape (superseded)**: `design.md`'s "Contract" section
+describes a NESTED payload (`source_path`, `import_id`, `imported`, `header{...}`,
+`summary{...}`, `skipped[]`, `diagnostic`) that predates the final decision — still
+stale, still not what ships. A second, now also-superseded draft (Engram decision
+#280, `sdd/reassure-ingest/state`) pinned a flat EIGHT-key contract with no `kind`.
+**This slice ships NINE keys**: `schema_version`, `path`, `content_hash`, `kind`,
 `already_imported`, `entries_imported`, `entries_skipped`,
 `duration_samples_imported`, `count_samples_imported` — no `samples_imported`, no
-`zero_entries`. Task 4.2 builds THIS shape, not `design.md`'s stale nested one.
+`zero_entries`. `kind` joined because PR4a added the `reassure_import.kind` column
+(default `'unknown'`, unwritten) and THIS slice is the first to derive and persist a
+real value for it (task 4.0) — a contract can only pin a key the payload has
+something to report, so `kind` could not be frozen before its write path existed.
+`openspec/changes/reassure-ingest/specs/reassure-ingest/spec.md`'s "reassure_import_v1
+--json Contract" requirement is updated to nine keys as part of this slice (spec is
+the authority on the payload, per the design doc's own "Slice boundaries" note).
 
 **Independently reviewable**: the user-facing surface over two ports that already
-exist and are already tested (PR2 + PR3). **Independently revertable**: unregister the
-command in `main.py`; the ports remain callable but unreached.
+exist and are already tested (PR2 + PR3), plus one additive store-signature change
+(task 4.0) validated at the adapter boundary. **Independently revertable**: unregister
+the command in `main.py`; the ports remain callable but unreached; `kind` reverts to
+always-`'unknown'` by dropping the third `save_reassure_import` argument.
 
-- [ ] 4.1 RED — `tests/contract/test_reassure_import_v1_contract.py`: pins the exact 8
-  top-level keys (see note above), no more, no fewer; asserts no `samples_imported` and
-  no `zero_entries` key anywhere in the payload.
-- [ ] 4.2 GREEN — `src/perf/contracts/reassure_import_v1.py`: `SCHEMA_VERSION = 1`; pure
-  `build_reassure_import_payload(**kwargs)` builder emitting exactly the 8 keys above.
-- [ ] 4.3 GREEN — `src/perf/config/loader.py`: add `reassure_path: str =
-  ".reassure/current.perf"` to `PerfConfig` — an input path, NOT run through
-  `_under_base` (matches `flows[].maestro_path`).
-- [ ] 4.4 RED — `tests/integration/test_cli_reassure_import.py`: missing/unreadable path
-  exits `2`, no `--json` payload emitted.
-- [ ] 4.5 RED — `tests/integration/test_cli_reassure_import.py`: successful import
+- [x] 4.0 RED/GREEN — `src/perf/domain/ports.py` + `src/perf/adapters/store_sqlite.py`:
+  extend `Store.save_reassure_import` to `(result, source_path, kind: str) -> int |
+  None`; validate `kind` at the ADAPTER boundary (`{"current", "baseline", "unknown"}`,
+  raising `ValueError` before `BEGIN` — the schema deliberately has no `CHECK`) and
+  persist it into the `reassure_import.kind` column PR4a added. Updated all 14
+  existing `tests/integration/test_store_reassure.py` call sites to pass `kind`
+  (confirmed RED first: every one failed with `TypeError: ... takes 3 positional
+  arguments but 4 were given` before the signature change — RED for the right
+  reason); added `test_kind_persisted_verbatim_for_each_allowed_value` and
+  `test_invalid_kind_raises_value_error_before_any_row_is_written`.
+- [x] 4.1 RED — `tests/contract/test_reassure_import_v1_contract.py`: pins the exact
+  NINE top-level keys (see note above), no more, no fewer; asserts no
+  `samples_imported` and no `zero_entries` key anywhere in the payload. Confirmed RED
+  (`ModuleNotFoundError`) before `contracts/reassure_import_v1.py` existed.
+- [x] 4.2 GREEN — `src/perf/contracts/reassure_import_v1.py`: `SCHEMA_VERSION = 1`;
+  pure `build_reassure_import_payload(**kwargs)` builder emitting exactly the 9 keys
+  above.
+- [x] 4.3 GREEN — `src/perf/config/loader.py`: added `reassure_path: str =
+  DEFAULT_REASSURE_PATH` (`".reassure/current.perf"`) to `PerfConfig` — an input path,
+  NOT run through `_under_base` (matches `flows[].maestro_path`/`replay_logcat`/
+  `replay_flashlight`); wired into `load_config`'s `layers.get("reassure_path", ...)`.
+- [x] 4.4 RED — `tests/integration/test_cli_reassure_import.py`: missing/unreadable path
+  exits `2`, no `--json` payload emitted (both `--json` and pretty modes covered).
+- [x] 4.5 RED — `tests/integration/test_cli_reassure_import.py`: successful import
   against `tests/fixtures/reassure_sample.perf` exits `0` with correct
-  `entries_imported`/`duration_samples_imported`/`count_samples_imported`; re-importing
+  `entries_imported`/`duration_samples_imported`/`count_samples_imported` (asserted
+  independently-different, per the fixture's non-alignment entry); re-importing
   the identical file exits `0` with `already_imported: true` and all `*_imported`
   fields `0`.
-- [ ] 4.6 RED — `tests/integration/test_cli_reassure_import.py`: a readable file where
+- [x] 4.6 RED — `tests/integration/test_cli_reassure_import.py`: a readable file where
   every line is malformed exits `0` with `entries_imported: 0`,
   `already_imported: false`, and a stderr warning.
-- [ ] 4.7 RED — `tests/integration/test_cli_reassure_import.py`: mixed-quality fixture —
-  skipped lines each warn on stderr, good lines imported, exit `0`; stdout under
-  `--json` is byte-pure (exactly the payload, no warnings).
-- [ ] 4.8 RED — `tests/integration/test_cli_reassure_import.py`: a forced
-  store/transaction failure exits `3`. Confirm exit `1` is never produced anywhere in
-  this suite.
-- [ ] 4.9 GREEN — `src/perf/cli/commands/reassure_import.py`: flat command;
-  `resolved = path or config.reassure_path`; `build_reassure_parser().parse(resolved)`;
+- [x] 4.7 RED — `tests/integration/test_cli_reassure_import.py`: mixed-quality fixture —
+  skipped lines each warn on stderr (exactly 6, matching the fixture's 6 malformed
+  lines), good lines imported, exit `0`; stdout under `--json` is byte-pure (exactly
+  the payload, no warnings).
+- [x] 4.8 RED — `tests/integration/test_cli_reassure_import.py`: a forced
+  store/transaction failure (a fake store injected at the `build_store` registry seam,
+  never a patched internal) exits `3`. A dedicated test also confirms exit `1` is
+  never produced anywhere in this suite (missing path / success / all-malformed).
+- [x] 4.9 GREEN — `src/perf/cli/commands/reassure_import.py`: flat command;
+  `resolved_path = path or config.reassure_path`; `resolved_kind = kind if kind is not
+  None else derive_reassure_kind(resolved_path)` (pure helper, basename-only:
+  `current.perf`/`baseline.perf`/else `unknown`, unit-tested directly in
+  `tests/unit/test_reassure_import_cli.py`); `build_reassure_parser().parse(resolved)`;
   `ReassureParseError` -> `emit_error(..., hint=...)` exit `2`; else
-  `build_store(...).save_reassure_import(result, resolved)`; `emit_warning` per skipped
-  line (line number + fixed reason token only); `build_reassure_import_payload(...)` ->
-  `render_json`/pretty; any other exception -> `emit_error` exit `3`.
-- [ ] 4.10 GREEN — `src/perf/cli/main.py`: register
+  `build_store(...).save_reassure_import(result, resolved_path, resolved_kind)` —
+  its `ValueError` (bad `--kind`) -> exit `2` (a usage error, not a store failure,
+  proven by a dedicated test), any other exception -> exit `3`; `emit_warning` per
+  skipped line (line number + fixed reason token only, never the raw line);
+  `build_reassure_import_payload(...)` -> `render_json`/local `_render_import_pretty`
+  (no new `cli/output/reassure_pretty.py` module, per design's rejected-alternative
+  column); any render exception -> `emit_error` exit `3`.
+- [x] 4.10 GREEN — `src/perf/cli/main.py`: registered
   `app.command(name="reassure-import", context_settings={"help_option_names":
   ["--help", "-h"]})(reassure_import_command)` (flat, not `add_typer`).
-- [ ] 4.11 Verify slice: `./.venv/bin/pytest -q
+- [x] 4.11 Verify slice: `./.venv/bin/pytest -q
   tests/contract/test_reassure_import_v1_contract.py
-  tests/integration/test_cli_reassure_import.py` green.
-- [ ] 4.12 Verify gates + full chain: `./.venv/bin/ruff check .`,
+  tests/unit/test_reassure_import_cli.py
+  tests/integration/test_cli_reassure_import.py` green (10 + 4 + 13 = 27 tests).
+- [x] 4.12 Verify gates + full chain: `./.venv/bin/ruff check .`,
   `./.venv/bin/ruff format --check .`, `./.venv/bin/mypy src/perf`,
-  `./.venv/bin/pytest -q --cov=perf` (>= 93%) with all four slices merged.
-- [ ] 4.13 Runtime harness: `perfvibe reassure-import
-  tests/fixtures/reassure_sample.perf --json` — confirm the 8-key payload and exit `0`.
+  `./.venv/bin/pytest -q --cov=perf` (>= 93%) with all slices merged — 999 passed,
+  95.19% coverage.
+- [x] 4.13 Runtime harness: `perfvibe reassure-import
+  tests/fixtures/reassure_sample.perf --json` — confirmed the 9-key payload and exit
+  `0`; a second run reports `already_imported: true` with all three `*_imported`
+  counters at `0`, still exit `0`.
