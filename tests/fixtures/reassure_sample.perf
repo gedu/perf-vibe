@@ -1,7 +1,7 @@
 {"metadata": {"branch": "main", "commitHash": "abc123", "creationDate": "2026-01-01T00:00:00.000Z"}}
-{"name": "Login screen > renders correctly", "runs": 8, "meanDuration": 10.35, "stdevDuration": 0.17, "durations": [10.1, 10.2, 10.3, 10.4, 10.5, 10.6], "warmupDurations": [5.0, 5.1], "outlierDurations": [15.0, 16.0], "meanCount": 1.125, "stdevCount": 0.33, "counts": [1, 1, 1, 1, 1, 2, 1, 1]}
-{"name": "Every run classified an outlier", "type": "render", "runs": 3, "durations": [], "counts": [4, 5, 6]}
-{"name": "Explicit empty outlier list", "type": "render", "runs": 1, "durations": [12.5], "outlierDurations": [], "counts": [12.5]}
+{"name": "WidgetPanel Performance Tests WidgetPanel renders correctly", "runs": 8, "meanDuration": 10.35, "stdevDuration": 0.17, "durations": [10.1, 10.2, 10.3, 10.4, 10.5, 10.6], "warmupDurations": [5.0, 5.1], "outlierDurations": [15.0, 16.0], "meanCount": 1.125, "stdevCount": 0.33, "counts": [1, 1, 1, 1, 1, 2, 1, 1], "issues": {"initialUpdateCount": 1, "redundantUpdates": [1, 2, 3]}}
+{"name": "NotificationBanner Performance Tests NotificationBanner renders after dismiss", "type": "render", "runs": 3, "meanDuration": null, "stdevDuration": null, "durations": [], "warmupDurations": [2.0], "meanCount": 5.0, "stdevCount": 0.82, "counts": [4, 5, 6], "issues": {"initialUpdateCount": 0, "redundantUpdates": []}}
+{"name": "SearchInput Performance Tests SearchInput renders with results", "type": "render", "runs": 1, "meanDuration": 12.5, "stdevDuration": 0.0, "durations": [12.5], "outlierDurations": [], "meanCount": 12.5, "stdevCount": 0.0, "counts": [12.5], "issues": {"initialUpdateCount": 0, "redundantUpdates": []}}
 not valid json at all
 {"type": "render", "durations": [1], "counts": [1]}
 {"name": "bad durations", "durations": "nope", "counts": [1]}

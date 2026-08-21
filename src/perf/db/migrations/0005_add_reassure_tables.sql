@@ -14,7 +14,10 @@ CREATE TABLE reassure_import (
 CREATE TABLE reassure_entry (
   entry_id          INTEGER PRIMARY KEY,
   import_id         INTEGER NOT NULL REFERENCES reassure_import(import_id) ON DELETE CASCADE,
-  name              TEXT NOT NULL,     -- Jest `describe > test` chain; the ONLY identity.
+  name              TEXT NOT NULL,     -- `currentTestName`, space-joined with NO
+                                       -- delimiter; the ONLY identity. Any component
+                                       -- grouping is DERIVED from a project naming
+                                       -- convention, never stored.
                                        -- Intentionally NOT UNIQUE(import_id, name).
   entry_type        TEXT NOT NULL DEFAULT 'render',
   runs              INTEGER NOT NULL,  -- DECLARED by the file; NEVER reconciled against

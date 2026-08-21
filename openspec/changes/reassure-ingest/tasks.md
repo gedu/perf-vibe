@@ -148,8 +148,15 @@ unused, exactly the proposal's rollback plan.
 - [x] 3.4 RED — `tests/integration/test_store_reassure.py`: importing a byte-identical
   file a second time returns `None` and inserts zero rows across all four tables.
 - [x] 3.5 RED — `tests/integration/test_store_reassure.py`: a forced mid-transaction
-  failure (patched helper) leaves 0 rows in `reassure_import`, `reassure_entry`,
-  `reassure_duration_sample`, and `reassure_count_sample` — full rollback.
+  failure leaves 0 rows in `reassure_import`, `reassure_entry`,
+  `reassure_duration_sample`, and `reassure_count_sample` — full rollback. Corrected
+  wording (was "a forced mid-transaction failure (patched helper)"): what actually
+  shipped forces a REAL `sqlite3.IntegrityError` by giving the second entry
+  `name=None` (violates `name TEXT NOT NULL`), not a monkeypatched
+  `_insert_reassure_entry`. Monkeypatching the store's own insert helper would test a
+  fake instead of the real wiring (`python-testing` rule 3: "never monkeypatch the
+  thing under test") and would only prove that a hand-thrown exception rolls back —
+  never that a genuine database error does.
 - [x] 3.6 GREEN — `src/perf/domain/ports.py`: add
   `Store.save_reassure_import(result: ReassureParseResult, source_path: str) -> int |
   None` to the `Store` Protocol.
@@ -168,10 +175,82 @@ unused, exactly the proposal's rollback plan.
 
 ---
 
-## PR4 — CLI Command, Config, `--json` Contract
+## PR4a — Reassure `kind` Migration + Test Debt (sub-slice of PR4)
 
-**Branch**: `reassure-ingest/pr4-cli` · **Base**: `reassure-ingest/pr3-store`
-(stacked-to-main: retarget to `main` once PR3 merges) · **Est. lines**: ~280
+**Branch**: `reassure-ingest/pr4a-kind-and-test-debt` · **Base**:
+`reassure-ingest/pr3-store` (stacked-to-main: retarget to `main` once PR3 merges) ·
+**Est. lines**: ~230 (measured; see apply-progress)
+
+Added by the coordinator after real reassure `.perf` output was analysed
+(`.reassure/baseline.perf`/`current.perf` from a real client project): a
+`baseline.perf` and a `current.perf` can carry the SAME `commitHash`, so
+commit-keyed history cannot distinguish them, and the committed fixture's
+entry-name shape (`" > "`-delimited) and per-entry key set (missing `issues`)
+were verified FABRICATED against the real files. This sub-slice is scoped
+narrowly: it adds the `kind` column (unused by any write path yet — that is
+PR4b), fixes the pinned migration-count test debt the new migration causes,
+reshapes the fixture to match verified reality, and closes a non-blocking
+PR3 review SUGGESTION (an untested zero-entry `save_reassure_import` path).
+`config.reassure_path`, the CLI command, and the `reassure_import_v1`
+contract remain PR4b, unstarted here.
+
+**Independently reviewable**: one additive column (unused), test-debt fixes forced
+by that column, and a fixture/test cleanup — nothing here touches the CLI surface.
+**Independently revertable**: delete `0006_add_reassure_import_kind.sql`, revert its
+`schema.sql` mirror and the pinned test edits; the fixture/test renames are cosmetic
+and revert independently of the column.
+
+- [x] 4a.1 GREEN — `src/perf/db/migrations/0006_add_reassure_import_kind.sql`:
+  `ALTER TABLE reassure_import ADD COLUMN kind TEXT NOT NULL DEFAULT 'unknown'` — no
+  `CHECK` constraint (matches `run.mode`/`reassure_entry.entry_type` house style);
+  DDL comment records the observed same-commit-hash baseline/current evidence and
+  states that "first measurement for this name" is DERIVED at read time, never
+  stored (it would go stale on out-of-order imports — the observed pair is proof).
+  Mirrored into `src/perf/db/schema.sql` under the `REASSURE` banner.
+- [x] 4a.2 RED — confirmed `tests/integration/test_store_migrations.py`'s six
+  `== 5` assertions fail for the right reason once 0006 exists on disk (the
+  cascading `_migrate` picks it up automatically): `assert 6 == 5`, not an
+  import/typo error.
+- [x] 4a.3 GREEN — `tests/integration/test_store_migrations.py`: the six `== 5` ->
+  `== 6` sites (lines 30, 87, 140, 176, 230, 248) plus their inline chain-enumerating
+  comments (lines 28-29, 86, 139, 247) reworded to name `0006`.
+  `tests/integration/test_schema.py`: added `MIGRATION_0006` constant and its
+  `executescript` line in `test_schema_sql_and_migrations_are_fully_equivalent`
+  (`0004` correctly stays absent — data-only).
+- [x] 4a.4 GREEN — `tests/fixtures/reassure_sample.perf` reshaped to the VERIFIED
+  real shape: no `" > "` (or any) delimiter in entry names (invented components,
+  e.g. `"WidgetPanel Performance Tests WidgetPanel renders correctly"`), every good
+  entry carries the full real key set including `issues.initialUpdateCount` /
+  `issues.redundantUpdates` (one entry non-zero), the non-alignment guard entry and
+  the `durations: []` entry are both kept, `outlierDurations: []` present-empty is
+  kept on one good entry and populated on the non-aligned one, the malformed-line
+  skip coverage is unchanged, and the file carries NO trailing newline. Every
+  by-name reference in `tests/integration/test_reassure_jsonl.py` and
+  `tests/integration/test_store_reassure.py` updated to match.
+- [x] 4a.5 GREEN — `tests/integration/test_store_reassure.py`: added
+  `test_zero_entries_still_commits_one_import_row_with_no_entry_or_sample_rows`,
+  closing the PR3 review SUGGESTION (lineage `review-1fc710595e9babbb`): a
+  zero-`entries` `ReassureParseResult` still commits exactly one `reassure_import`
+  row with a real (non-`None`) `import_id` and zero rows in the three
+  entry/sample tables. Confirmed GREEN against the already-shipped PR3
+  implementation (the per-entry loop already handles zero iterations correctly —
+  this is a pinning regression guard, not a bugfix).
+- [x] 4a.6 Corrected task 3.5's wording above: the shipped mid-transaction-failure
+  test uses a REAL `sqlite3.IntegrityError` (`name=None` entry), never a
+  monkeypatched insert helper.
+- [x] 4a.7 Verify slice: `./.venv/bin/pytest -q tests/integration/test_schema.py
+  tests/integration/test_store_migrations.py tests/integration/test_reassure_jsonl.py
+  tests/integration/test_store_reassure.py` green; fresh DB reaches
+  `user_version == 6`.
+- [x] 4a.8 Verify gates: `./.venv/bin/ruff check .`, `./.venv/bin/ruff format --check
+  .`, `./.venv/bin/mypy src/perf`, `./.venv/bin/pytest -q --cov=perf` (>= 93%).
+
+---
+
+## PR4b — CLI Command, Config, `--json` Contract
+
+**Branch**: `reassure-ingest/pr4-cli` · **Base**: `reassure-ingest/pr4a-kind-and-test-debt`
+(stacked-to-main: retarget to `main` once PR4a merges) · **Est. lines**: ~280
 
 **Note on the contract shape**: `design.md`'s "Contract" section describes a NESTED
 payload (`source_path`, `import_id`, `imported`, `header{...}`, `summary{...}`,

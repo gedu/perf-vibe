@@ -27,7 +27,8 @@ def test_fresh_db_migrates_to_latest_user_version_and_creates_schema(tmp_path):
         version = store._conn.execute("PRAGMA user_version").fetchone()[0]
         # 0001_init + 0002_compare_baseline_index + 0003_fix_p90_ceil_rank
         # + 0004_fix_system_sample_units + 0005_add_reassure_tables
-        assert version == 5
+        # + 0006_add_reassure_import_kind
+        assert version == 6
 
         tables = {
             row[0]
@@ -83,8 +84,9 @@ def test_migrated_pre_rev3_db_advances_to_user_version_2_and_adds_index(tmp_path
             row[0]
             for row in store._conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
         }
-        # picks up 0002/0003/0004/0005 (index, p90 fix, units, reassure)
-        assert version_after == 5
+        # picks up 0002/0003/0004/0005/0006 (index, p90 fix, units, reassure
+        # tables, reassure import kind)
+        assert version_after == 6
         assert "idx_run_baseline" in indexes_after
     finally:
         store.close()
@@ -136,8 +138,9 @@ def test_pre_p90fix_db_upgrades_to_0003_and_view_p90_changes_from_min_to_max(tmp
         p90_after = store._conn.execute(
             "SELECT p90_ms FROM run_metric_summary WHERE run_id = 1 AND metric_id = 1"
         ).fetchone()[0]
-        # 0003 (p90 fix) + 0004 (units) + 0005 (reassure) applied
-        assert version_after == 5
+        # 0003 (p90 fix) + 0004 (units) + 0005 (reassure) + 0006 (reassure
+        # import kind) applied
+        assert version_after == 6
         assert p90_after == 900.0  # ceil nearest-rank now returns the MAX
     finally:
         store.close()
@@ -173,7 +176,7 @@ def test_pre_units_db_upgrades_to_0004_and_fixes_system_sample_units(tmp_path):
 
     store = SqliteStore(db_path)
     try:
-        assert store._conn.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert store._conn.execute("PRAGMA user_version").fetchone()[0] == 6
         units = dict(store._conn.execute("SELECT name, unit FROM metric").fetchall())
     finally:
         store.close()
@@ -227,7 +230,7 @@ def test_migration_runner_still_idempotent_at_version_2_on_reopen(tmp_path):
     store2 = SqliteStore(db_path)
     try:
         version = store2._conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 5
+        assert version == 6
     finally:
         store2.close()
 
@@ -244,8 +247,8 @@ def test_migration_runner_is_idempotent_on_reopen(tmp_path):
     store2 = SqliteStore(db_path)
     try:
         version = store2._conn.execute("PRAGMA user_version").fetchone()[0]
-        # latest version (0001 + 0002 + 0003 + 0004 + 0005)
-        assert version == 5
+        # latest version (0001 + 0002 + 0003 + 0004 + 0005 + 0006)
+        assert version == 6
     finally:
         store2.close()
 
