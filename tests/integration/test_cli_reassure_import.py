@@ -149,7 +149,7 @@ def test_pretty_mode_reports_kind_and_counts(monkeypatch, tmp_path: Path):
     result = runner.invoke(main_module.app, ["reassure-import", str(_FIXTURE)])
 
     assert result.exit_code == 0, result.output
-    assert "entries_imported" in result.output or "imported" in result.output
+    assert "entries_imported" in result.output
 
 
 # ===== exit 3: store/transaction failure =====

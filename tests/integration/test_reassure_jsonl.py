@@ -152,6 +152,31 @@ def test_type_defaults_to_render_when_absent(tmp_path):
     assert result.entries[0].entry_type == "render"
 
 
+@pytest.mark.parametrize("literal", ['""', "null", "0", "false", "[]", "{}"])
+def test_falsy_but_present_type_is_skipped_never_coerced_to_render(tmp_path, literal):
+    """ONLY a missing `type` key defaults to `'render'`. A key that is
+    PRESENT but not one of the three members must be skipped, however falsy
+    it looks.
+
+    An earlier implementation wrote `data.get("type") or "render"`, and `or`
+    swallows every falsy present value: `""`, `0`, `false` and `null` were
+    each silently coerced to `'render'` and ACCEPTED, while only truthy
+    non-members like `"mount"` were skipped. Reassure's own zod enum rejects
+    all of these upstream, so no real file reaches here — which is exactly
+    why the branch went unnoticed and needs pinning.
+    """
+    path = tmp_path / "falsy_type.perf"
+    path.write_text(
+        f'{{"name": "falsy type", "runs": 1, "type": {literal}, '
+        f'"durations": [1.0], "counts": [1.0]}}\n'
+    )
+
+    result = ReassureJsonlParser().parse(str(path))
+
+    assert result.entries == (), f"type={literal} must not be accepted as 'render'"
+    assert result.skipped == ((1, REASON_UNKNOWN_TYPE),)
+
+
 def test_malformed_lines_are_skipped_with_reason_and_never_fatal():
     """Bad JSON, a missing required field, or an unrecognized `type` must be
     skipped and reported — never fatal to the whole import."""
