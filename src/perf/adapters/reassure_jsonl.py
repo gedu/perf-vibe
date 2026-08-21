@@ -32,6 +32,11 @@ _MAX_LINE_BYTES = 1_048_576  # 1 MiB
 
 _VALID_ENTRY_TYPES = frozenset({"render", "function", "async function"})
 
+# Distinguishes a MISSING key from a present-but-falsy one. `None` cannot
+# serve as this sentinel because `null` is a legal JSON value that must be
+# treated as present-and-invalid, not as absent.
+_ABSENT = object()
+
 # Reason vocabulary — mirrors `REASON_*` in `markers_adb_logcat.py`. Defined
 # ONCE here so nothing downstream (a future `reassure-import --json` stderr
 # warning) re-derives or duplicates them.
@@ -171,8 +176,26 @@ def _parse_entry(data: dict[str, object]) -> tuple[ReassureEntry | None, str | N
     if not all(_is_finite_number(v) for v in counts_raw):
         return None, REASON_INVALID_VALUE
 
-    entry_type = data.get("type") or "render"  # absent/None -> 'render'
-    if entry_type not in _VALID_ENTRY_TYPES:
+    # ONLY a MISSING key defaults to 'render'. An earlier revision wrote
+    # `data.get("type") or "render"`, and `or` swallows every falsy PRESENT
+    # value: `""`, `0`, `false` and `null` were each silently coerced to
+    # 'render' and ACCEPTED, while only truthy non-members (`"mount"`) were
+    # skipped. The spec requires a skip whenever `type` is present but not
+    # one of the three, so presence is tested with a sentinel, never with
+    # truthiness. Reassure's own zod enum rejects all four upstream, so this
+    # is unreachable from real output — but an unspecified branch that
+    # accepts junk is exactly how a plausible-looking line goes wrong.
+    #
+    # The `isinstance` guard is load-bearing, not defensive noise: a JSON
+    # `type` of `[]` or `{}` is UNHASHABLE, so testing membership against a
+    # frozenset raised `TypeError` and crashed the whole parse. A malformed
+    # line MUST be skipped, never fatal to the import (spec
+    # "Malformed-Line Tolerance"), so the type check has to precede the
+    # membership check.
+    entry_type = data.get("type", _ABSENT)
+    if entry_type is _ABSENT:
+        entry_type = "render"
+    if not isinstance(entry_type, str) or entry_type not in _VALID_ENTRY_TYPES:
         return None, REASON_UNKNOWN_TYPE
 
     # `runs` is REQUIRED, and its absence is never filled in. Storing the

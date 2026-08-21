@@ -110,4 +110,6 @@ def test_contract_rejects_a_shape_change_without_version_bump():
     pinning, matching `test_markers_doctor_v1_contract.py`'s pattern)."""
     payload = _sample_payload()
     assert set(payload.keys()) == set(_REQUIRED_KEYS_AND_TYPES)
-    assert payload["schema_version"] >= 1
+    assert payload["schema_version"] == 1, (
+        "a shape change needs a SCHEMA_VERSION bump, not an inequality"
+    )

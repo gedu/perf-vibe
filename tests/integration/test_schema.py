@@ -438,3 +438,43 @@ def test_view_p90_n1_returns_the_single_value_not_null(fresh_connection):
     _seed_single_metric_run(fresh_connection, [42.0])
 
     assert _view_p90(fresh_connection) == 42.0
+
+
+def test_no_reassure_table_stores_a_component_or_test_file_dimension(fresh_connection):
+    """Load-bearing guard for spec requirement "No Component or Test-File
+    Identity". The reassure `.perf` format has NO component field and NO
+    test-file field: `name` is the sole identity, and any grouping is DERIVED
+    from a project naming convention at read time.
+
+    This was previously satisfied only by construction — nobody had added
+    such a column, so nothing failed. That is exactly how the sibling
+    invariant (`durations`/`counts` not index-aligned) would have been lost
+    too, and that one got guards at three layers while this one had none.
+    The schema/migration equivalence test does NOT cover it: adding a
+    `component` column to BOTH `schema.sql` and a migration is one-sided
+    drift only in the sense that both sides agree, so it would pass.
+
+    Storing a component would turn a read-time convention into persisted
+    data that goes stale the moment a project renames a `describe` block.
+    """
+    fresh_connection.executescript(SCHEMA_SQL.read_text())
+
+    reassure_tables = [
+        row[0]
+        for row in fresh_connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'reassure%'"
+        )
+    ]
+    assert reassure_tables, "expected the reassure tables to exist in schema.sql"
+
+    forbidden = ("component", "test_file", "testfile", "suite", "describe", "screen")
+    for table in reassure_tables:
+        columns = [
+            row[1].lower() for row in fresh_connection.execute(f"PRAGMA table_info({table})")
+        ]
+        for column in columns:
+            for token in forbidden:
+                assert token not in column, (
+                    f"{table}.{column} looks like a stored component/test-file dimension; "
+                    "the format has neither field, so any grouping must stay DERIVED"
+                )
