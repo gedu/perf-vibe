@@ -107,18 +107,31 @@ SELECT run_id, metric_id, n,
        MAX(CASE WHEN rn <= (9*n + 9) / 10 THEN duration_ms END) AS p90_ms
 FROM ranked GROUP BY run_id, metric_id;
 
--- ===== REASSURE (reassure-ingest design, 0005_add_reassure_tables.sql) =====
+-- ===== REASSURE (reassure-ingest design, 0005_add_reassure_tables.sql;
+-- `kind` added by 0006_add_reassure_import_kind.sql) =====
 CREATE TABLE reassure_import (
   import_id    INTEGER PRIMARY KEY,
   content_hash TEXT NOT NULL UNIQUE,   -- sha256 of RAW file bytes = the whole idempotency key
   imported_at  TEXT NOT NULL,          -- ISO-8601 UTC from the injected Clock
   source_path  TEXT NOT NULL,          -- internal storage name; the PAYLOAD key is `path`
-  branch       TEXT, commit_hash TEXT, created_date TEXT   -- optional header metadata
+  branch       TEXT, commit_hash TEXT, created_date TEXT,  -- optional header metadata
+  -- File provenance ONLY -- 'current' | 'baseline' | 'unknown' by convention,
+  -- no CHECK constraint (matches `run.mode`/`reassure_entry.entry_type`).
+  -- A `baseline.perf` and a `current.perf` can share the same commit_hash
+  -- and differ only by `creationDate` (observed in real data), so neither
+  -- column above discriminates the two files reliably -- `kind` does.
+  -- Whether this is the FIRST import for a given entry name is DERIVED at
+  -- read time, never stored here: files are not guaranteed to import in
+  -- chronological order (see 0006_add_reassure_import_kind.sql).
+  kind         TEXT NOT NULL DEFAULT 'unknown'
 );
 CREATE TABLE reassure_entry (
   entry_id          INTEGER PRIMARY KEY,
   import_id         INTEGER NOT NULL REFERENCES reassure_import(import_id) ON DELETE CASCADE,
-  name              TEXT NOT NULL,     -- Jest `describe > test` chain; the ONLY identity.
+  name              TEXT NOT NULL,     -- `currentTestName`, space-joined with NO
+                                       -- delimiter; the ONLY identity. Any component
+                                       -- grouping is DERIVED from a project naming
+                                       -- convention, never stored.
                                        -- Intentionally NOT UNIQUE(import_id, name).
   entry_type        TEXT NOT NULL DEFAULT 'render',
   runs              INTEGER NOT NULL,  -- DECLARED by the file; NEVER reconciled against

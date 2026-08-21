@@ -43,7 +43,7 @@ def _row_counts(conn: sqlite3.Connection) -> dict[str, int]:
 
 def _entry(**overrides: object) -> ReassureEntry:
     defaults: dict[str, object] = {
-        "name": "Login screen > renders correctly",
+        "name": "WidgetPanel Performance Tests WidgetPanel renders correctly",
         "entry_type": "render",
         "runs": 8,
         "durations": (10.1, 10.2, 10.3, 10.4, 10.5, 10.6),
@@ -211,6 +211,29 @@ def test_duplicate_byte_identical_import_returns_none_and_inserts_zero_rows(stor
     assert second_id is None
     after = _row_counts(store._conn)
     assert after == before
+
+
+def test_zero_entries_still_commits_one_import_row_with_no_entry_or_sample_rows(store):
+    """R3 Reliability review finding on PR3 (lineage `review-1fc710595e9babbb`,
+    non-blocking SUGGESTION): only an entry with EMPTY `durations` was
+    covered before, which proves the inner per-entry sample loops handle a
+    zero-length SERIES but never proved that a `ReassureParseResult` with
+    ZERO ENTRIES still commits at all. The spec requires "zero entries
+    recovered from a readable file -> exit 0 with a payload flag" (PR4b's
+    CLI hits this path directly), so the store must accept `entries=()` as
+    a normal outcome: one `reassure_import` row, a real `import_id`, and
+    nothing in the three entry/sample tables — never `None`, never a
+    rolled-back transaction."""
+    result = _result(entries=())
+
+    import_id = store.save_reassure_import(result, "path/to/current.perf")
+
+    assert import_id is not None
+    counts = _row_counts(store._conn)
+    assert counts["reassure_import"] == 1
+    assert counts["reassure_entry"] == 0
+    assert counts["reassure_duration_sample"] == 0
+    assert counts["reassure_count_sample"] == 0
 
 
 def test_source_path_stored_in_source_path_column(store):

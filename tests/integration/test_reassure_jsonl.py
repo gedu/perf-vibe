@@ -12,6 +12,22 @@ The load-bearing test in this module (`test_non_alignment_...`) is the
 regression guard for the entire feature: `durations[]` and `counts[]` are
 NOT index-aligned (design "Load-Bearing Invariant") and must never be
 zipped, padded, or truncated to a common length.
+
+Fixture shape verified against real `@callstack/reassure` `.perf` output
+(reassure-ingest PR4a): entry names carry NO delimiter at all -- no `>`,
+`|`, `-`, `::`, or `/` -- reassure writes `expect.getState().currentTestName`
+untransformed, which is plain space-joined text shaped like
+`<Component> Performance Tests <Component> <scenario>`. Every good entry
+also carries the full real key set, including `issues`.
+
+Observed types across 101 real entries: `issues.initialUpdateCount` is an
+INTEGER (values 0 and 1 seen, non-zero on roughly one entry in eight) and
+`issues.redundantUpdates` is an ARRAY -- `[]` in every real entry. One
+fixture entry carries a POPULATED `redundantUpdates` deliberately, so a
+consumer that treats it as a scalar fails here instead of on real data. An
+earlier revision of this fixture wrote it as a bare number; that was
+fabricated and would have taught the wrong type to whatever persists
+`issues` later.
 """
 
 from __future__ import annotations
@@ -52,7 +68,9 @@ def test_non_alignment_load_bearing_counts_and_durations_have_true_lengths():
     parser = ReassureJsonlParser()
     result = parser.parse(str(_FIXTURE_PATH))
 
-    entry = _entry_by_name(result.entries, "Login screen > renders correctly")
+    entry = _entry_by_name(
+        result.entries, "WidgetPanel Performance Tests WidgetPanel renders correctly"
+    )
 
     assert len(entry.counts) == 8
     assert len(entry.durations) == 6
@@ -70,7 +88,10 @@ def test_empty_durations_with_nonempty_counts_is_not_skipped():
     parser = ReassureJsonlParser()
     result = parser.parse(str(_FIXTURE_PATH))
 
-    entry = _entry_by_name(result.entries, "Every run classified an outlier")
+    entry = _entry_by_name(
+        result.entries,
+        "NotificationBanner Performance Tests NotificationBanner renders after dismiss",
+    )
 
     assert entry.durations == ()
     assert entry.counts == (4.0, 5.0, 6.0)
@@ -199,8 +220,13 @@ def test_outlier_durations_absent_is_none_present_empty_is_literal_empty_array()
     parser = ReassureJsonlParser()
     result = parser.parse(str(_FIXTURE_PATH))
 
-    absent_entry = _entry_by_name(result.entries, "Every run classified an outlier")
-    present_empty_entry = _entry_by_name(result.entries, "Explicit empty outlier list")
+    absent_entry = _entry_by_name(
+        result.entries,
+        "NotificationBanner Performance Tests NotificationBanner renders after dismiss",
+    )
+    present_empty_entry = _entry_by_name(
+        result.entries, "SearchInput Performance Tests SearchInput renders with results"
+    )
 
     assert absent_entry.outlier_durations_json is None
     assert present_empty_entry.outlier_durations_json == "[]"
@@ -210,7 +236,9 @@ def test_warmup_durations_passthrough_serializes_verbatim():
     parser = ReassureJsonlParser()
     result = parser.parse(str(_FIXTURE_PATH))
 
-    entry = _entry_by_name(result.entries, "Login screen > renders correctly")
+    entry = _entry_by_name(
+        result.entries, "WidgetPanel Performance Tests WidgetPanel renders correctly"
+    )
 
     assert entry.warmup_durations_json == json.dumps([5.0, 5.1])
 

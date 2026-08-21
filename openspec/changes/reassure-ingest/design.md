@@ -103,7 +103,7 @@ CREATE TABLE reassure_import (
 CREATE TABLE reassure_entry (
   entry_id          INTEGER PRIMARY KEY,
   import_id         INTEGER NOT NULL REFERENCES reassure_import(import_id) ON DELETE CASCADE,
-  name              TEXT NOT NULL,     -- Jest's `describe > test` chain. The ONLY
+  name              TEXT NOT NULL,     -- Jest's `currentTestName` (space-joined, NO delimiter). The ONLY
                                        -- identity: reassure has NO component field and
                                        -- NO test-file field, so any component dimension
                                        -- is DERIVED, never stored. Intentionally NOT

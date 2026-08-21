@@ -1,0 +1,34 @@
+-- Migration 0006: add `reassure_import.kind` (reassure-ingest PR4a).
+--
+-- WHY this column exists: verified against real reassure output, a
+-- `baseline.perf` file and a `current.perf` file can declare the SAME
+-- `commitHash` and `branch` (observed: both carried commit `f4bf0f05...`
+-- and branch `feature/reassure_base`), differing ONLY in `creationDate` --
+-- and the *baseline* file's timestamp was three hours NEWER than the
+-- *current* file's. Neither the commit hash nor `source_path` is therefore
+-- a reliable discriminator between "this is the current measurement" and
+-- "this is the baseline to compare against" -- `kind` is.
+--
+-- `kind` stores FILE PROVENANCE ONLY. Allowed values by convention:
+-- 'current' | 'baseline' | 'unknown' -- no `CHECK` constraint, matching the
+-- house style already set by `run.mode` and `reassure_entry.entry_type`
+-- (`db/schema.sql`): validation belongs at the adapter boundary, not the
+-- schema.
+--
+-- The semantically useful question this unlocks -- "is this the FIRST
+-- measurement ever recorded for this component name?" -- is DERIVED at
+-- read time (a `NOT EXISTS` check over earlier imports of the same
+-- `reassure_entry.name`) and must NEVER be cached in a column here: real
+-- files are not guaranteed to arrive in chronological order (the
+-- baseline/current pair above is direct proof -- the baseline file's own
+-- `creationDate` was newer than the current file's), so a stored "is
+-- first" flag would go stale the moment two files are imported out of
+-- chronological order.
+--
+-- SQLite cannot add a `NOT NULL` column to an existing table without a
+-- `DEFAULT` -- `DEFAULT 'unknown'` is what makes this migration additive
+-- and safe for every row already on disk. Nothing in this slice writes a
+-- non-default `kind`; `save_reassure_import` starts setting it explicitly
+-- in a later slice (PR4b).
+
+ALTER TABLE reassure_import ADD COLUMN kind TEXT NOT NULL DEFAULT 'unknown';

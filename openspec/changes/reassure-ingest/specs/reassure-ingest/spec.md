@@ -234,14 +234,29 @@ all warnings go to stderr only.
 ### Requirement: No Component or Test-File Identity
 
 The reassure format has NO component field and NO test-file field. The system MUST
-treat `name` (Jest's `describe > test` chain) as the SOLE identity — "by name" and "by
-test" refer to the exact same string. No column, `--json` key, or CLI flag introduced
-by this change MUST represent a derived component or test-file dimension as if it were
-stored data.
+treat `name` as the SOLE identity — "by name" and "by test" refer to the exact same
+string. No column, `--json` key, or CLI flag introduced by this change MUST represent a
+derived component or test-file dimension as if it were stored data.
+
+`name` is whatever `expect.getState().currentTestName` produced: reassure writes it
+**untransformed** (`packages/measure/src/output.ts`), inserting no separator of its own.
+Verified against real reassure output, names carry **no delimiter at all** — no `>`,
+`|`, `-`, `::` or `/` — and are plain space-joined phrases of roughly 6-12 words. An
+earlier revision of this requirement described a `describe > test` chain and used a
+`"Login screen > renders correctly"` example; both were fabricated, and the `>` in
+particular would have led a later reader to split on a separator that does not exist.
+
+Any component grouping is therefore DERIVED from a naming convention the user owns, not
+from anything reassure guarantees. Where a project names its suites
+`describe('<Component> Performance Tests')`, the leading whitespace-delimited token
+identifies the component and groups cleanly. That extraction MUST be configurable and
+MUST NOT be hardcoded, because the convention belongs to the project, not to the format.
 
 #### Scenario: Name is reported verbatim, nothing else
-- GIVEN an entry named `"Login screen > renders correctly"`
+- GIVEN an entry whose name is a space-joined phrase with no delimiter, such as
+  `"WidgetPanel Performance Tests WidgetPanel renders correctly"`
 - WHEN imported and reported
 - THEN it is persisted and identified by that exact string, with no separate
   component/test-file field anywhere in the schema or payload
+- AND no component value is stored, even though the leading token would group it
 

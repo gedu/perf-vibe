@@ -31,7 +31,7 @@ Every other line is a measurement entry:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `name` | `string` | Jest test-state name (the `describe > test` chain). **The only identity.** |
+| `name` | `string` | Jest `currentTestName`, space-joined, NO delimiter. **The only identity.** |
 | `type` | `'render' \| 'function' \| 'async function'` | Defaults to `'render'`. |
 | `runs` | `number` | |
 | `meanDuration` | `number` | Derivable from `durations`. |

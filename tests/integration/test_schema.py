@@ -23,6 +23,7 @@ MIGRATION_0003 = DB_DIR / "migrations" / "0003_fix_p90_ceil_rank.sql"
 # 0004_fix_system_sample_units.sql is data-only (no DDL) and is intentionally
 # absent here — only DDL migrations join the equivalence test below.
 MIGRATION_0005 = DB_DIR / "migrations" / "0005_add_reassure_tables.sql"
+MIGRATION_0006 = DB_DIR / "migrations" / "0006_add_reassure_import_kind.sql"
 
 EXPECTED_TABLES = {"device", "flow", "metric", "run", "iteration", "measure", "system_sample"}
 EXPECTED_INDEXES = {"idx_run_flow_device_time", "idx_measure_metric", "idx_measure_run"}
@@ -172,8 +173,8 @@ def _introspect_full_schema(conn: sqlite3.Connection) -> dict:
 
 def test_schema_sql_and_migrations_are_fully_equivalent():
     """Strong drift guard (hardens the earlier subset check): applying
-    schema.sql on one fresh DB, and applying EVERY migration in order
-    (0001 + Rev 3's additive `0002_compare_baseline_index.sql`) on
+    schema.sql on one fresh DB, and applying EVERY DDL migration in order
+    (0001, 0002, 0003, 0005, 0006 -- 0004 is data-only, see above) on
     another, must yield IDENTICAL schemas across ALL tables — columns,
     types, NOT NULL, defaults, PK, foreign keys — plus indexes and views.
     A one-sided edit to ANY table/column, or a missing/extra index (e.g.
@@ -188,6 +189,7 @@ def test_schema_sql_and_migrations_are_fully_equivalent():
         conn_migration.executescript(MIGRATION_0002.read_text())
         conn_migration.executescript(MIGRATION_0003.read_text())
         conn_migration.executescript(MIGRATION_0005.read_text())
+        conn_migration.executescript(MIGRATION_0006.read_text())
         assert _introspect_full_schema(conn_schema) == _introspect_full_schema(conn_migration)
     finally:
         conn_schema.close()
