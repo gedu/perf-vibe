@@ -1,7 +1,10 @@
 """Pretty renderer for `perf budget-check` — budget-check's OWN view (design
-§9, decision D2). `compare_pretty.py` stays FROZEN and is NEVER imported
-here; a small amount of duplication (sparkline normalization, arrow/pct
-formatting) is deliberate rather than coupling two renderers together.
+§9, decision D2). `compare_pretty.py` stays FROZEN and is still NEVER
+imported here. The shared vocabulary (sparkline normalization, arrow/pct
+formatting, ANSI codes, glyphs) now comes from `output/primitives.py`, which
+keeps the original no-coupling guarantee WITHOUT the duplication that used to
+buy it: this renderer depends on a primitive owned by no view, not on
+another renderer.
 
 HAND-ROLLED, NOT `rich` (design §9 rationale: determinism is free
 hand-rolled — pass an explicit `color: bool`, emit zero ANSI when false,
@@ -24,6 +27,18 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from perf.cli.output.primitives import (
+    BOLD_GREEN,
+    BOLD_RED,
+    DIM,
+    GLYPH_NEUTRAL,
+    GLYPH_OFFENDER,
+    GLYPH_OK,
+    arrow_and_pct,
+    format_value,
+    sparkline,
+    style,
+)
 from perf.domain import calibration, regression
 from perf.domain.calibration import CalibrationReport
 from perf.domain.model import (
@@ -33,28 +48,11 @@ from perf.domain.model import (
     GatedVerdict,
     RunContext,
     SeriesPoint,
-    Verdict,
     default_higher_is_better,
 )
 from perf.domain.ports import CommitLog
 
 __all__ = ["render_metric_detail", "render_summary"]
-
-_BOLD_RED = "\x1b[1;31m"
-_GREEN = "\x1b[1;32m"
-_DIM = "\x1b[2m"
-_RESET = "\x1b[0m"
-
-_SPARK_CHARS = "▁▂▃▄▅▆▇█"
-
-_ARROW_UP = "↑"
-_ARROW_DOWN = "↓"
-_ARROW_FLAT = "→"
-_ARROW_NONE = "-"
-
-_GLYPH_OFFENDER = "✗"
-_GLYPH_OK = "✓"
-_GLYPH_NEUTRAL = "·"
 
 # ONE column spec drives BOTH the header and every data row. The first cut of
 # this renderer kept two hand-tuned f-strings and trusted them to agree by eye;
@@ -79,14 +77,15 @@ _COL_W = 8
 _PREFIX_W = 10  # "{value:>7.1f} ┤ " — 7 + 3 chars
 
 
-def _style(text: str, *, color: bool, code: str) -> str:
-    return f"{code}{text}{_RESET}" if color else text
-
-
 def _table_line(cells: Sequence[str]) -> str:
     """Lays out one summary-table line from `_SUMMARY_COLUMNS`. The header
     and every metric row go through here, which is what keeps a column and
-    the header that labels it from ever drifting apart."""
+    the header that labels it from ever drifting apart.
+
+    Stays local rather than joining `output/primitives.py`: it reads THIS
+    view's column spec from module scope and has exactly one caller, so
+    sharing it would mean inventing a general table engine for a single user
+    (`python-architecture` rule 3)."""
 
     parts = [
         f"{cell:{align}{width}}" if width else cell
@@ -103,65 +102,39 @@ _RULE_WIDTH = len(_HEADER_LINE)
 
 
 def _short_sha(sha: str | None) -> str:
+    """Stays local rather than joining `output/primitives.py`: it looks like
+    `history_pretty._short_commit` but its MISSING-value fallback differs
+    (`unknown` in this header, `-` in history's table). The fallback is the
+    user-visible half, so these are two different renderings that happen to
+    share a `[:7]`, not one shared primitive."""
+
     if not sha:
         return "unknown"
     return sha[:7]
 
 
-def _sparkline(series: Sequence[float]) -> str:
-    """Same normalization guard as `compare_pretty._sparkline` (design risk
-    #3 requires the SAME discipline here, deliberately re-implemented
-    rather than imported so this renderer has no coupling to the frozen
-    `compare_pretty` module): empty/single-point/zero-variance never
-    divide by zero."""
-
-    if not series:
-        return ""
-    if len(series) == 1:
-        return _SPARK_CHARS[0]
-    lo, hi = min(series), max(series)
-    span = hi - lo
-    if span == 0:
-        return _SPARK_CHARS[len(_SPARK_CHARS) // 2] * len(series)
-    top_index = len(_SPARK_CHARS) - 1
-    return "".join(_SPARK_CHARS[round((value - lo) / span * top_index)] for value in series)
-
-
-def _format_value(value: float | None, unit: str) -> str:
-    return "-" if value is None else f"{value:.1f} {unit}"
-
-
-def _arrow_and_pct(verdict: Verdict) -> tuple[str, str]:
-    if verdict.status == regression.STATUS_INSUFFICIENT_DATA:
-        return _ARROW_NONE, "-"
-    delta_pct = verdict.delta_pct
-    arrow = _ARROW_UP if delta_pct > 0 else _ARROW_DOWN if delta_pct < 0 else _ARROW_FLAT
-    sign = "+" if delta_pct >= 0 else ""
-    return arrow, f"{sign}{delta_pct:.1f}%"
-
-
 def _row_glyph(gv: GatedVerdict) -> str:
     if gv.gated:
-        return _GLYPH_OFFENDER
+        return GLYPH_OFFENDER
     if gv.verdict.status == regression.STATUS_INSUFFICIENT_DATA:
-        return _GLYPH_NEUTRAL
-    return _GLYPH_OK
+        return GLYPH_NEUTRAL
+    return GLYPH_OK
 
 
 def _metric_row(gv: GatedVerdict, *, color: bool) -> str:
     verdict = gv.verdict
-    latest = _format_value(verdict.latest_value, verdict.unit)
-    baseline = _format_value(verdict.baseline_value, verdict.unit)
-    arrow, pct = _arrow_and_pct(verdict)
-    sparkline = _sparkline(verdict.series)
+    latest = format_value(verdict.latest_value, verdict.unit)
+    baseline = format_value(verdict.baseline_value, verdict.unit)
+    arrow, pct = arrow_and_pct(verdict)
+    spark = sparkline(verdict.series)
     glyph = _row_glyph(gv)
     status_word = verdict.status.upper() if gv.gated else verdict.status.lower()
 
     text = "│   " + _table_line(
-        [glyph, verdict.metric_name, latest, baseline, f"{arrow} {pct}", status_word, sparkline]
+        [glyph, verdict.metric_name, latest, baseline, f"{arrow} {pct}", status_word, spark]
     )
     if gv.gated:
-        return _style(text, color=color, code=_BOLD_RED)
+        return style(text, color=color, code=BOLD_RED)
     return text
 
 
@@ -177,10 +150,10 @@ def _sanity_label(report: CalibrationReport) -> str:
 
 def _gate_footer(bv: BudgetVerdict) -> str:
     if bv.gate_status == GATE_PASS:
-        return f"{_GLYPH_OK}  GATE PASSED   ·   0 regressions   ·   exit 0"
+        return f"{GLYPH_OK}  GATE PASSED   ·   0 regressions   ·   exit 0"
     if bv.gate_status != GATE_FAIL:
         return (
-            f"{_GLYPH_NEUTRAL}  GATE SKIPPED   ·   not enough history to judge "
+            f"{GLYPH_NEUTRAL}  GATE SKIPPED   ·   not enough history to judge "
             "(fail-open)   ·   exit 0"
         )
 
@@ -196,22 +169,22 @@ def _gate_footer(bv: BudgetVerdict) -> str:
     if insufficient:
         parts.append(f"{insufficient} insufficient-data (--strict)")
     detail = "   ·   ".join(parts) if parts else f"{len(bv.offending_metrics)} metric(s) gated"
-    return f"{_GLYPH_OFFENDER}  GATE FAILED   ·   {detail}   ·   exit 1"
+    return f"{GLYPH_OFFENDER}  GATE FAILED   ·   {detail}   ·   exit 1"
 
 
 def _gate_footer_color(bv: BudgetVerdict) -> str | None:
     if bv.gate_status == GATE_FAIL:
-        return _BOLD_RED
+        return BOLD_RED
     if bv.gate_status == GATE_PASS:
-        return _GREEN
-    return _DIM
+        return BOLD_GREEN
+    return DIM
 
 
 def _expand_regressed_row(gv: GatedVerdict, subject: str | None) -> str:
     verdict = gv.verdict
-    arrow, pct = _arrow_and_pct(verdict)
-    latest = _format_value(verdict.latest_value, verdict.unit)
-    baseline = _format_value(verdict.baseline_value, verdict.unit)
+    arrow, pct = arrow_and_pct(verdict)
+    latest = format_value(verdict.latest_value, verdict.unit)
+    baseline = format_value(verdict.baseline_value, verdict.unit)
     head_bit = f'"{subject}"' if subject else "(subject unavailable)"
     return f"│       └─ baseline {baseline} · latest {latest} · Δ {arrow} {pct} · HEAD {head_bit}"
 
@@ -260,7 +233,7 @@ def render_summary(
     # (the content is indented 4 by the "│   " rail).
     lines.append(f"├{'─' * (width + 3)}")
     lines.append("│")
-    lines.append(f"│   {_style(_gate_footer(bv), color=color, code=_gate_footer_color(bv) or '')}")
+    lines.append(f"│   {style(_gate_footer(bv), color=color, code=_gate_footer_color(bv) or '')}")
     lines.append("│")
     lines.append("└─")
     return "\n".join(lines) + "\n"
@@ -359,16 +332,16 @@ def render_metric_detail(
     if is_regression and rc.git_commit:
         subject = commit_log.subject(rc.git_commit)
 
-    latest_line = f"│   latest     {_format_value(verdict.latest_value, verdict.unit):<10}"
+    latest_line = f"│   latest     {format_value(verdict.latest_value, verdict.unit):<10}"
     if is_regression:
         head_bit = f'"{subject}"' if subject else "(subject unavailable)"
         latest_line += f" at HEAD  {_short_sha(rc.git_commit)}  {head_bit}"
     lines.append(latest_line)
     lines.append(
-        f"│   baseline   {_format_value(verdict.baseline_value, verdict.unit):<10} "
+        f"│   baseline   {format_value(verdict.baseline_value, verdict.unit):<10} "
         f"median of {verdict.baseline_commit_n} commits"
     )
-    arrow, pct = _arrow_and_pct(verdict)
+    arrow, pct = arrow_and_pct(verdict)
     breach_word = "BREACHED" if gv.gated else "within bounds"
     lines.append(
         f"│   delta      {arrow} {pct:<10} threshold {verdict.threshold_pct:.1f}%  ·  "

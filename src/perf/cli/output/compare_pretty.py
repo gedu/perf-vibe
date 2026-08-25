@@ -8,86 +8,40 @@ sparkline (design "UX", Rev 3), plus a single config-sanity footer line
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
+from perf.cli.output.primitives import (
+    BOLD,
+    BOLD_RED,
+    DIM,
+    arrow_and_pct,
+    format_value,
+    sparkline,
+    style,
+)
 from perf.domain import calibration, regression
 from perf.domain.calibration import CalibrationReport
 from perf.domain.model import CompareResult, Verdict
 
 __all__ = ["render_compare", "render_flow_header"]
 
-_BOLD = "\x1b[1m"
-_BOLD_RED = "\x1b[1;31m"
-_DIM = "\x1b[2m"
-_RESET = "\x1b[0m"
-
-# Stdlib Unicode block characters, low -> high (design "UX": "▁▂▃▅▇").
-_SPARK_CHARS = "▁▂▃▄▅▆▇█"
-
-_ARROW_UP = "↑"
-_ARROW_DOWN = "↓"
-_ARROW_FLAT = "→"
-_ARROW_NONE = "-"
-
-
-def _style(text: str, *, color: bool, code: str) -> str:
-    return f"{code}{text}{_RESET}" if color else text
-
-
-def _sparkline(series: Sequence[float]) -> str:
-    """Normalizes `series` to its own min/max and maps each point to one
-    of the 8 block-char levels. Handles empty, single-point, and
-    `max == min` (zero variance) without a divide-by-zero (spec
-    'Pretty-Output UX' sparkline edges)."""
-
-    if not series:
-        return ""
-    if len(series) == 1:
-        return _SPARK_CHARS[0]
-
-    lo, hi = min(series), max(series)
-    span = hi - lo
-    if span == 0:
-        # Zero-variance series — render the flat middle level for every
-        # point rather than dividing by zero.
-        flat = _SPARK_CHARS[len(_SPARK_CHARS) // 2]
-        return flat * len(series)
-
-    top_index = len(_SPARK_CHARS) - 1
-    return "".join(_SPARK_CHARS[round((value - lo) / span * top_index)] for value in series)
-
-
-def _format_value(value: float | None) -> str:
-    return "-" if value is None else f"{value:.1f}"
-
-
-def _arrow_and_pct(verdict: Verdict) -> tuple[str, str]:
-    if verdict.status == regression.STATUS_INSUFFICIENT_DATA:
-        return _ARROW_NONE, "-"
-    delta_pct = verdict.delta_pct
-    arrow = _ARROW_UP if delta_pct > 0 else _ARROW_DOWN if delta_pct < 0 else _ARROW_FLAT
-    sign = "+" if delta_pct >= 0 else ""
-    return arrow, f"{sign}{delta_pct:.1f}%"
-
 
 def _metric_line(verdict: Verdict, *, color: bool) -> str:
-    latest = _format_value(verdict.latest_value)
-    baseline = _format_value(verdict.baseline_value)
-    arrow, pct = _arrow_and_pct(verdict)
-    sparkline = _sparkline(verdict.series)
+    latest = format_value(verdict.latest_value)
+    baseline = format_value(verdict.baseline_value)
+    arrow, pct = arrow_and_pct(verdict)
+    spark = sparkline(verdict.series)
     classification = verdict.status.upper()
 
     is_regression = verdict.status == regression.STATUS_REGRESSION
     marker = "! " if is_regression else "  "
     text = (
         f"{marker}{verdict.metric_name:<20} {latest:>10} vs {baseline:<10} {verdict.unit:<4} "
-        f"{arrow} {pct:>8}  {classification:<16} {sparkline}"
+        f"{arrow} {pct:>8}  {classification:<16} {spark}"
     )
     if is_regression:
         # Color path bolds/reddens; color-off path keeps the leading "!"
         # and the "REGRESSION" word — emphasis never depends on color
         # alone (spec 'Regression is visually emphasized').
-        return _style(text, color=color, code=_BOLD_RED)
+        return style(text, color=color, code=BOLD_RED)
     return text
 
 
@@ -125,7 +79,7 @@ def _excluded_note(result: CompareResult, *, color: bool) -> str | None:
         f"note: {total} run(s) excluded from baseline: {detail} "
         "— commit your changes to grow history"
     )
-    return _style(text, color=color, code=_DIM)
+    return style(text, color=color, code=DIM)
 
 
 def render_flow_header(flow_name: str, *, color: bool = False) -> str:
@@ -134,7 +88,7 @@ def render_flow_header(flow_name: str, *, color: bool = False) -> str:
     together. Bolded when color is on; plain (byte-clean) when off. Never
     emitted for a single-flow compare — that output stays byte-identical."""
 
-    return _style(f"═══ {flow_name} ═══", color=color, code=_BOLD)
+    return style(f"═══ {flow_name} ═══", color=color, code=BOLD)
 
 
 def render_compare(result: CompareResult, *, color: bool = False) -> str:

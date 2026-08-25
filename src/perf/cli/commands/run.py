@@ -36,23 +36,14 @@ from perf.cli.output.errors import (
 from perf.cli.output.flow_picker_terminal import PickerUnavailable, pick_flows
 from perf.cli.output.json_reporter import render_json
 from perf.cli.output.pretty import render_confirmation
+from perf.cli.output.primitives import DIM, style
 from perf.cli.output.progress import build_progress_reporter
 from perf.config.loader import PerfConfig
 from perf.contracts.json_v1 import build_run_payload
 
 __all__ = ["run"]
 
-# Dim placeholder styling for the interactive iterations prompt (mirrors the
-# `init` wizard's bundle_id/base_dir prompts). Kept local per the codebase's
-# per-module ANSI convention.
-_DIM = "\x1b[2m"
-_RESET = "\x1b[0m"
-
 _PICK_HINT = "pass a flow name, or run in an interactive terminal to pick one"
-
-
-def _style(text: str, *, color: bool, code: str) -> str:
-    return f"{code}{text}{_RESET}" if color else text
 
 
 def _picker_available(output: OutputContext) -> bool:
@@ -97,7 +88,7 @@ def _prompt_iterations(default: int, *, color: bool) -> int:
     non-integer is re-prompted by typer itself. `typer.Abort` (Ctrl-C/EOF)
     propagates for the caller to treat as a cancel."""
 
-    styled_default = _style(str(default), color=color, code=_DIM)
+    styled_default = style(str(default), color=color, code=DIM)
     while True:
         value = typer.prompt(
             f"iterations [{styled_default}]", default=default, show_default=False, type=int
