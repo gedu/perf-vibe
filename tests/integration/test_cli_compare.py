@@ -102,7 +102,8 @@ def test_compare_end_to_end_pretty_shows_stable_verdict_exits_0(monkeypatch, tmp
 
     assert result.exit_code == 0, result.output
     assert "checkout" in result.output
-    assert "STABLE" in result.output
+    # Only a `regression` is uppercased now, so a stable verdict reads lowercase.
+    assert "stable" in result.output
     assert any(marker in result.output.lower() for marker in _LABEL_MARKERS)
 
 
@@ -210,7 +211,8 @@ def test_compare_real_regression_is_shown_and_still_exits_0(monkeypatch, tmp_pat
     pretty_result = runner.invoke(main_module.app, ["compare", "checkout"])
     assert pretty_result.exit_code == 0
     assert "REGRESSION" in pretty_result.output
-    assert "!" in pretty_result.output
+    # The color-independent emphasis marker is the `✗` glyph column.
+    assert "✗" in pretty_result.output
 
 
 def test_compare_unknown_flow_exits_2(monkeypatch, tmp_path: Path):

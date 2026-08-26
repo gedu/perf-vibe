@@ -1,4 +1,9 @@
-  checkout                  102.0 vs 100.0      ms   ↑    +2.0%  STABLE           ▁▅▆█
-  fps_avg                    64.8 vs 60.0       fps  ↑    +8.0%  IMPROVEMENT      ▁▂▃█
-
-✓ reasonable — 2 of 12 runs would flag
+┌─ perfvibe compare · demo · warm · Pixel 8 Pro
+│
+│      METRIC               LATEST     BASELINE          Δ  STATUS             TREND       min→max
+│   ──────────────────────────────────────────────────────────────────────────────────────────────
+│   ·  checkout           102.0 ms     100.0 ms    ↑ +2.0%  stable             ▁▅▆█         98→102
+│   ✓  fps_avg            64.8 fps     60.0 fps    ↑ +8.0%  improvement        ▁▂▃█          58→65
+│
+│   ✓ reasonable — 2 of 12 runs would flag
+└─

@@ -27,7 +27,7 @@ import typer
 
 from perf.adapters.registry import build_analyzer, build_context_provider, build_store
 from perf.adapters.store_sqlite import SqliteStore
-from perf.cli.output.compare_pretty import render_compare, render_flow_header
+from perf.cli.output.compare_pretty import render_compare
 from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
 from perf.cli.output.errors import emit_error, emit_warning
 from perf.cli.output.flow_picker_terminal import PickerUnavailable, pick_flows
@@ -298,7 +298,15 @@ def _run_single(
         else:
             if output.should_nudge_stderr:
                 typer.echo(NON_TTY_NUDGE, err=True)
-            typer.echo(render_compare(result, color=output.color_enabled))
+            typer.echo(
+                render_compare(
+                    result,
+                    flow_name=flow,
+                    mode=mode,
+                    device_key=device_key,
+                    color=output.color_enabled,
+                )
+            )
     except Exception as exc:
         # main guarded block; an output failure is still a runtime
         # failure, never exit 1 (SKILL rule 7).
@@ -380,6 +388,13 @@ def _render_multi_pretty(
     device_key: str,
     mode: str,
 ) -> None:
+    """Each flow now renders as its OWN `┌─ perfvibe compare · <flow> · …`
+    box, so sequentially rendered flows cannot blur together — which is
+    exactly what the separate `render_flow_header` (`═══ demo ═══`) existed to
+    prevent. Keeping it would print the flow name twice, one line apart, for
+    no added information, so it was deleted rather than stacked on top of the
+    box header."""
+
     if output.should_nudge_stderr:
         typer.echo(NON_TTY_NUDGE, err=True)
     for flow, result in results:
@@ -391,8 +406,15 @@ def _render_multi_pretty(
                 f"no history for flow {flow!r} (device={device_key!r}, mode={mode!r}) — skipping",
             )
             continue
-        typer.echo(render_flow_header(flow, color=output.color_enabled))
-        typer.echo(render_compare(result, color=output.color_enabled))
+        typer.echo(
+            render_compare(
+                result,
+                flow_name=flow,
+                mode=mode,
+                device_key=device_key,
+                color=output.color_enabled,
+            )
+        )
 
 
 def _close_store(store: object) -> None:

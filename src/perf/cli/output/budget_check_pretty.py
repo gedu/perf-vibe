@@ -1,10 +1,12 @@
 """Pretty renderer for `perf budget-check` — budget-check's OWN view (design
-§9, decision D2). `compare_pretty.py` stays FROZEN and is still NEVER
-imported here. The shared vocabulary (sparkline normalization, arrow/pct
-formatting, ANSI codes, glyphs) now comes from `output/primitives.py`, which
-keeps the original no-coupling guarantee WITHOUT the duplication that used to
-buy it: this renderer depends on a primitive owned by no view, not on
-another renderer.
+§9, decision D2). `compare_pretty.py` is still NEVER imported here. The
+shared vocabulary (sparkline normalization, arrow/pct formatting, ANSI codes,
+glyphs, and the `table_line`/`header_line` layout) comes from
+`output/primitives.py`, which keeps the original no-coupling guarantee
+WITHOUT the duplication that used to buy it: this renderer depends on a
+primitive owned by no view, not on another renderer. `compare` now draws the
+same table, but from its OWN column spec — the two views share mechanics, not
+layout decisions.
 
 HAND-ROLLED, NOT `rich` (design §9 rationale: determinism is free
 hand-rolled — pass an explicit `color: bool`, emit zero ANSI when false,
@@ -34,10 +36,13 @@ from perf.cli.output.primitives import (
     GLYPH_NEUTRAL,
     GLYPH_OFFENDER,
     GLYPH_OK,
+    ColumnSpec,
     arrow_and_pct,
     format_value,
+    header_line,
     sparkline,
     style,
+    table_line,
 )
 from perf.domain import calibration, regression
 from perf.domain.calibration import CalibrationReport
@@ -54,15 +59,12 @@ from perf.domain.ports import CommitLog
 
 __all__ = ["render_metric_detail", "render_summary"]
 
-# ONE column spec drives BOTH the header and every data row. The first cut of
-# this renderer kept two hand-tuned f-strings and trusted them to agree by eye;
-# they drifted 2-8 columns apart, and the golden test froze the misalignment
-# without complaint — a golden proves the output is STABLE, never that it is
-# right. Deriving both lines from this tuple makes that class of drift
-# impossible by construction rather than something a reviewer has to catch.
+# ONE column spec drives BOTH the header and every data row, laid out by the
+# shared `primitives.table_line`. This view still OWNS the spec — only the
+# layout mechanics are shared, now that `compare_pretty` is a second real
+# caller with the same shape (`python-architecture` rule 3).
 # (title, width, alignment). Width 0 marks the flexible trailing column.
-_GAP = 2
-_SUMMARY_COLUMNS: tuple[tuple[str, int, str], ...] = (
+_SUMMARY_COLUMNS: tuple[ColumnSpec, ...] = (
     ("", 1, "<"),  # status glyph — a real column, so the header cannot drift past it
     ("METRIC", 14, "<"),
     ("LATEST", 11, ">"),
@@ -76,28 +78,10 @@ _CHART_ROWS = 5
 _COL_W = 8
 _PREFIX_W = 10  # "{value:>7.1f} ┤ " — 7 + 3 chars
 
-
-def _table_line(cells: Sequence[str]) -> str:
-    """Lays out one summary-table line from `_SUMMARY_COLUMNS`. The header
-    and every metric row go through here, which is what keeps a column and
-    the header that labels it from ever drifting apart.
-
-    Stays local rather than joining `output/primitives.py`: it reads THIS
-    view's column spec from module scope and has exactly one caller, so
-    sharing it would mean inventing a general table engine for a single user
-    (`python-architecture` rule 3)."""
-
-    parts = [
-        f"{cell:{align}{width}}" if width else cell
-        for (_, width, align), cell in zip(_SUMMARY_COLUMNS, cells, strict=True)
-    ]
-    return (" " * _GAP).join(parts).rstrip()
-
-
 # Derived, never hand-counted: the rules span exactly the table they underline,
 # so widening a column cannot leave a rule short (the earlier version hardcoded
 # 74 and the two rules rendered 78 and 76 characters wide).
-_HEADER_LINE = _table_line([title for title, _, _ in _SUMMARY_COLUMNS])
+_HEADER_LINE = header_line(_SUMMARY_COLUMNS)
 _RULE_WIDTH = len(_HEADER_LINE)
 
 
@@ -130,8 +114,9 @@ def _metric_row(gv: GatedVerdict, *, color: bool) -> str:
     glyph = _row_glyph(gv)
     status_word = verdict.status.upper() if gv.gated else verdict.status.lower()
 
-    text = "│   " + _table_line(
-        [glyph, verdict.metric_name, latest, baseline, f"{arrow} {pct}", status_word, spark]
+    text = "│   " + table_line(
+        [glyph, verdict.metric_name, latest, baseline, f"{arrow} {pct}", status_word, spark],
+        _SUMMARY_COLUMNS,
     )
     if gv.gated:
         return style(text, color=color, code=BOLD_RED)

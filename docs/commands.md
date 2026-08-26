@@ -61,20 +61,26 @@ perfvibe compare                  # no args on a TTY: interactive picker
 ```
 
 Reads the local store and shows a **per-metric, direction-aware** verdict against a
-**median-by-commit baseline** — for each metric it reports the latest value vs. the
-baseline, the delta, a direction arrow, a `STABLE`/`REGRESSION` classification, and a
-sparkline trend. It is **show-only**: a regression is informational and still exits
+**median-by-commit baseline** — for each metric it reports the latest value, the
+baseline, the delta, a direction arrow, a `stable`/`REGRESSION` classification (only a
+regression is uppercased), a sparkline trend and the `min→max` range that gives that
+sparkline its scale. It is **show-only**: a regression is informational and still exits
 `0`. (The gate that fails the build is [`budget-check`](#budget-check--the-ci-gate).)
 
 ```text
-! checkout                 1310.0 vs 812.0      ms   ↑   +61.3%  REGRESSION       ▁▁▁▁█
-  ttfp                       421.0 vs 430.0     ms   ↓    -2.1%  STABLE           ████▁
-  ram_peak_mb                205.0 vs 206.0     mb   ↓    -0.5%  STABLE           ████▁
-! total_time_ms            1310.0 vs 805.0      ms   ↑   +62.7%  REGRESSION       ▁▁▁▁█
-  fps_avg                     58.1 vs 58.2      fps  ↓    -0.2%  STABLE           ████▁
-
-✓ reasonable — 0 of 4 runs would flag
-note: 1 run(s) excluded from baseline: 1 on the current commit — commit your changes to grow history
+┌─ perfvibe compare · demo · warm · Pixel 8 Pro
+│
+│      METRIC               LATEST     BASELINE          Δ  STATUS             TREND       min→max
+│   ──────────────────────────────────────────────────────────────────────────────────────────────
+│   ✗  checkout          1310.0 ms     812.0 ms   ↑ +61.3%  REGRESSION         ▁▁▁▁█      812→1310
+│   ·  ttfp               421.0 ms     430.0 ms    ↓ -2.1%  stable             ████▁       421→430
+│   ·  ram_peak_mb        205.0 mb     206.0 mb    ↓ -0.5%  stable             ████▁       205→206
+│   ✗  total_time_ms     1310.0 ms     805.0 ms   ↑ +62.7%  REGRESSION         ▁▁▁▁█      805→1310
+│   ·  fps_avg            58.1 fps     58.2 fps    ↓ -0.2%  stable             ████▁     58.1→58.2
+│
+│   ✓ reasonable — 0 of 4 runs would flag
+│   note: 1 run(s) excluded from baseline: 1 on the current commit — commit your changes to grow history
+└─
 ```
 
 - **Multiple flows / `--all`:** a flow with no history is warned and skipped, not an

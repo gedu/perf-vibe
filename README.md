@@ -14,9 +14,14 @@ no telemetry. Your runs live in a gitignored `*.db` file, tagged `local:$USER` s
 can tell yours apart from CI's.
 
 ```text
-! checkout                 1310.0 vs 812.0      ms   ↑   +61.3%  REGRESSION       ▁▁▁▁█
-  ttfp                       421.0 vs 430.0     ms   ↓    -2.1%  STABLE           ████▁
-  fps_avg                     58.1 vs 58.2      fps  ↓    -0.2%  STABLE           ████▁
+┌─ perfvibe compare · demo · warm · Pixel 8 Pro
+│
+│      METRIC               LATEST     BASELINE          Δ  STATUS             TREND       min→max
+│   ──────────────────────────────────────────────────────────────────────────────────────────────
+│   ✗  checkout          1310.0 ms     812.0 ms   ↑ +61.3%  REGRESSION         ▁▁▁▁█      812→1310
+│   ·  ttfp               421.0 ms     430.0 ms    ↓ -2.1%  stable             ████▁       421→430
+│   ·  fps_avg            58.1 fps     58.2 fps    ↓ -0.2%  stable             ████▁     58.1→58.2
+└─
 ```
 
 > **Why `perfvibe` and not `perf`?** The command is `perfvibe` so it never collides
@@ -54,13 +59,18 @@ python examples/demo-compare/seed.py
 perfvibe --config examples/demo-compare/perfvibe.toml compare demo
 ```
 ```text
-! checkout                 1310.0 vs 812.0      ms   ↑   +61.3%  REGRESSION       ▁▁▁▁█
-  ttfp                       421.0 vs 430.0     ms   ↓    -2.1%  STABLE           ████▁
-  ram_peak_mb                205.0 vs 206.0     mb   ↓    -0.5%  STABLE           ████▁
-! total_time_ms            1310.0 vs 805.0      ms   ↑   +62.7%  REGRESSION       ▁▁▁▁█
-  fps_avg                     58.1 vs 58.2      fps  ↓    -0.2%  STABLE           ████▁
-
-✓ reasonable — 0 of 4 runs would flag
+┌─ perfvibe compare · demo · warm · Pixel 8 Pro
+│
+│      METRIC               LATEST     BASELINE          Δ  STATUS             TREND       min→max
+│   ──────────────────────────────────────────────────────────────────────────────────────────────
+│   ✗  checkout          1310.0 ms     812.0 ms   ↑ +61.3%  REGRESSION         ▁▁▁▁█      812→1310
+│   ·  ttfp               421.0 ms     430.0 ms    ↓ -2.1%  stable             ████▁       421→430
+│   ·  ram_peak_mb        205.0 mb     206.0 mb    ↓ -0.5%  stable             ████▁       205→206
+│   ✗  total_time_ms     1310.0 ms     805.0 ms   ↑ +62.7%  REGRESSION         ▁▁▁▁█      805→1310
+│   ·  fps_avg            58.1 fps     58.2 fps    ↓ -0.2%  stable             ████▁     58.1→58.2
+│
+│   ✓ reasonable — 0 of 4 runs would flag
+└─
 ```
 
 ```bash
