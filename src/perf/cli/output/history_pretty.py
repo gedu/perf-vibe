@@ -7,37 +7,32 @@ short commit, p50/p90). Color/TTY-aware via the caller-resolved `color`
 flag (golden tests force it off; the CLI resolves it via the shared
 `OutputContext`, mirroring `cli/output/compare_pretty.py`).
 
-Reuses `compare_pretty._sparkline` rather than re-implementing the Unicode
-block-char scaling — the SAME sparkline the `compare` verdict view draws.
+Draws with the shared `output/primitives.py` vocabulary rather than
+re-implementing the Unicode block-char scaling — the SAME sparkline the
+`compare` verdict view draws, now owned by neither renderer.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
-from perf.cli.output.compare_pretty import _sparkline
+from perf.cli.output.primitives import BOLD, DIM, format_value, sparkline, style
 from perf.domain.model import HistoryMetric, HistoryRun
 
 __all__ = ["render_history"]
-
-_BOLD = "\x1b[1m"
-_DIM = "\x1b[2m"
-_RESET = "\x1b[0m"
 
 # The most recent runs shown in each metric's table (the sparkline still
 # spans the WHOLE queried window — the table is the lossy, readable excerpt).
 _MAX_TABLE_ROWS = 8
 
 
-def _style(text: str, *, color: bool, code: str) -> str:
-    return f"{code}{text}{_RESET}" if color else text
-
-
-def _format_value(value: float | None) -> str:
-    return "-" if value is None else f"{value:.1f}"
-
-
 def _short_commit(commit: str | None) -> str:
+    """Stays local rather than joining `output/primitives.py`: it looks like
+    `budget_check_pretty._short_sha` but its MISSING-value fallback differs
+    (`-` in this table, `unknown` in budget-check's header). The fallback is
+    the user-visible half, so these are two different renderings that happen
+    to share a `[:7]`, not one shared primitive."""
+
     return "-" if not commit else commit[:7]
 
 
@@ -81,21 +76,21 @@ def _metric_section(runs: Sequence[HistoryRun], metric_name: str, *, color: bool
         for run in runs
         if (metric := _metric_in_run(run, metric_name)) is not None and metric.p90 is not None
     ]
-    spark = _sparkline(p90_series)
-    header = _style(f"{metric_name} ({unit})", color=color, code=_BOLD)
+    spark = sparkline(p90_series)
+    header = style(f"{metric_name} ({unit})", color=color, code=BOLD)
 
     lines = [f"{header}  {spark}".rstrip()]
     lines.append(
-        _style(
+        style(
             f"  {'run':<8} {'date':<12} {'commit':<9} {'p50':>10} {'p90':>10}",
             color=color,
-            code=_DIM,
+            code=DIM,
         )
     )
     for run in runs[-_MAX_TABLE_ROWS:]:
         metric = _metric_in_run(run, metric_name)
-        p50 = _format_value(metric.p50) if metric is not None else "-"
-        p90 = _format_value(metric.p90) if metric is not None else "-"
+        p50 = format_value(metric.p50) if metric is not None else "-"
+        p90 = format_value(metric.p90) if metric is not None else "-"
         lines.append(
             f"  {run.run_id:<8} {_date_part(run.started_at):<12} "
             f"{_short_commit(run.git_commit):<9} {p50:>10} {p90:>10}"
@@ -112,10 +107,10 @@ def render_history(
     at all (the CLI resolves this from `--no-color`/`NO_COLOR`/non-TTY via
     the shared `OutputContext`)."""
 
-    heading = _style(
+    heading = style(
         f"{flow} — device={device} mode={mode} — {len(runs)} run(s)",
         color=color,
-        code=_BOLD,
+        code=BOLD,
     )
     lines = [heading, ""]
     for metric_name in _metric_names(runs):

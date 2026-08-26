@@ -8,17 +8,10 @@ import statistics
 from collections.abc import Mapping, Sequence
 
 from perf.application.run_flow import RunFlowResult
+from perf.cli.output.primitives import GREEN, YELLOW, style
 from perf.domain.model import Marker, SystemSample
 
 __all__ = ["render_confirmation"]
-
-_GREEN = "\x1b[32m"
-_YELLOW = "\x1b[33m"
-_RESET = "\x1b[0m"
-
-
-def _style(text: str, *, color: bool, code: str) -> str:
-    return f"{code}{text}{_RESET}" if color else text
 
 
 def _grouped_markers(markers: Sequence[Marker]) -> Mapping[str, list]:
@@ -30,7 +23,7 @@ def _grouped_markers(markers: Sequence[Marker]) -> Mapping[str, list]:
 
 def render_confirmation(result: RunFlowResult, *, color: bool = False) -> str:
     lines: list[str] = []
-    lines.append(_style(f"✓ perf run complete — run #{result.run_id}", color=color, code=_GREEN))
+    lines.append(style(f"✓ perf run complete — run #{result.run_id}", color=color, code=GREEN))
     lines.append(f"  flow:       {result.flow_name}")
     lines.append(f"  device:     {result.device_key}")
     lines.append(f"  mode:       {result.mode} (n={result.iterations})")
@@ -43,10 +36,10 @@ def render_confirmation(result: RunFlowResult, *, color: bool = False) -> str:
 
     if result.partial_coverage:
         lines.append(
-            _style(
+            style(
                 "  ! partial coverage — some iterations were missing data",
                 color=color,
-                code=_YELLOW,
+                code=YELLOW,
             )
         )
 

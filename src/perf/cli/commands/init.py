@@ -27,6 +27,7 @@ import typer
 from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
 from perf.cli.output.errors import emit_error
 from perf.cli.output.json_reporter import render_json
+from perf.cli.output.primitives import DIM, GREEN, style
 from perf.config.loader import PerfConfig
 from perf.contracts.init_v1 import build_init_payload
 
@@ -406,14 +407,6 @@ def _render_prune_preview(missing: Sequence[str]) -> str:
 
 # ===== Pretty confirmation (design "Testing Strategy" — golden, Phase 3) =====
 
-_DIM = "\x1b[2m"
-_GREEN = "\x1b[32m"
-_RESET = "\x1b[0m"
-
-
-def _style(text: str, *, color: bool, code: str) -> str:
-    return f"{code}{text}{_RESET}" if color else text
-
 
 def _render_confirmation(
     *,
@@ -425,7 +418,7 @@ def _render_confirmation(
     flows_pruned: Sequence[str] = (),
 ) -> str:
     lines: list[str] = []
-    lines.append(_style(f"✓ perf init wrote {config_path}", color=color, code=_GREEN))
+    lines.append(style(f"✓ perf init wrote {config_path}", color=color, code=GREEN))
     lines.append(f"  flows added: {', '.join(sorted(flows_added)) or '(none)'}")
     lines.append(f"  bundle_id:   {bundle_id or '(unset)'} ({bundle_id_source})")
     # Conditional-render: only append when non-empty, so the 4 pre-existing
@@ -444,7 +437,7 @@ def _prompt_bundle_id(candidate: str | None, *, color: bool) -> str | None:
     placeholder default"): Enter accepts the detected value as-is; typed
     input overrides it."""
 
-    styled_default = _style(candidate, color=color, code=_DIM) if candidate else ""
+    styled_default = style(candidate, color=color, code=DIM) if candidate else ""
     prompt_text = f"bundle_id [{styled_default}]" if candidate else "bundle_id (none detected)"
     raw = typer.prompt(prompt_text, default=candidate or "", show_default=False)
     return raw.strip() or None
@@ -455,7 +448,7 @@ def _prompt_base_dir(candidate: str, *, color: bool) -> str | None:
     Enter accepts the inferred base_dir as-is; typed input overrides it. An
     empty value clears it (no base_dir written)."""
 
-    styled_default = _style(candidate, color=color, code=_DIM)
+    styled_default = style(candidate, color=color, code=DIM)
     raw = typer.prompt(f"base_dir [{styled_default}]", default=candidate, show_default=False)
     return raw.strip() or None
 
@@ -467,7 +460,7 @@ def _render_mismatch_conflict_message(conflict: Sequence[str], *, color: bool) -
     needing a simulated TTY (tasks.md 3.10)."""
 
     text = f"Conflicting appId values detected: {', '.join(conflict)}"
-    return _style(text, color=color, code=_DIM)
+    return style(text, color=color, code=DIM)
 
 
 def _prompt_bundle_id_conflict(conflict: Sequence[str], *, color: bool) -> str | None:

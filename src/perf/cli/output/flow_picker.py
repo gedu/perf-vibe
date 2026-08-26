@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from perf.cli.output.primitives import BOLD, REVERSE, style
+
 __all__ = [
     "KEY_BACKSPACE",
     "KEY_CTRL_A",
@@ -45,10 +47,6 @@ KEY_BACKSPACE = "backspace"
 
 OUTCOME_ACCEPT = "accept"
 OUTCOME_CANCEL = "cancel"
-
-_BOLD = "\x1b[1m"
-_REVERSE = "\x1b[7m"
-_RESET = "\x1b[0m"
 
 _HEADER_MULTI = (
     "Select flows — type to filter, ↑/↓ move, Tab select, Ctrl-A all, Enter run, Esc cancel"
@@ -162,17 +160,13 @@ def resolved_selection(state: PickerState) -> tuple[str, ...]:
     return (rows[state.cursor],)
 
 
-def _style(text: str, *, color: bool, code: str) -> str:
-    return f"{code}{text}{_RESET}" if color else text
-
-
 def render(state: PickerState, *, color: bool = False) -> str:
     """The stderr view: a header, the live filter line, then one row per
     visible flow with a cursor marker and a checkbox. Emits NO ANSI escapes
     when `color=False` (unit tests force it off)."""
 
     header = _HEADER_MULTI if state.multi else _HEADER_SINGLE
-    lines = [_style(header, color=color, code=_BOLD), f"> {state.query}"]
+    lines = [style(header, color=color, code=BOLD), f"> {state.query}"]
     rows = visible(state)
     if not rows:
         lines.append("  (no matching flows)")
@@ -186,5 +180,5 @@ def render(state: PickerState, *, color: bool = False) -> str:
             # Single mode drops the checkbox column — there is nothing to
             # toggle, so a `[ ]` would only imply an affordance that is gone.
             row = f"{pointer} {flow}"
-        lines.append(_style(row, color=color, code=_REVERSE) if is_cursor else row)
+        lines.append(style(row, color=color, code=REVERSE) if is_cursor else row)
     return "\n".join(lines)
