@@ -14,13 +14,22 @@ nobody's private property.
 
 WHAT BELONGS HERE. Only vocabulary with more than one real caller today: a
 code that paints, a glyph that means something, a pure value->string
-formatter, or the table layout that `budget-check` and `compare` now BOTH
-draw with. What stays with its renderer is anything that encodes ONE view's
-layout decisions — each view's own column spec, and budget-check's detail
-chart (`_y_ticks`/`_render_chart`) — because those read that view's own
-constants and have exactly one caller. Generalizing them now would mean
-inventing a chart engine for a single user (`python-architecture` rule 3,
-rule of three).
+formatter, the table layout that `budget-check` and `compare` now BOTH draw
+with, and the y-axis chart that `budget-check` and `history` now BOTH draw
+with. What stays with its renderer is anything that encodes ONE view's layout
+decisions — each view's own column spec, and history's own per-run delta —
+because those read that view's own constants and have exactly one caller.
+
+WHY THE CHART MOVED. This docstring used to name `_y_ticks`/`_render_chart`
+as the example of what must NOT be promoted, on the grounds that generalizing
+them would mean "inventing a chart engine for a single user"
+(`python-architecture` rule 3, rule of three). That reasoning was right and it
+expired: `history` is a second real caller that needs the SAME chart, and the
+alternative was a second implementation of tick arithmetic. The promotion is
+deliberately partial — `chart_lines` returns UNPREFIXED lines and knows
+nothing about a box rail, an empty-series message, or a HEAD marker, because
+those are each one view's decision. Byte-identical `budget_check_*` goldens
+are the proof the move changed no output.
 
 WHY `table_line` IS HERE NOW AND WAS NOT BEFORE. It shipped private to
 `budget_check_pretty` on purpose: it read that view's `_SUMMARY_COLUMNS` from
@@ -51,6 +60,9 @@ __all__ = [
     "BOLD",
     "BOLD_GREEN",
     "BOLD_RED",
+    "CHART_COL_W",
+    "CHART_PREFIX_W",
+    "CHART_ROWS",
     "DIM",
     "GLYPH_NEUTRAL",
     "GLYPH_OFFENDER",
@@ -64,6 +76,8 @@ __all__ = [
     "Cell",
     "ColumnSpec",
     "arrow_and_pct",
+    "chart_lines",
+    "device_label",
     "format_value",
     "header_line",
     "sparkline",
@@ -221,3 +235,98 @@ def header_line(columns: Sequence[ColumnSpec], *, gap: int = TABLE_GAP) -> str:
     never colored (a header is structure, not a verdict)."""
 
     return table_line([title for title, _, _ in columns], columns, gap=gap)
+
+
+# ===== Y-axis chart =====
+# `budget-check`'s detail chart, promoted when `history` became a second real
+# caller. A sparkline says "it went up"; a chart with labelled ticks says HOW
+# FAR, which is the whole reason both views draw one.
+CHART_ROWS = 5
+CHART_COL_W = 8
+# The `"{value:>7.1f} ┤ "` gutter: 7 for the tick + 3 for " ┤ ". Callers indent
+# the axis and label lines by exactly this much so they line up under the bars.
+CHART_PREFIX_W = 10
+
+CHART_BAR = "██"
+
+# A tick is a float computed from the data, so a value that IS the tick must
+# still clear it — `100.0 >= 100.00000000000001` is how an exact top-of-chart
+# point silently loses its bar.
+_CHART_EPSILON = 1e-9
+
+
+def _y_ticks(values: Sequence[float], *, rows: int) -> list[float]:
+    """`rows` evenly spaced tick values from the series max DOWN to its min.
+    A zero-variance series collapses to its single value rather than dividing
+    by zero — the same guard `sparkline` needs, for the same reason."""
+
+    lo, hi = min(values), max(values)
+    if hi == lo:
+        return [lo]
+    return [hi - (i / (rows - 1)) * (hi - lo) for i in range(rows)]
+
+
+def chart_lines(
+    values: Sequence[float],
+    labels: Sequence[str],
+    *,
+    rows: int = CHART_ROWS,
+    col_w: int = CHART_COL_W,
+) -> list[str]:
+    """A column chart of `values` with labelled y-axis ticks and `labels`
+    along the x axis, as UNPREFIXED lines: the tick rows, the `└───` axis, then
+    the x labels.
+
+    Deliberately knows nothing about a box rail, an empty-series message, or a
+    HEAD marker — each of those is one view's decision, so each caller prepends
+    its own rail and appends its own annotations. Returns an EMPTY list for an
+    empty series so a caller can substitute its own wording instead of being
+    handed a chart of nothing.
+
+    `labels` must be the same length as `values`: the whole point is that a bar
+    and the label under it describe the same run, and a zip that silently
+    truncated would misattribute every bar after the mismatch.
+    """
+
+    if not values:
+        return []
+    if len(labels) != len(values):
+        raise ValueError(
+            f"chart_lines needs one label per value, got {len(labels)} labels "
+            f"for {len(values)} values"
+        )
+
+    lines = [
+        (
+            f"{tick:>7.1f} ┤ "
+            + "".join(
+                f"{CHART_BAR if value >= tick - _CHART_EPSILON else '':<{col_w}}"
+                for value in values
+            )
+        ).rstrip()
+        for tick in _y_ticks(values, rows=rows)
+    ]
+    gutter = " " * CHART_PREFIX_W
+    lines.append(gutter + "└" + "─" * (col_w * len(values)))
+    lines.append((gutter + "".join(f"{label:<{col_w}}" for label in labels)).rstrip())
+    return lines
+
+
+def device_label(device_key: str) -> str:
+    """The human half of a `model|os|kind` device key. A reader recognizes
+    `Pixel 8 Pro`, not the pipe-delimited key, and the OS/kind halves are not
+    what distinguishes one view from another on a dev's machine. Degrades the
+    same way `run` does: a key derived with no device attached carries the
+    literal `unknown`, which reads as nothing at all in a header, so it becomes
+    `unknown device` instead (matching `budget_check_pretty`'s
+    `rc.model or "unknown device"`).
+
+    Shared rather than duplicated because `compare` and `history` both draw a
+    box header off the SAME `device_key` string. `budget-check` still does its
+    own thing: it holds a `RunContext`, so it reads `rc.model` directly and has
+    no key to parse."""
+
+    model = device_key.split("|")[0].strip()
+    if not model or model == "unknown":
+        return "unknown device"
+    return model

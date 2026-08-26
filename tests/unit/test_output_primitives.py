@@ -235,3 +235,106 @@ def test_table_line_emits_no_ansi_for_an_unpainted_cell_even_with_color_on():
 def test_table_line_rejects_a_cell_count_that_disagrees_with_the_spec():
     with pytest.raises(ValueError):
         primitives.table_line(["x", "ttfp"], _COLUMNS)
+
+
+# ===== chart_lines / device_label =====
+# Promoted out of `budget_check_pretty` when `history` became a second caller.
+# `budget_check_*` goldens staying byte-identical proves the move changed no
+# output; these tests pin the properties the SHARED shape has to keep.
+
+
+_CHART_VALUES = (98.0, 100.0, 101.0, 120.0)
+_CHART_LABELS = ("d4e5f6a", "e5f6a7b", "f6a7b8c", "a1b2c3d")
+
+
+def _chart(values=_CHART_VALUES, labels=_CHART_LABELS):
+    return primitives.chart_lines(values, labels)
+
+
+def test_chart_lines_top_tick_is_the_max_and_bottom_tick_is_the_min():
+    """The whole reason both views draw a chart instead of a bare sparkline: a
+    sparkline is normalized to its own range and so shows neither endpoint."""
+
+    lines = _chart()
+    assert lines[0].startswith(f"{max(_CHART_VALUES):>7.1f} ┤")
+    # -3: the last tick row, then the axis, then the labels.
+    assert lines[-3].startswith(f"{min(_CHART_VALUES):>7.1f} ┤")
+
+
+def test_chart_lines_draws_one_row_per_requested_tick_plus_axis_and_labels():
+    assert len(_chart()) == primitives.CHART_ROWS + 2
+
+
+def test_chart_lines_collapses_a_zero_variance_series_to_a_single_tick():
+    """`_y_ticks` divides by the span, so a flat series is the divide-by-zero
+    case — it must render ONE honest tick, not five identical ones."""
+
+    lines = primitives.chart_lines([100.0, 100.0], ["aaa", "bbb"])
+
+    assert len(lines) == 3  # one tick + axis + labels
+    assert lines[0].startswith(f"{100.0:>7.1f} ┤")
+
+
+def test_chart_lines_gives_a_point_equal_to_the_top_tick_its_bar():
+    """The top tick IS the max, computed as a float. Without the epsilon a
+    value that equals it can fail `>=` and silently lose its bar — the tallest
+    point in the series would be the one that vanishes."""
+
+    lines = primitives.chart_lines([1.0, 3.0], ["a", "b"])
+
+    assert primitives.CHART_BAR in lines[0]
+
+
+def test_chart_lines_axis_and_labels_start_at_the_bar_gutter():
+    """The axis and the labels are indented by exactly the tick gutter, so a
+    label sits under its own bar. A caller (budget-check's `└ HEAD` marker)
+    offsets from `CHART_PREFIX_W`, so a drift here misplaces that too."""
+
+    lines = _chart()
+    gutter = " " * primitives.CHART_PREFIX_W
+
+    assert lines[-2].startswith(gutter + "└")
+    assert lines[-1].startswith(gutter + _CHART_LABELS[0])
+    # The BOTTOM tick row, not the top one: every point clears the minimum, so
+    # that is the row whose FIRST bar must land exactly on the gutter. On the
+    # top tick only the max point draws, and its bar sits wherever that point
+    # happens to be in the series.
+    assert lines[-3].index(primitives.CHART_BAR) == primitives.CHART_PREFIX_W
+
+
+def test_chart_lines_returns_nothing_for_an_empty_series():
+    """Empty is the caller's wording to choose, not a chart of nothing —
+    budget-check says "(no chart data — empty series)" and history says
+    something else, and neither wants a bare axis."""
+
+    assert primitives.chart_lines([], []) == []
+
+
+def test_chart_lines_rejects_labels_that_do_not_pair_with_the_values():
+    """A silently truncating zip would misattribute EVERY bar after the
+    mismatch — the chart would look fine and mean something else."""
+
+    with pytest.raises(ValueError):
+        primitives.chart_lines([1.0, 2.0], ["only-one"])
+
+
+def test_chart_lines_emits_no_ansi_escapes():
+    """A chart is structure, not a verdict: no caller passes `color` and none
+    should be able to get an escape out of it."""
+
+    assert "\x1b" not in "".join(_chart())
+
+
+def test_device_label_keeps_the_model_half_of_the_key():
+    assert primitives.device_label("Pixel 8 Pro|Android 14|physical") == "Pixel 8 Pro"
+
+
+@pytest.mark.parametrize(
+    "device_key",
+    ["unknown|unknown|physical", "|Android 14|physical", "   |Android 14|physical"],
+)
+def test_device_label_degrades_to_a_readable_phrase(device_key):
+    """`run` derives `unknown|unknown|physical` when no device answers, and a
+    bare `unknown` (or an empty model) reads as nothing at all in a header."""
+
+    assert primitives.device_label(device_key) == "unknown device"
