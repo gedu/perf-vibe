@@ -1,0 +1,12 @@
+┌─ perfvibe reassure-import · current · .reassure/current.perf
+│
+│   ✓  4 entries imported
+│
+│   entries                           4
+│   duration samples                 40
+│   count samples                     4
+│   entries with render issues        1
+│
+│   · 6 line(s) skipped — reasons on stderr
+│   · content 3f2a1b9c2d4e
+└─

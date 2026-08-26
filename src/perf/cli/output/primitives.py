@@ -117,9 +117,18 @@ GLYPH_NEUTRAL = "·"
 def style(text: str, *, color: bool, code: str) -> str:
     """Wrap `text` in `code` and reset, or return it untouched when `color` is
     false — the single place the whole CLI decides whether an escape is
-    emitted at all."""
+    emitted at all.
 
-    return f"{code}{text}{RESET}" if color else text
+    An EMPTY `code` is also returned untouched, even with `color=True`. A
+    caller that picks its code conditionally (`DIM if dimmed else ""`) would
+    otherwise emit a bare `RESET` with nothing opening it, which closes
+    whatever span the terminal happened to be in. `table_line` already carried
+    a local `if code else text` guard for exactly this; the trap belongs here,
+    where every caller gets it."""
+
+    if not color or not code:
+        return text
+    return f"{code}{text}{RESET}"
 
 
 def sparkline(series: Sequence[float]) -> str:

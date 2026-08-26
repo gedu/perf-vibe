@@ -338,3 +338,12 @@ def test_device_label_degrades_to_a_readable_phrase(device_key):
     bare `unknown` (or an empty model) reads as nothing at all in a header."""
 
     assert primitives.device_label(device_key) == "unknown device"
+
+
+def test_style_with_an_empty_code_emits_nothing_even_with_color_on():
+    """A caller picking its code conditionally (`DIM if dimmed else ""`) would
+    otherwise get a bare `RESET` with nothing opening it, closing whatever span
+    the terminal was in. Found by `reassure_import_pretty`, which does exactly
+    that."""
+
+    assert primitives.style("plain", color=True, code="") == "plain"
