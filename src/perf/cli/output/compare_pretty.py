@@ -44,6 +44,7 @@ from perf.cli.output.primitives import (
     Cell,
     ColumnSpec,
     arrow_and_pct,
+    device_label,
     format_value,
     header_line,
     sparkline,
@@ -222,21 +223,6 @@ def _excluded_note(result: CompareResult, *, color: bool) -> list[str]:
     ]
 
 
-def _device_label(device_key: str) -> str:
-    """The human half of a `model|os|kind` device key. A reader recognizes
-    `Pixel 8 Pro`, not the pipe-delimited key, and the OS/kind halves are not
-    what distinguishes one compare from another on a dev's machine. Degrades
-    the same way `run` does: a key derived with no device attached carries the
-    literal `unknown`, which reads as nothing at all in a header, so it
-    becomes `unknown device` instead (matching `budget_check_pretty`'s
-    `rc.model or "unknown device"`)."""
-
-    model = device_key.split("|")[0].strip()
-    if not model or model == "unknown":
-        return "unknown device"
-    return model
-
-
 def render_compare(
     result: CompareResult,
     *,
@@ -262,7 +248,7 @@ def render_compare(
     all."""
 
     lines: list[str] = [
-        f"┌─ perfvibe compare · {flow_name} · {mode} · {_device_label(device_key)}",
+        f"┌─ perfvibe compare · {flow_name} · {mode} · {device_label(device_key)}",
         "│",
         f"│   {_HEADER_LINE}",
         f"│   {'─' * _RULE_WIDTH}",

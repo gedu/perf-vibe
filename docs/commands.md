@@ -157,14 +157,35 @@ Flashlight system-sample aggregates). `--metric` narrows to one metric; `--limit
 `3` runtime failure, never `1`.
 
 ```text
-demo — device=unknown|unknown|physical mode=warm — 5 run(s)
-
-checkout (ms)  ▁▁▁▁█
-  run      date         commit           p50        p90
-  1        2020-01-01   c1             805.0      812.0
-  4        2020-01-01   c4             805.0      812.0
-  5        2020-01-01   head          1285.0     1310.0
+┌─ perfvibe history · demo · warm · unknown device · 3 run(s)
+│
+│   checkout (ms)   window ▁▁█
+│
+│    1310.0 ┤                 ██
+│    1185.5 ┤                 ██
+│    1061.0 ┤                 ██
+│     936.5 ┤                 ██
+│     812.0 ┤ ██      ██      ██
+│             └────────────────────────
+│             c1      c4      head
+│
+│   RUN     DATE        COMMIT          P50         P90       Δ P90
+│   ───────────────────────────────────────────────────────────────
+│   1       2020-01-01  c1            805.0       812.0           -
+│   4       2020-01-01  c4            805.0       812.0     → +0.0%
+│   5       2020-01-01  head         1285.0      1310.0    ↑ +61.3%
+│
+└─
 ```
+
+The y-axis ticks carry the series **min and max**, which a sparkline cannot: `▁▁█`
+says the last run was the worst and nothing about how much worse. The `Δ P90` column
+is each run against the last run that had a value, and its color is direction-aware
+(`fps_avg` rising is green; `checkout` rising is red) — the arrow and the percentage
+are facts, the color is only the good/bad reading, so `--no-color` loses no data.
+The chart and the table always show the **same** runs; when that truncates the
+window the box says `charting the last 8 of N runs`. The header sparkline still spans
+the whole window.
 
 **`--json`** → history payload (`schema_version = 1`) — the per-flow historical
 series. This is the export you feed a chart.

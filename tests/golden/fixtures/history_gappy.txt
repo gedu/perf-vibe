@@ -1,6 +1,14 @@
-checkout — device=TestDevice|14|physical mode=warm — 2 run(s)
-
-checkout (ms)  ▁
-  run      date         commit           p50        p90
-  3001     2020-03-01   -                  -          -
-  3002     2020-03-02   cafe123        100.0      120.0
+┌─ perfvibe history · checkout · warm · TestDevice · 2 run(s)
+│
+│   checkout (ms)   window ▁
+│
+│     120.0 ┤ ██
+│             └────────
+│             cafe123
+│
+│   RUN     DATE        COMMIT          P50         P90       Δ P90
+│   ───────────────────────────────────────────────────────────────
+│   3001    2020-03-01  -                 -           -           -
+│   3002    2020-03-02  cafe123       100.0       120.0           -
+│
+└─

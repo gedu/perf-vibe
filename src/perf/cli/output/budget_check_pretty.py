@@ -32,12 +32,14 @@ from collections.abc import Sequence
 from perf.cli.output.primitives import (
     BOLD_GREEN,
     BOLD_RED,
+    CHART_PREFIX_W,
     DIM,
     GLYPH_NEUTRAL,
     GLYPH_OFFENDER,
     GLYPH_OK,
     ColumnSpec,
     arrow_and_pct,
+    chart_lines,
     format_value,
     header_line,
     sparkline,
@@ -74,9 +76,11 @@ _SUMMARY_COLUMNS: tuple[ColumnSpec, ...] = (
     ("TREND", 0, "<"),
 )
 
+# This view's chart sizing, passed EXPLICITLY to the shared `chart_lines` — the
+# gutter width is not here, because it is derived from the primitive's own tick
+# format and the `└ HEAD` marker below must move with it, not with a copy.
 _CHART_ROWS = 5
 _COL_W = 8
-_PREFIX_W = 10  # "{value:>7.1f} ┤ " — 7 + 3 chars
 
 # Derived, never hand-counted: the rules span exactly the table they underline,
 # so widening a column cannot leave a rule short (the earlier version hardcoded
@@ -231,29 +235,23 @@ def _select_gated_verdict(bv: BudgetVerdict, metric_name: str) -> GatedVerdict |
     return None
 
 
-def _y_ticks(values: Sequence[float]) -> list[float]:
-    lo, hi = min(values), max(values)
-    if hi == lo:
-        return [lo]
-    return [hi - (i / (_CHART_ROWS - 1)) * (hi - lo) for i in range(_CHART_ROWS)]
-
-
 def _render_chart(points: Sequence[SeriesPoint], head_commit: str | None) -> list[str]:
+    """This view's chart: the shared `primitives.chart_lines` behind its own
+    box rail, plus the two things that are budget-check's alone — the
+    empty-series wording, and the `└ HEAD` marker under the run being gated."""
+
     if not points:
         return ["│   (no chart data — empty series)"]
 
-    values = [p.value for p in points]
-    ticks = _y_ticks(values)
-    lines: list[str] = []
-    for threshold in ticks:
-        cells = "".join(f"{'██' if v >= threshold - 1e-9 else '':<{_COL_W}}" for v in values)
-        lines.append(f"│   {threshold:>7.1f} ┤ {cells}".rstrip())
-
-    axis = "│   " + " " * _PREFIX_W + "└" + "─" * (_COL_W * len(points))
-    lines.append(axis.rstrip())
-
-    labels = "│   " + " " * _PREFIX_W + "".join(f"{_short_sha(p.commit):<{_COL_W}}" for p in points)
-    lines.append(labels.rstrip())
+    lines = [
+        f"│   {line}"
+        for line in chart_lines(
+            [p.value for p in points],
+            [_short_sha(p.commit) for p in points],
+            rows=_CHART_ROWS,
+            col_w=_COL_W,
+        )
+    ]
 
     head_idx = None
     if head_commit:
@@ -261,7 +259,7 @@ def _render_chart(points: Sequence[SeriesPoint], head_commit: str | None) -> lis
             if point.commit == head_commit:
                 head_idx = idx
     if head_idx is not None:
-        marker = "│   " + " " * (_PREFIX_W + _COL_W * head_idx) + "└ HEAD"
+        marker = "│   " + " " * (CHART_PREFIX_W + _COL_W * head_idx) + "└ HEAD"
         lines.append(marker)
 
     return lines
