@@ -39,6 +39,7 @@ from perf.adapters.registry import build_reassure_parser, build_store
 from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
 from perf.cli.output.errors import emit_error, emit_warning
 from perf.cli.output.json_reporter import render_json
+from perf.cli.output.reassure_import_pretty import render_reassure_import
 from perf.config.loader import PerfConfig
 from perf.contracts.reassure_import_v1 import build_reassure_import_payload
 
@@ -82,21 +83,6 @@ def _close_store(store: object) -> None:
             # exit code (SKILL rule 7: never exit 1) — mirrors
             # `compare.py._close_store`.
             typer.echo(f"warning: failed to close store: {close_exc}", err=True)
-
-
-def _render_import_pretty(payload: dict) -> str:
-    lines = [
-        f"path: {payload['path']}",
-        f"kind: {payload['kind']}",
-        f"content_hash: {payload['content_hash']}",
-        f"already_imported: {payload['already_imported']}",
-        f"entries_imported: {payload['entries_imported']}",
-        f"entries_skipped: {payload['entries_skipped']}",
-        f"duration_samples_imported: {payload['duration_samples_imported']}",
-        f"count_samples_imported: {payload['count_samples_imported']}",
-        f"entries_with_render_issues: {payload['entries_with_render_issues']}",
-    ]
-    return "\n".join(lines) + "\n"
 
 
 def reassure_import(
@@ -181,7 +167,7 @@ def reassure_import(
         else:
             if output.should_nudge_stderr:
                 typer.echo(NON_TTY_NUDGE, err=True)
-            typer.echo(_render_import_pretty(payload))
+            typer.echo(render_reassure_import(payload, color=output.color_enabled))
     except Exception as exc:
         emit_error(output, f"failed to render output: {exc}")
         raise typer.Exit(code=3) from None

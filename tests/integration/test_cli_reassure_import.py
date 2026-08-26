@@ -189,13 +189,23 @@ def test_mixed_quality_file_warns_per_skipped_line_and_stdout_is_json_pure(
 
 
 def test_pretty_mode_reports_kind_and_counts(monkeypatch, tmp_path: Path):
+    """The assertion used to be `"entries_imported" in result.output`, which
+    pinned the `--json` key names INTO the human view — the exact leak the
+    restyle removed. What this test is actually for is that pretty mode reaches
+    the renderer and reports the kind and the counts, so it now asserts the
+    human wording. The rendering itself is pinned by
+    `tests/golden/test_reassure_import_pretty_golden.py`."""
+
     db_path = tmp_path / "perf.db"
     _patch_load_config(monkeypatch, db_path=str(db_path))
 
     result = runner.invoke(main_module.app, ["reassure-import", str(_FIXTURE)])
 
     assert result.exit_code == 0, result.output
-    assert "entries_imported" in result.output
+    assert "perfvibe reassure-import · unknown ·" in result.stdout  # the derived kind
+    assert "4 entries imported" in result.stdout
+    assert "duration samples" in result.stdout
+    assert "entries_imported" not in result.stdout  # no contract key in the human view
 
 
 # ===== exit 3: store/transaction failure =====
