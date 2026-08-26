@@ -85,7 +85,8 @@ def test_seeded_multi_commit_history_yields_a_real_regression_verdict(monkeypatc
     assert pretty_result.exit_code == 0, pretty_result.output
     assert "REGRESSION" in pretty_result.output
     assert "ttfp" in pretty_result.output
-    assert "STABLE" in pretty_result.output
+    # Only a `regression` is uppercased now, so a stable verdict reads lowercase.
+    assert "stable" in pretty_result.output
 
 
 def test_seeded_history_never_exits_1(monkeypatch, tmp_path: Path):

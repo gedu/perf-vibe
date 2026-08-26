@@ -1,3 +1,8 @@
-  checkout                  100.0 vs 100.0      ms   →    +0.0%  STABLE           ▁
-
-✓ reasonable — 2 of 12 runs would flag
+┌─ perfvibe compare · demo · warm · Pixel 8 Pro
+│
+│      METRIC               LATEST     BASELINE          Δ  STATUS             TREND       min→max
+│   ──────────────────────────────────────────────────────────────────────────────────────────────
+│   ·  checkout           100.0 ms     100.0 ms    → +0.0%  stable             ▁               100
+│
+│   ✓ reasonable — 2 of 12 runs would flag
+└─

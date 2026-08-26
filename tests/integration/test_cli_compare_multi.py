@@ -106,8 +106,9 @@ def test_two_flows_pretty_renders_both_with_headers_exits_0(monkeypatch, tmp_pat
     assert result.exit_code == 0, result.output
     assert "checkout" in result.output
     assert "login" in result.output
-    # Each flow gets its own header line.
-    assert result.output.count("═══") >= 2
+    # Each flow renders as its own box, whose `┌─` header names the flow —
+    # which is why the separate `═══ <flow> ═══` header line is gone.
+    assert result.output.count("┌─ perfvibe compare") >= 2
 
 
 def test_two_flows_json_uses_compare_all_envelope(monkeypatch, tmp_path: Path):
@@ -248,7 +249,8 @@ def test_no_args_tty_invokes_picker_and_runs_selection(monkeypatch, tmp_path: Pa
     result = runner.invoke(main_module.app, ["compare"])
 
     assert result.exit_code == 0, result.output
-    assert "STABLE" in result.output
+    # Only a `regression` is uppercased now, so a stable verdict reads lowercase.
+    assert "stable" in result.output
 
 
 def test_picker_cancel_exits_0_with_notice(monkeypatch, tmp_path: Path):
@@ -292,4 +294,4 @@ def test_picker_multi_selection_uses_multi_flow_view(monkeypatch, tmp_path: Path
     result = runner.invoke(main_module.app, ["compare"])
 
     assert result.exit_code == 0, result.output
-    assert result.output.count("═══") >= 2
+    assert result.output.count("┌─ perfvibe compare") >= 2

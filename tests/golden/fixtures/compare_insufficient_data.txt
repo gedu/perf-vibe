@@ -1,3 +1,8 @@
-  checkout                  100.0 vs -          ms   -        -  INSUFFICIENT-DATA ▁
-
-· insufficient data to grade config sanity
+┌─ perfvibe compare · demo · warm · Pixel 8 Pro
+│
+│      METRIC               LATEST     BASELINE          Δ  STATUS             TREND       min→max
+│   ──────────────────────────────────────────────────────────────────────────────────────────────
+│   ·  checkout           100.0 ms            -        - -  insufficient-data  ▁               100
+│
+│   · insufficient data to grade config sanity
+└─

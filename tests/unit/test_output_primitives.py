@@ -20,6 +20,7 @@ No I/O and no renderer involved: these are pure `value -> str` functions.
 
 from __future__ import annotations
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -146,3 +147,91 @@ def test_arrow_and_pct_reports_insufficient_data_rather_than_a_fabricated_zero()
         primitives.ARROW_NONE,
         "-",
     )
+
+
+# ===== table_line / header_line =====
+#
+# Extracted from `budget_check_pretty` once `compare_pretty` became a second
+# real caller with the same shape. These tests pin the two properties the
+# extraction had to buy: a header can never drift from the column it labels,
+# and painting SOME cells must not move the others.
+
+_COLUMNS: tuple[primitives.ColumnSpec, ...] = (
+    ("", 1, "<"),
+    ("METRIC", 8, "<"),
+    ("LATEST", 6, ">"),
+    ("TREND", 0, "<"),
+)
+
+
+def test_table_line_pads_by_each_column_width_and_alignment():
+    assert primitives.table_line(["x", "ttfp", "1.5", "▁▂█"], _COLUMNS) == (
+        "x  ttfp         1.5  ▁▂█"
+    )
+
+
+def test_header_line_is_laid_out_by_the_very_spec_it_labels():
+    header = primitives.header_line(_COLUMNS)
+    row = primitives.table_line(["x", "ttfp", "1.5", "▁▂█"], _COLUMNS)
+
+    # Every column title starts exactly where its data does — the drift that
+    # two hand-tuned f-strings used to allow is now unrepresentable.
+    assert header.index("METRIC") == row.index("ttfp")
+    assert header.index("LATEST") + len("LATEST") == row.index("1.5") + len("1.5")
+
+
+def test_table_line_strips_the_trailing_padding_of_a_flexible_last_column():
+    assert primitives.table_line(["x", "ttfp", "1.5", ""], _COLUMNS).endswith("1.5")
+
+
+def test_table_line_never_truncates_a_cell_wider_than_its_column():
+    line = primitives.table_line(["x", "a_very_long_metric", "1.5", ""], _COLUMNS)
+
+    assert "a_very_long_metric" in line
+
+
+def test_table_line_measures_a_painted_cell_by_its_plain_text():
+    """The whole reason `Cell` exists: an ANSI-wrapped glyph is 10 bytes and
+    one character. Padding computed on the bytes would leave the column 9
+    short, so a painted row must occupy the same columns as a plain one."""
+
+    plain = primitives.table_line(["x", "ttfp", "1.5", "▁▂█"], _COLUMNS)
+    painted = primitives.table_line(
+        [primitives.Cell("x", primitives.BOLD_RED), "ttfp", "1.5", "▁▂█"],
+        _COLUMNS,
+        color=True,
+    )
+
+    assert primitives.BOLD_RED in painted
+    assert painted.replace(primitives.BOLD_RED, "").replace(primitives.RESET, "") == plain
+
+
+def test_table_line_keeps_escapes_out_of_the_padding():
+    painted = primitives.table_line(
+        [primitives.Cell("x", primitives.DIM), "ttfp", "1.5", "▁▂█"], _COLUMNS, color=True
+    )
+
+    # The reset closes immediately after the cell text, so the pad that
+    # follows it is unpainted whitespace.
+    assert painted.startswith(f"{primitives.DIM}x{primitives.RESET}  ")
+
+
+def test_table_line_emits_no_ansi_for_a_painted_cell_when_color_is_off():
+    painted = primitives.table_line(
+        [primitives.Cell("x", primitives.BOLD_RED), "ttfp", "1.5", "▁▂█"], _COLUMNS, color=False
+    )
+
+    assert "\x1b" not in painted
+    assert painted == primitives.table_line(["x", "ttfp", "1.5", "▁▂█"], _COLUMNS)
+
+
+def test_table_line_emits_no_ansi_for_an_unpainted_cell_even_with_color_on():
+    """A bare `str` cell carries no code, so `color=True` must not wrap it in
+    an empty-code escape pair (which would emit a stray reset)."""
+
+    assert "\x1b" not in primitives.table_line(["x", "ttfp", "1.5", ""], _COLUMNS, color=True)
+
+
+def test_table_line_rejects_a_cell_count_that_disagrees_with_the_spec():
+    with pytest.raises(ValueError):
+        primitives.table_line(["x", "ttfp"], _COLUMNS)
