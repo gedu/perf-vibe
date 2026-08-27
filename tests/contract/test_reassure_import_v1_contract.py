@@ -44,6 +44,7 @@ _REQUIRED_KEYS_AND_TYPES = {
     "duration_samples_imported": int,
     "count_samples_imported": int,
     "entries_with_render_issues": int,
+    "entries_dropped_duplicate_name": int,
 }
 
 
@@ -58,15 +59,16 @@ def _sample_payload(**overrides: object) -> dict:
         "duration_samples_imported": 10,
         "count_samples_imported": 12,
         "entries_with_render_issues": 1,
+        "entries_dropped_duplicate_name": 0,
     }
     defaults.update(overrides)
     return build_reassure_import_payload(**defaults)
 
 
-def test_schema_version_is_1():
-    assert SCHEMA_VERSION == 2
+def test_schema_version_is_3():
+    assert SCHEMA_VERSION == 3
     payload = _sample_payload()
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
 
 
 def test_required_keys_present_with_correct_types():
@@ -78,10 +80,10 @@ def test_required_keys_present_with_correct_types():
         )
 
 
-def test_exact_ten_keys_no_more_no_fewer():
+def test_exact_eleven_keys_no_more_no_fewer():
     payload = _sample_payload()
     assert set(payload.keys()) == set(_REQUIRED_KEYS_AND_TYPES)
-    assert len(payload) == 10
+    assert len(payload) == 11
 
 
 def test_no_samples_imported_key_anywhere_in_the_payload():
@@ -136,6 +138,19 @@ def test_contract_rejects_a_shape_change_without_version_bump():
     pinning, matching `test_markers_doctor_v1_contract.py`'s pattern)."""
     payload = _sample_payload()
     assert set(payload.keys()) == set(_REQUIRED_KEYS_AND_TYPES)
-    assert payload["schema_version"] == 2, (
+    assert payload["schema_version"] == 3, (
         "a shape change needs a SCHEMA_VERSION bump, not an inequality"
     )
+
+
+def test_entries_dropped_duplicate_name_is_reported_independently():
+    """D4: the count of entries dropped for a duplicate `name` within one
+    import is its own fact — bounded by neither `entries_skipped` nor
+    `entries_imported`, and NOT derivable from either. Zero is a legitimate,
+    reportable value: "imported, and nothing was a duplicate name"."""
+    flagged = _sample_payload(entries_skipped=2, entries_dropped_duplicate_name=3)
+    assert flagged["entries_skipped"] == 2
+    assert flagged["entries_dropped_duplicate_name"] == 3
+
+    none_flagged = _sample_payload(entries_dropped_duplicate_name=0)
+    assert none_flagged["entries_dropped_duplicate_name"] == 0

@@ -38,6 +38,7 @@ def _payload(**overrides):
         "duration_samples_imported": 40,
         "count_samples_imported": 4,
         "entries_with_render_issues": 1,
+        "entries_dropped_duplicate_name": 0,
     }
     defaults.update(overrides)
     return build_reassure_import_payload(**defaults)
@@ -118,6 +119,31 @@ def test_empty_import_matches_golden(request):
     _assert_or_update_golden(request, "reassure_import_empty.txt", render_reassure_import(payload))
 
 
+# ===== (d) duplicate names dropped =====
+
+
+def test_duplicate_names_dropped_matches_golden(request):
+    _assert_or_update_golden(
+        request,
+        "reassure_import_duplicate_names.txt",
+        render_reassure_import(_payload(entries_dropped_duplicate_name=3)),
+    )
+
+
+def test_duplicate_names_dropped_count_is_visible_in_the_pretty_view():
+    actual = render_reassure_import(_payload(entries_dropped_duplicate_name=3), color=True)
+
+    assert f"{YELLOW}      3{RESET}" in actual or f"{YELLOW}3{RESET}" in actual
+
+
+def test_zero_duplicate_names_dropped_is_not_painted():
+    actual = render_reassure_import(
+        _payload(entries_dropped_duplicate_name=0, entries_with_render_issues=0), color=True
+    )
+
+    assert YELLOW not in actual
+
+
 # ===== guards on the restyle =====
 
 
@@ -135,6 +161,7 @@ def test_the_machine_contract_does_not_leak_into_the_human_view():
         "duration_samples_imported",
         "count_samples_imported",
         "entries_with_render_issues",
+        "entries_dropped_duplicate_name",
         "content_hash",
         "schema_version",
     ):

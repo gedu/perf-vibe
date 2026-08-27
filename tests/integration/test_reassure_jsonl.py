@@ -40,6 +40,7 @@ from pathlib import Path
 import pytest
 
 from perf.adapters.reassure_jsonl import (
+    REASON_DUPLICATE_NAME,
     REASON_INVALID_JSON,
     REASON_INVALID_VALUE,
     REASON_MISSING_FIELD,
@@ -427,6 +428,109 @@ def test_non_integer_runs_is_skipped_with_invalid_value(tmp_path):
 
     assert len(result.entries) == 0
     assert result.skipped == ((1, REASON_INVALID_VALUE),)
+
+
+def test_duplicate_name_all_copies_dropped_and_reported(tmp_path):
+    """D4: a `name` occurring on THREE well-formed lines with different
+    values must have ALL three copies dropped — never "keep the first" —
+    and each dropped copy's line number is reported in `skipped` with
+    `REASON_DUPLICATE_NAME`. `duplicate_names_dropped` carries the SAME
+    fact per-NAME instead of per-line: one `("X", 3)` pair, which is what
+    lets the CLI warn ONCE naming `"X"` instead of three times naming a
+    line number nobody can act on."""
+    lines = [
+        json.dumps({"name": "X", "runs": 1, "durations": [1.0], "counts": [1.0]}),
+        json.dumps({"name": "X", "runs": 2, "durations": [2.0], "counts": [2.0]}),
+        json.dumps({"name": "X", "runs": 3, "durations": [3.0], "counts": [3.0]}),
+    ]
+    path = tmp_path / "dup_name.perf"
+    path.write_text("\n".join(lines) + "\n")
+
+    result = ReassureJsonlParser().parse(str(path))
+
+    assert result.entries == (), "all copies of a duplicated name must be dropped"
+    assert result.skipped == (
+        (1, REASON_DUPLICATE_NAME),
+        (2, REASON_DUPLICATE_NAME),
+        (3, REASON_DUPLICATE_NAME),
+    )
+    assert result.duplicate_names_dropped == (("X", 3),)
+
+
+def test_duplicate_names_dropped_reports_each_name_independently(tmp_path):
+    """Two DIFFERENT duplicated names in one file each get their own
+    `(name, count)` pair, in first-seen order, with the right count each —
+    never merged, never confused with each other."""
+    lines = [
+        json.dumps({"name": "A", "runs": 1, "durations": [1.0], "counts": [1.0]}),
+        json.dumps({"name": "B", "runs": 1, "durations": [1.0], "counts": [1.0]}),
+        json.dumps({"name": "A", "runs": 2, "durations": [2.0], "counts": [2.0]}),
+        json.dumps({"name": "B", "runs": 2, "durations": [2.0], "counts": [2.0]}),
+        json.dumps({"name": "B", "runs": 3, "durations": [3.0], "counts": [3.0]}),
+    ]
+    path = tmp_path / "two_dups.perf"
+    path.write_text("\n".join(lines) + "\n")
+
+    result = ReassureJsonlParser().parse(str(path))
+
+    assert result.entries == ()
+    assert result.duplicate_names_dropped == (("A", 2), ("B", 3))
+
+
+def test_no_duplicate_names_dropped_is_the_empty_tuple(tmp_path):
+    path = tmp_path / "no_dups.perf"
+    path.write_text(
+        json.dumps({"name": "solo", "runs": 1, "durations": [1.0], "counts": [1.0]}) + "\n"
+    )
+
+    result = ReassureJsonlParser().parse(str(path))
+
+    assert result.duplicate_names_dropped == ()
+
+
+def test_duplicate_name_does_not_affect_other_unique_entries(tmp_path):
+    """One duplicated name plus four other, unique-named, well-formed
+    entries: all four survive unaffected, only the duplicated name is
+    dropped, and survivors keep first-seen order."""
+    lines = [
+        json.dumps({"name": "unique-a", "runs": 1, "durations": [1.0], "counts": [1.0]}),
+        json.dumps({"name": "dup", "runs": 1, "durations": [1.0], "counts": [1.0]}),
+        json.dumps({"name": "unique-b", "runs": 1, "durations": [1.0], "counts": [1.0]}),
+        json.dumps({"name": "dup", "runs": 2, "durations": [2.0], "counts": [2.0]}),
+        json.dumps({"name": "unique-c", "runs": 1, "durations": [1.0], "counts": [1.0]}),
+        json.dumps({"name": "unique-d", "runs": 1, "durations": [1.0], "counts": [1.0]}),
+    ]
+    path = tmp_path / "one_dup_four_unique.perf"
+    path.write_text("\n".join(lines) + "\n")
+
+    result = ReassureJsonlParser().parse(str(path))
+
+    names = [entry.name for entry in result.entries]
+    assert names == ["unique-a", "unique-b", "unique-c", "unique-d"]
+    assert "dup" not in names
+    assert result.skipped == ((2, REASON_DUPLICATE_NAME), (4, REASON_DUPLICATE_NAME))
+
+
+def test_diagnostic_distinguishes_malformed_from_duplicate_drops(tmp_path):
+    """[unmissable] A duplicate-name drop is NOT a malformed line, so the
+    diagnostic sentence must count the two causes SEPARATELY — this MUST
+    fail against the current single-clause "skipped as malformed" wording,
+    which would lie about why a duplicate-dropped entry is missing."""
+    lines = [
+        "not valid json at all",
+        "also not json",
+        json.dumps({"name": "dup", "runs": 1, "durations": [1.0], "counts": [1.0]}),
+        json.dumps({"name": "dup", "runs": 2, "durations": [2.0], "counts": [2.0]}),
+        json.dumps({"name": "kept", "runs": 1, "durations": [1.0], "counts": [1.0]}),
+    ]
+    path = tmp_path / "mixed_causes.perf"
+    path.write_text("\n".join(lines) + "\n")
+
+    result = ReassureJsonlParser().parse(str(path))
+
+    assert result.diagnostic == (
+        "2 line(s) skipped as malformed; 2 dropped as duplicate name(s); 1 entries imported."
+    )
 
 
 def test_absent_runs_is_skipped_and_never_synthesised_from_counts(tmp_path):

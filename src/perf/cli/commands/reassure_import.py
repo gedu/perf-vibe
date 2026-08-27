@@ -26,6 +26,20 @@ token, NEVER the raw line), and `entries_skipped` in the machine payload
 carries only the COUNT — this is why `skipped`/`diagnostic` exist on the
 domain result at all even though the flat `--json` contract carries
 neither.
+
+D4: `ReassureParseResult.skipped` now ALSO carries `(line_number,
+"duplicate_name")` pairs for entries whose `name` recurred within this
+import — the adapter drops every copy, never "keeps the first". Those
+pairs are split OUT of `entries_skipped` here and reported under their own
+`entries_dropped_duplicate_name` key, since a duplicate-name drop is a
+different failure class from a malformed line (design "D4 — Parser
+Changes"). They are ALSO excluded from the generic per-line `emit_warning`
+loop below: a `.perf` file is generated jest output nobody hand-edits, so a
+bare line number in it advises no one. Instead,
+`ReassureParseResult.duplicate_names_dropped` (per-NAME, not per-line) feeds
+exactly ONE `emit_warning` per duplicated test NAME (spec "Duplicate
+Entry-Name Detection And Dropping": "MUST emit ONE stderr warning naming
+the duplicated name").
 """
 
 from __future__ import annotations
@@ -34,7 +48,7 @@ from pathlib import Path
 
 import typer
 
-from perf.adapters.reassure_jsonl import ReassureParseError
+from perf.adapters.reassure_jsonl import REASON_DUPLICATE_NAME, ReassureParseError
 from perf.adapters.registry import build_reassure_parser, build_store
 from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
 from perf.cli.output.errors import emit_error, emit_warning
@@ -144,10 +158,30 @@ def reassure_import(
         )
     )
 
+    # Malformed-LINE warnings only here. A duplicate-name drop is reported
+    # separately below, ONCE per duplicated NAME rather than once per
+    # dropped line: a `.perf` file is generated jest output nobody
+    # hand-edits, so a bare line number in it advises no one — the test
+    # name is the one fact that tells a developer what to rename (spec
+    # "Duplicate Entry-Name Detection And Dropping": "MUST emit ONE stderr
+    # warning naming the duplicated name").
     for line_number, reason in result.skipped:
+        if reason == REASON_DUPLICATE_NAME:
+            continue
         emit_warning(output, f"line {line_number}: skipped ({reason})")
+    for name, count in result.duplicate_names_dropped:
+        emit_warning(output, f'duplicate name "{name}": all {count} entries dropped')
     if entries_imported == 0 and not already_imported:
         emit_warning(output, result.diagnostic or "no entries recovered from this file")
+
+    # `entries_skipped` counts malformed LINES only; a duplicate-name drop
+    # is a different failure class (D4, `entries_dropped_duplicate_name`)
+    # and must never inflate this counter (spec "Duplicate drops have
+    # their own key, never inflate entries_skipped").
+    entries_dropped_duplicate_name = sum(
+        1 for _, reason in result.skipped if reason == REASON_DUPLICATE_NAME
+    )
+    entries_skipped = len(result.skipped) - entries_dropped_duplicate_name
 
     payload = build_reassure_import_payload(
         path=resolved_path,
@@ -155,10 +189,11 @@ def reassure_import(
         kind=resolved_kind,
         already_imported=already_imported,
         entries_imported=entries_imported,
-        entries_skipped=len(result.skipped),
+        entries_skipped=entries_skipped,
         duration_samples_imported=duration_samples_imported,
         count_samples_imported=count_samples_imported,
         entries_with_render_issues=entries_with_render_issues,
+        entries_dropped_duplicate_name=entries_dropped_duplicate_name,
     )
 
     try:

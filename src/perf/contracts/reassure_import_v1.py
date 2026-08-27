@@ -2,11 +2,24 @@
 "the machine contract is `--json`"; SKILL rule 8: "A contract test MUST
 fail on any `--json` shape change without a `schema_version` bump.").
 
-`schema_version=2`. FLAT, exactly TEN top-level keys, no nested objects
+`schema_version=3`. FLAT, exactly ELEVEN top-level keys, no nested objects
 and no arrays: `schema_version`, `path`, `content_hash`, `kind`,
 `already_imported`, `entries_imported`, `entries_skipped`,
 `duration_samples_imported`, `count_samples_imported`,
-`entries_with_render_issues`.
+`entries_with_render_issues`, `entries_dropped_duplicate_name`.
+
+`entries_dropped_duplicate_name` is the ELEVENTH key (D4, `reassure-read`
+slice 0): the count of entries dropped because their `name` recurred more
+than once within the same import. It is NOT folded into `entries_skipped`
+— `entries_skipped` counts malformed LINES only, a per-line-shape failure
+detected during parsing, while a duplicate-name drop is a per-NAME failure
+detected only after the whole file is parsed, over otherwise well-formed
+entries. Conflating the two would make `entries_skipped` describe two
+unrelated failure modes and destroy its diagnostic value. It is not
+derivable from any other key in the payload, which is what earns it a
+place under the no-second-source-of-truth rule. `SCHEMA_VERSION` bumps to
+`3` for it (`openspec/specs/reassure-ingest.md`'s "reassure_import_v1
+--json Contract" requirement).
 
 `kind` is the ninth key, joining the eight-key draft the delta spec
 originally pinned: PR4a (`0006_add_reassure_import_kind.sql`) added the
@@ -64,7 +77,7 @@ from typing import Any
 
 __all__ = ["SCHEMA_VERSION", "build_reassure_import_payload"]
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def build_reassure_import_payload(
@@ -78,6 +91,7 @@ def build_reassure_import_payload(
     duration_samples_imported: int,
     count_samples_imported: int,
     entries_with_render_issues: int,
+    entries_dropped_duplicate_name: int,
 ) -> dict[str, Any]:
     """Builds the stable `--json` payload for `reassure-import`. `path` is
     the resolved input path (the payload key intentionally differs from
@@ -85,11 +99,14 @@ def build_reassure_import_payload(
     `already_imported` is `True` exactly when the store returned `None`
     (a byte-identical re-import); in that case every `*_imported` counter
     is `0` by construction. `entries_skipped` is the COUNT of skipped
-    lines only — the per-line `(number, reason)` detail is stderr-only
-    (`emit_warning`), never part of this machine contract.
-    `entries_with_render_issues` counts imported entries whose
+    LINES only (malformed-line failures) — the per-line `(number, reason)`
+    detail is stderr-only (`emit_warning`), never part of this machine
+    contract. `entries_with_render_issues` counts imported entries whose
     `issues.initialUpdateCount` is greater than zero; entries whose `issues`
-    was absent are NOT counted, since an absent diagnostic is not a finding."""
+    was absent are NOT counted, since an absent diagnostic is not a finding.
+    `entries_dropped_duplicate_name` is the COUNT of entries dropped
+    because their `name` recurred within this import (D4) — kept separate
+    from `entries_skipped` since the two are different failure classes."""
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -102,4 +119,5 @@ def build_reassure_import_payload(
         "duration_samples_imported": duration_samples_imported,
         "count_samples_imported": count_samples_imported,
         "entries_with_render_issues": entries_with_render_issues,
+        "entries_dropped_duplicate_name": entries_dropped_duplicate_name,
     }

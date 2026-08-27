@@ -48,6 +48,11 @@ REASON_MISSING_FIELD = "missing_field"
 REASON_UNKNOWN_TYPE = "unknown_type"
 REASON_INVALID_VALUE = "invalid_value"
 REASON_OVERSIZED = "oversized"
+# D4: a `name` that recurs within the same import — detected only AFTER the
+# whole file is parsed, over otherwise well-formed entries. Distinct from
+# every reason above, which are all per-LINE shape failures caught during
+# parsing (design "D4 — Parser Changes").
+REASON_DUPLICATE_NAME = "duplicate_name"
 
 
 def _is_finite_number(value: object) -> bool:
@@ -90,7 +95,7 @@ class ReassureJsonlParser:
             raise ReassureParseError(f"reassure file {path!r} is not valid UTF-8: {exc}") from exc
 
         header: ReassureHeader | None = None
-        entries: list[ReassureEntry] = []
+        pending: list[tuple[int, ReassureEntry]] = []
         skipped: list[tuple[int, str]] = []
 
         for line_number, raw_line in enumerate(text.splitlines(), start=1):
@@ -125,7 +130,9 @@ class ReassureJsonlParser:
             if entry is None:
                 skipped.append((line_number, reason or REASON_MISSING_FIELD))
                 continue
-            entries.append(entry)
+            pending.append((line_number, entry))
+
+        entries, duplicate_names_dropped = _drop_duplicate_names(pending, skipped)
 
         partial_coverage = bool(skipped)
         diagnostic = _build_diagnostic(skipped, entries) if partial_coverage else None
@@ -137,6 +144,7 @@ class ReassureJsonlParser:
             skipped=tuple(skipped),
             partial_coverage=partial_coverage,
             diagnostic=diagnostic,
+            duplicate_names_dropped=tuple(duplicate_names_dropped),
         )
 
 
@@ -290,12 +298,64 @@ def _passthrough_json(data: dict[str, object], key: str) -> str | None:
     return json.dumps(data[key])
 
 
+def _drop_duplicate_names(
+    pending: list[tuple[int, ReassureEntry]], skipped: list[tuple[int, str]]
+) -> tuple[list[ReassureEntry], list[tuple[str, int]]]:
+    """D4 post-loop pass: group well-formed entries by `name`. Any `name`
+    occurring more than once has ALL its copies dropped — never "keep the
+    first" or "keep the last", since a partial keep would persist a
+    silently arbitrary choice as if it were the true series point. Every
+    dropped copy's line number is appended to `skipped` (mutated in place)
+    with `REASON_DUPLICATE_NAME`, preserving the per-line detail. Survivors
+    keep first-seen (dict insertion) order, so a clean file's persisted
+    order stays byte-identical to before this pass existed.
+
+    Also returns `(name, copies_dropped)` per duplicated name, in
+    first-seen order — the per-NAME diagnostic `ReassureParseResult.
+    duplicate_names_dropped` carries onward, which is what lets the CLI
+    warn ONCE naming the test instead of once per dropped line."""
+
+    by_name: dict[str, list[tuple[int, ReassureEntry]]] = {}
+    for line_number, entry in pending:
+        by_name.setdefault(entry.name, []).append((line_number, entry))
+
+    survivors: list[ReassureEntry] = []
+    duplicate_names_dropped: list[tuple[str, int]] = []
+    for name, occurrences in by_name.items():
+        if len(occurrences) > 1:
+            skipped.extend((line_number, REASON_DUPLICATE_NAME) for line_number, _ in occurrences)
+            duplicate_names_dropped.append((name, len(occurrences)))
+            continue
+        survivors.append(occurrences[0][1])
+    return survivors, duplicate_names_dropped
+
+
 def _build_diagnostic(skipped: list[tuple[int, str]], entries: list[ReassureEntry]) -> str | None:
     """A short, actionable explanation for a partial/zero-coverage import —
     mirrors `AdbLogcatMarkerSource._build_diagnostic`. `None` on a clean
     full-coverage parse (never reached here since only called when
-    `skipped` is non-empty)."""
+    `skipped` is non-empty).
+
+    Malformed lines and duplicate-name drops are DIFFERENT failure classes
+    — a per-LINE parse failure versus a per-NAME post-parse drop over
+    otherwise well-formed entries — so they are counted and worded
+    separately (design "D4 — Parser Changes"); folding them into one clause
+    would make a duplicate-dropped entry look "malformed", which it is not.
+    """
+
+    malformed = sum(1 for _, reason in skipped if reason != REASON_DUPLICATE_NAME)
+    duplicates = sum(1 for _, reason in skipped if reason == REASON_DUPLICATE_NAME)
 
     if not entries:
-        return f"all {len(skipped)} line(s) were skipped as malformed — zero entries recovered."
-    return f"{len(skipped)} line(s) skipped as malformed; {len(entries)} entries imported."
+        if duplicates:
+            return (
+                f"{malformed} line(s) skipped as malformed; {duplicates} dropped as duplicate "
+                "name(s); 0 entries imported."
+            )
+        return f"all {malformed} line(s) were skipped as malformed — zero entries recovered."
+    if duplicates:
+        return (
+            f"{malformed} line(s) skipped as malformed; {duplicates} dropped as duplicate "
+            f"name(s); {len(entries)} entries imported."
+        )
+    return f"{malformed} line(s) skipped as malformed; {len(entries)} entries imported."

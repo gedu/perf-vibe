@@ -78,7 +78,7 @@ def test_successful_import_then_reimport_is_already_imported(monkeypatch, tmp_pa
     first = runner.invoke(main_module.app, ["--json", "reassure-import", str(_FIXTURE)])
     assert first.exit_code == 0, first.output
     payload = json.loads(first.stdout)
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["already_imported"] is False
     assert payload["entries_imported"] == 4
     assert payload["duration_samples_imported"] > 0
@@ -186,6 +186,59 @@ def test_mixed_quality_file_warns_per_skipped_line_and_stdout_is_json_pure(
     # Every warning landed on stderr, never stdout.
     assert result.stderr.count("warning:") == 6
     assert "warning:" not in result.stdout
+
+
+# ===== exit 0: D4 duplicate-name drop warns ONCE, naming the test =====
+
+
+def test_duplicate_name_drop_warns_once_naming_the_name_not_per_line(monkeypatch, tmp_path: Path):
+    """spec.md:356-365 (D4): ALL copies of a duplicated `name` are dropped,
+    zero `reassure_entry` rows are persisted for it, and the system emits
+    exactly ONE stderr warning NAMING the duplicated test — never one
+    warning per dropped line. A `.perf` file is generated jest output that
+    nobody hand-edits, so a bare line number in it is not actionable; the
+    test name is the only fact that tells a developer what to rename."""
+    import sqlite3
+
+    db_path = tmp_path / "perf.db"
+    _patch_load_config(monkeypatch, db_path=str(db_path))
+    dup_file = _write(
+        tmp_path,
+        "dup.perf",
+        json.dumps({"name": "X", "runs": 1, "durations": [1.0], "counts": [1.0]})
+        + "\n"
+        + json.dumps({"name": "X", "runs": 2, "durations": [2.0], "counts": [2.0]})
+        + "\n"
+        + json.dumps({"name": "X", "runs": 3, "durations": [3.0], "counts": [3.0]})
+        + "\n",
+    )
+
+    result = runner.invoke(main_module.app, ["--json", "reassure-import", str(dup_file)])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["entries_imported"] == 0
+    assert payload["entries_dropped_duplicate_name"] == 3
+
+    # Zero `reassure_entry` rows named "X" were persisted.
+    conn = sqlite3.connect(str(db_path))
+    try:
+        (count,) = conn.execute(
+            "SELECT COUNT(*) FROM reassure_entry WHERE name = ?", ("X",)
+        ).fetchone()
+    finally:
+        conn.close()
+    assert count == 0
+
+    # Exactly ONE stderr line names the duplicate — never one per line, and
+    # distinct from the separate zero-coverage diagnostic summary line
+    # (which also mentions "duplicate" but names no specific test).
+    duplicate_lines = [line for line in result.stderr.splitlines() if 'duplicate name "X"' in line]
+    assert len(duplicate_lines) == 1, result.stderr
+    assert "line " not in duplicate_lines[0], "must name the test, not a line number"
+    # No per-LINE "skipped (duplicate_name)" warnings survive — those would
+    # be one per dropped copy, the exact behavior this fix removes.
+    assert "skipped (duplicate_name)" not in result.stderr, result.stderr
 
 
 def test_pretty_mode_reports_kind_and_counts(monkeypatch, tmp_path: Path):
