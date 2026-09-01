@@ -64,6 +64,8 @@ from perf.domain.model import (
     HistoryRun,
     Marker,
     ReassureEntry,
+    ReassureEntryRow,
+    ReassureImportRow,
     ReassureParseResult,
     RunContext,
     RunPoint,
@@ -443,6 +445,161 @@ class SqliteStore:
                 "INSERT INTO reassure_count_sample (entry_id, idx, render_count) VALUES (?, ?, ?)",
                 (entry_id, idx, count),
             )
+
+    # ----- reassure read models (PR1a, design "Read Models" / "Ports" /
+    # "Query budget") -----
+
+    def reassure_imports(self, limit: int) -> Sequence[ReassureImportRow]:
+        """`reassure list`'s read model (D2 ordering: `created_date`
+        primary, `imported_at` fallback; `commit_hash`/`branch` are LABELS
+        ONLY — never a key, filter, or join; `kind` is deliberately never
+        SELECTed, design A5). Returns the most recent `limit` imports
+        NEWEST FIRST — a listing view, unlike `history_runs`'s
+        oldest-to-newest chart order.
+
+        Exactly TWO queries total, never per-row: one window query plus
+        one batched `COUNT(*) ... GROUP BY import_id` for `entry_count`.
+        The `IN (...)` placeholder string is `?`-placeholder TEXT only,
+        never a bound value (SKILL rule 4)."""
+
+        window = self._conn.execute(
+            """
+            SELECT import_id, created_date, imported_at, branch, commit_hash, source_path
+            FROM reassure_import
+            ORDER BY COALESCE(created_date, imported_at) DESC, import_id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        if not window:
+            return ()
+
+        import_ids = [row[0] for row in window]
+        placeholders = ",".join("?" for _ in import_ids)
+        count_rows = self._conn.execute(
+            f"""
+            SELECT import_id, COUNT(*)
+            FROM reassure_entry
+            WHERE import_id IN ({placeholders})
+            GROUP BY import_id
+            """,
+            tuple(import_ids),
+        ).fetchall()
+        counts_by_import = dict(count_rows)
+
+        imports: list[ReassureImportRow] = []
+        for import_id, created_date, imported_at, branch, commit_hash, source_path in window:
+            ordering_key = "created_date" if created_date is not None else "imported_at"
+            ordered_at = created_date if created_date is not None else imported_at
+            imports.append(
+                ReassureImportRow(
+                    import_id=import_id,
+                    ordered_at=ordered_at,
+                    ordering_key=ordering_key,
+                    imported_at=imported_at,
+                    created_date=created_date,
+                    branch=branch,
+                    commit_hash=commit_hash,
+                    source_path=source_path,
+                    entry_count=counts_by_import.get(import_id, 0),
+                )
+            )
+        return tuple(imports)
+
+    def reassure_entries(self, import_id: int) -> Sequence[ReassureEntryRow]:
+        """`reassure entries`'s read model — every measurement line for one
+        import, ALREADY REDUCED (invariant I1: no read model carries a raw
+        sample array). `duration`/`count` are two independently-reduced
+        `HistoryMetric`s built from TWO INDEPENDENT batched queries over
+        TWO INDEPENDENT tables — never a join of `reassure_duration_sample`
+        with `reassure_count_sample`. An entry with zero rows in one sample
+        table yields `None` on that series, never a zero-valued
+        `HistoryMetric`.
+
+        Exactly THREE queries total, never per-row: the entry window, one
+        batched duration reduction, one batched count reduction — mirroring
+        `_history_system_summaries`. Every value is `?`-bound; the
+        `IN (...)` placeholder string is TEXT, never a bound value (SKILL
+        rule 4). No `name` filter in this slice — that param lands with
+        `reassure show` (design Slice Map)."""
+
+        window = self._conn.execute(
+            """
+            SELECT entry_id, name, entry_type, runs, issues_initial_update_count
+            FROM reassure_entry
+            WHERE import_id = ?
+            ORDER BY entry_id
+            """,
+            (import_id,),
+        ).fetchall()
+        if not window:
+            return ()
+
+        entry_ids = [row[0] for row in window]
+        placeholders = ",".join("?" for _ in entry_ids)
+
+        duration_rows = self._conn.execute(
+            f"""
+            SELECT entry_id, duration_ms
+            FROM reassure_duration_sample
+            WHERE entry_id IN ({placeholders})
+            """,
+            tuple(entry_ids),
+        ).fetchall()
+        count_rows = self._conn.execute(
+            f"""
+            SELECT entry_id, render_count
+            FROM reassure_count_sample
+            WHERE entry_id IN ({placeholders})
+            """,
+            tuple(entry_ids),
+        ).fetchall()
+
+        duration_by_entry = self._reduce_reassure_samples(
+            duration_rows, metric_name="duration_ms", unit="ms"
+        )
+        count_by_entry = self._reduce_reassure_samples(
+            count_rows, metric_name="render_count", unit="count"
+        )
+
+        entries: list[ReassureEntryRow] = []
+        for entry_id, name, entry_type, runs, initial_update_count in window:
+            entries.append(
+                ReassureEntryRow(
+                    entry_id=entry_id,
+                    name=name,
+                    entry_type=entry_type,
+                    runs=runs,
+                    duration=duration_by_entry.get(entry_id),
+                    count=count_by_entry.get(entry_id),
+                    initial_update_count=initial_update_count,
+                )
+            )
+        return tuple(entries)
+
+    @staticmethod
+    def _reduce_reassure_samples(
+        rows: Sequence[tuple[int, float]], *, metric_name: str, unit: str
+    ) -> dict[int, HistoryMetric]:
+        """Groups raw `(entry_id, value)` rows from ONE sample table and
+        reduces each group to a `HistoryMetric` via `domain/statistics`
+        (median p50, ceil-nearest-rank p90) — the same reduction shape as
+        `_history_system_summaries`, applied independently per series so
+        `duration`/`count` never share a query (invariant I1)."""
+
+        grouped: dict[int, list[float]] = {}
+        for entry_id, value in rows:
+            grouped.setdefault(entry_id, []).append(value)
+        return {
+            entry_id: HistoryMetric(
+                metric_name=metric_name,
+                p50=statistics.median(values),
+                p90=statistics.percentile(values, _HISTORY_P90),
+                n=len(values),
+                unit=unit,
+            )
+            for entry_id, values in grouped.items()
+        }
 
     # ----- dimension upserts (device/flow/metric) -----
 

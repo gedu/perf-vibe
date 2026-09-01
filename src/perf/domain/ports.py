@@ -36,6 +36,8 @@ from perf.domain.model import (
     HistoryRun,
     Marker,
     MarkerParseResult,
+    ReassureEntryRow,
+    ReassureImportRow,
     ReassureParseResult,
     RunContext,
     RunPoint,
@@ -138,7 +140,11 @@ class Store(Protocol):
         self, flow_name: str, device_key: str, mode: str, limit: int
     ) -> Sequence[HistoryRun]: ...
 
-    # ... show/history read models
+    def reassure_imports(self, limit: int) -> Sequence[ReassureImportRow]: ...
+
+    def reassure_entries(self, import_id: int) -> Sequence[ReassureEntryRow]: ...
+
+    # ... show/history read models (reassure_series lands in a later slice)
 
 
 class Analyzer(Protocol):

@@ -603,3 +603,52 @@ class ReassureParseResult:
     # test (spec "Duplicate Entry-Name Detection And Dropping") instead of
     # one warning per dropped line — a line number in a generated `.perf`
     # file is not actionable, but the test name is.
+
+
+# ===== reassure READ domain types (`reassure-read` design, PR1a) =====
+
+
+@dataclass(frozen=True)
+class ReassureImportRow:
+    """One row of `reassure list`. `ordering_key` names WHICH D2 key
+    ordered this row (`'created_date'` | `'imported_at'`) so the pretty
+    view can be honest about a header-less file. `commit_hash`/`branch`
+    are LABELS ONLY: nothing keys, groups, joins, or filters on them — two
+    rows may legitimately share both (`0006_add_reassure_import_kind.sql`
+    records a real `baseline.perf`/`current.perf` pair that does). `kind`
+    is deliberately absent (design A5) — never SELECTed by any query."""
+
+    import_id: int
+    ordered_at: str  # COALESCE(created_date, imported_at), resolved in SQL
+    ordering_key: str  # 'created_date' | 'imported_at'
+    imported_at: str
+    created_date: str | None = None
+    branch: str | None = None  # LABEL ONLY
+    commit_hash: str | None = None  # LABEL ONLY
+    source_path: str = ""
+    entry_count: int = 0
+
+
+@dataclass(frozen=True)
+class ReassureEntryRow:
+    """One measurement line, ALREADY REDUCED. Carries NO raw sample array:
+    `duration` and `count` are two separately-named `HistoryMetric`s with
+    different units (`metric_name='duration_ms'`/`unit='ms'` and
+    `metric_name='render_count'`/`unit='count'`), so there is nothing to
+    zip (invariant I1 — never touch a raw sample array here). `None` on
+    either means that series had zero stored samples for this entry —
+    'no series', NEVER a zero-valued `HistoryMetric`.
+
+    `runs` is what the file DECLARED and is never reconciled against
+    `duration.n`/`count.n` (`model.py:540-546`'s `ReassureEntry`
+    docstring); a mismatch is surfaced by the caller, never repaired here.
+    `initial_update_count` keeps `None` (never measured) distinct from `0`
+    (measured, clean) — design D5; the two facts must never collapse."""
+
+    entry_id: int
+    name: str
+    entry_type: str
+    runs: int
+    duration: HistoryMetric | None = None  # metric_name='duration_ms', unit='ms'
+    count: HistoryMetric | None = None  # metric_name='render_count', unit='count'
+    initial_update_count: int | None = None
