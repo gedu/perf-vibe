@@ -12,9 +12,10 @@ Full per-command detail for `perfvibe`. For the big picture start at the
   `--config`.
 - **Always parse `--json`, never the pretty view.** Every `--json` payload carries a
   `schema_version` integer. Today: `run`, `compare`, `compare-all`, `budget-check`,
-  `history`, and `markers snippet`/`markers doctor` payloads are `schema_version = 1`;
-  `init` is `schema_version = 2` (bumped when `flows_pruned` was added). Branch on
-  the field — don't assume a constant.
+  `history`, `markers snippet`/`markers doctor`, and `reassure list` payloads are
+  `schema_version = 1`; `init` is `schema_version = 2` (bumped when `flows_pruned`
+  was added); `reassure import` is `schema_version = 3`. Branch on the field —
+  don't assume a constant.
 - **Exit codes** are uniform: `0` success · `1` **`budget-check` gate only** · `2`
   usage error · `3` runtime/tooling failure. Only `budget-check` ever returns `1`.
 
@@ -258,6 +259,87 @@ by both modes: `mode` (`"line"`/`"stdin"`), `input_summary.lines_scanned`, a
 diagnosis, not a failure) · `2` usage error (unknown `--lang`, ambiguous or
 missing `doctor` input, unknown flag) · `3` runtime failure (a piped-stdin read
 error). Like every other command, `markers` **never** exits `1`.
+
+---
+
+## `reassure` — persisted `@callstack/reassure` results
+
+```
+perfvibe reassure import [<path>] [--kind current|baseline|unknown]
+perfvibe reassure list [--limit N]
+```
+
+A command **group** (`import`/`list`/… are sub-commands of `reassure`), read-only
+except for `import`'s own persistence step. This page covers `import` and `list`
+only — `entries`, `show`, `history`, `compare`, and `run` are added by their own
+slices of this capability, once they ship.
+
+The flat `perfvibe reassure-import <path>` form still works exactly as before
+(same implementation, same `--json` payload) but is now **deprecated**: it is
+hidden from `perfvibe --help`, and every invocation prints a one-line
+`DeprecationWarning: The command 'reassure-import' is deprecated. use
+\`perfvibe reassure import\` instead` notice to stderr — `--json` stdout stays
+byte-pure. New scripts and agents should call `perfvibe reassure import`
+directly; the alias is kept indefinitely, with no removal version planned.
+
+### `reassure import`
+
+Parses a `@callstack/reassure` `.perf` JSON-Lines file (default: the config's
+`reassure_path`) and persists it idempotently, keyed by content hash — a
+byte-identical re-import reports `already_imported: true` and writes nothing
+new. `--kind` overrides the kind derived from the file's basename
+(`current.perf` → `current`, `baseline.perf` → `baseline`, else `unknown`).
+Stores data and prints a confirmation only: it judges, compares, and gates
+nothing.
+
+```text
+┌─ perfvibe reassure-import · current · .reassure/current.perf
+│
+│   ✓  4 entries imported          content 3f2a1b9c2d4e
+│      40 duration samples · 4 count samples
+│   ⚠      1 entries with render issues
+│      6 line(s) skipped — reasons on stderr
+└─
+```
+
+**`--json`** → `reassure_import_v1` payload (`schema_version = 3`): `path`,
+`content_hash`, `kind`, `already_imported`, `entries_imported`,
+`entries_skipped`, `duration_samples_imported`, `count_samples_imported`,
+`entries_with_render_issues`, `entries_dropped_duplicate_name`.
+
+### `reassure list`
+
+Reports the import roster, ordered newest-first by `created_date` — falling
+back to `imported_at` when a file's header carried no `creationDate`.
+`commit_hash`/`branch` are LABELS only: nothing keys, groups, or filters on
+them, and two imports may legitimately share both. `--limit N` (default `50`,
+matching `history` — not `compare`'s `baseline_n`) caps the roster. An empty
+roster still exits `0`.
+
+```text
+┌─ perfvibe reassure list · 2 import(s)
+│
+│   IMPORT  DATE        BRANCH        COMMIT   ENTRIES
+│   ──────────────────────────────────────────────────
+│   2       2026-01-02  main          abc123d        4
+│   1       2026-01-01  main          abc123d        0
+│
+└─
+```
+
+**`--json`** → `reassure_list_v1` payload (`schema_version = 1`):
+`{"schema_version", "imports": [{"import_id", "imported_at", "created_date",
+"branch", "commit_hash", "source_path", "entry_count"}, ...]}`. `ordering_key`/
+`ordered_at` are deliberately absent from the payload — both are mechanically
+derivable from `created_date`/`imported_at` already in each row.
+
+### Exit codes (`reassure import` / `reassure list`)
+
+`0` success (including an empty `list` roster, and an `import` of a readable
+file that recovered zero entries) · `2` usage error (missing/unreadable
+`.perf` path, invalid `--kind`) · `3` runtime/tooling failure
+(store/transaction/render). Like every other command, `reassure` **never**
+exits `1`.
 
 ---
 

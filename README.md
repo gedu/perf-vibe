@@ -122,7 +122,7 @@ python3.11 -m venv .venv          # any Python 3.11+ works — see Development
 
 ---
 
-## The six commands
+## The seven commands
 
 | Command | What it does | Exits `1`? |
 |---|---|:--:|
@@ -131,11 +131,12 @@ python3.11 -m venv .venv          # any Python 3.11+ works — see Development
 | `perfvibe budget-check <flow>` | The **CI gate** — reuses `compare`'s verdict; any regression fails. | **on regression** |
 | `perfvibe history <flow>` | Export a flow's full run series (machine-readable chart data). | never |
 | `perfvibe markers snippet` / `markers doctor` | Emit a paste-ready `[PERF]` marker snippet / diagnose a logcat line against the same parser `run` uses. Read-only. | never |
+| `perfvibe reassure import` / `list` / … | Import and read back persisted [`@callstack/reassure`](https://github.com/callstack/reassure) results. Read-only. | never |
 | `perfvibe init <flows-dir>` | Scaffold or merge the `perfvibe.toml` flow config. | never |
 
-Only `budget-check` ever exits `1`. `run` persists, `compare`/`history` report,
-`markers` diagnoses, and `init` configures — none of them gate, so a regression
-under `compare` still exits `0`.
+Only `budget-check` ever exits `1`. `run` persists, `compare`/`history`/`reassure`
+report, `markers` diagnoses, and `init` configures — none of them gate, so a
+regression under `compare` still exits `0`.
 **Full flags, JSON payloads, and per-command detail live in
 [`docs/commands.md`](./docs/commands.md).**
 
