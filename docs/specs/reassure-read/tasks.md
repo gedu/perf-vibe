@@ -323,26 +323,47 @@ method... it gets smaller, which helps the riskiest slice"'s sibling).
 **Branch**: `reassure-read/slice2a-series-store` · **Base**: `reassure-read/slice1c-entries`
 · **Est. lines**: ~300
 
-- [ ] 2a.1 RED — `tests/integration/test_store_reassure_read.py`: `reassure_series(name,
+- [x] 2a.1 RED — `tests/integration/test_store_reassure_read.py`: `reassure_series(name,
   limit)` returns points OLDEST→NEWEST, one per import containing `name`, 3 total queries, no
   join of the two sample tables (trace-hook).
-- [ ] 2a.2 RED — same file **[unmissable]**: two same-commit/same-branch imports (0006's real
-  case) both containing `name` stay TWO distinct points.
-- [ ] 2a.3 RED — same file: `name` in imports A and C but absent from B yields exactly two
+- [x] 2a.2 RED — same file **[unmissable]**: two same-commit/same-branch imports (0006's real
+  case) both containing `name` stay TWO distinct points. **Strengthened beyond the task text**:
+  the two imports carry different measured values, and the test asserts each point keeps its
+  own value in the right order — a bare `len(points) == 2` would still pass if the two had
+  collapsed into one averaged point via `statistics.median_by_commit`, which is exactly the
+  failure mode this guards against.
+- [x] 2a.3 RED — same file: `name` in imports A and C but absent from B yields exactly two
   points; B contributes nothing, neither A's nor C's data shifts into B's slot — proves
   `reassure_series` only ever returns points for imports that CONTAIN `name` (this is what
   slice 2b's D5 fix below relies on).
-- [ ] 2a.4 GREEN — `src/perf/domain/model.py`: add frozen `ReassureSeriesPoint` per
+- [x] 2a.3b RED — same file, **not in the original task list, added during apply**: with more
+  imports containing `name` than `limit`, the returned points are the MOST RECENT `limit`,
+  ordered oldest→newest, and the oldest excess imports are absent (distinct values per import
+  so a wrong window direction fails loudly). A naive `ORDER BY ... ASC LIMIT ?` would instead
+  return the OLDEST `limit` points — indistinguishable from correct on a small fixture where
+  the import count is under `limit`, which is why no task in 2a.1–2a.3 as originally written
+  would have caught it.
+- [x] 2a.3c RED — same file, **not in the original task list**: `initial_update_count`'s
+  `None` (never measured) vs `0` (measured, clean) survives on the nested `entry` without
+  collapsing — the fact PR2b's D5 depends on.
+- [x] 2a.4 GREEN — `src/perf/domain/model.py`: add frozen `ReassureSeriesPoint` per
   `design.md:116-129` — `entry: ReassureEntryRow` (a full nested row, carrying
   `initial_update_count`), `commit_hash`/`branch` as LABEL-ONLY fields.
-- [ ] 2a.5 GREEN — `src/perf/domain/ports.py`: add `reassure_series(self, name: str, limit:
+- [x] 2a.5 GREEN — `src/perf/domain/ports.py`: add `reassure_series(self, name: str, limit:
   int) -> Sequence[ReassureSeriesPoint]` to `Store`.
-- [ ] 2a.6 GREEN — `src/perf/adapters/store_sqlite.py`: implement `reassure_series` —
-  name-joined import window (ASC, opposite of `reassure_imports`) + the same two independent
-  batched reduction queries as `reassure_entries`.
-- [ ] 2a.7 GREEN — `tests/fakes.py`: `FakeStore.reassure_series`.
-- [ ] 2a.8 Verify slice.
-- [ ] 2a.9 Verify gates.
+- [x] 2a.6 GREEN — `src/perf/adapters/store_sqlite.py`: implement `reassure_series` —
+  name-joined import window (DESC + LIMIT, then reversed to ASC in Python — see 2a.3b; the
+  task text's "ASC, opposite of `reassure_imports`" describes only the RETURN order, not the
+  windowing direction) + the same two independent batched reduction queries as
+  `reassure_entries` (reused `_reduce_reassure_samples`, not duplicated).
+- [x] 2a.7 GREEN — `tests/fakes.py`: `FakeStore.reassure_series`.
+- [x] 2a.8 Verify slice: `./.venv/bin/pytest -q tests/integration/test_store_reassure_read.py`
+  → 13 passed (8 pre-existing + 5 new).
+- [x] 2a.9 Verify gates: ruff check/format, mypy, `pytest --cov` all green — 1209 passed (up
+  from 1204), coverage 95.42% (floor 93%). Manual store-level exercise against a temp SQLite
+  db also performed (no CLI surface in this slice): `reassure_series(name, limit=2)` correctly
+  returned the two most recent imports oldest-first; `limit=10` returned all three in order;
+  an unknown name returned `()`.
 
 ---
 

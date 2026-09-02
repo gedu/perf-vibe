@@ -1,7 +1,7 @@
 """Integration tests for the PR1a read-path `Store` methods —
 `reassure_imports`/`reassure_entries` (design "Read Models", "Ports",
 "Query budget" — this repo files store/parser tests here, not `unit/`),
-plus PR1c's `reassure_import_exists`.
+plus PR1c's `reassure_import_exists`, plus PR2a's `reassure_series`.
 
 RED-before-GREEN: written before either method existed. Proves:
   - `reassure_imports` orders by `COALESCE(created_date, imported_at) DESC`
@@ -31,6 +31,27 @@ flagged here rather than forced into the wrong existing method):
   - an id nothing ever wrote reports `False`,
   - a real import with zero entries STILL reports `True` (existence, not
     entry count).
+
+`reassure_series` (PR2a, design "Read Models" `ReassureSeriesPoint` /
+"Ports" / "Query budget" row "`reassure history`"). RED-before-GREEN.
+Proves:
+  - points come back OLDEST->NEWEST, one per import containing `name`,
+    exactly THREE total queries, no executed SQL text joins the two sample
+    tables (invariant I1),
+  - [unmissable] `limit` selects the MOST RECENT `limit` imports, not the
+    oldest `limit` — a naive `ORDER BY ... ASC LIMIT ?` would silently
+    return the wrong end of the series once real data exceeds `limit`,
+  - [unmissable] two imports sharing `commit_hash` AND `branch` (0006's
+    real baseline/current pair) stay TWO DISTINCT points, each carrying
+    its OWN value — never collapsed/averaged (`statistics.median_by_commit`
+    must never touch this path; `commit_hash`/`branch` are label-only),
+  - an import that does NOT contain `name` contributes NOTHING and does
+    not shift a neighbor's data into its slot — this is what makes the
+    LAST TWO points of `reassure_series(name, limit=2)` mean "latest" and
+    "immediately preceding import that also contains `name`", which
+    PR2b's D5 state transition relies on,
+  - `initial_update_count`'s `None` (never measured) vs `0` (measured,
+    clean) survives the round trip on the nested `entry` — never collapsed.
 """
 
 from __future__ import annotations
@@ -237,3 +258,205 @@ def test_reassure_import_exists_true_for_a_real_import_with_zero_entries(tmp_pat
         assert store.reassure_import_exists(import_id) is True
     finally:
         store.close()
+
+
+# ===== PR2a: `reassure_series` =====
+
+_SERIES_NAME = "WidgetPanel Performance Tests WidgetPanel renders correctly"
+
+
+def test_series_orders_oldest_to_newest_one_per_import_exactly_three_queries(
+    tmp_path: Path,
+):
+    store = _store(tmp_path)
+    try:
+        id_a = _seed_import(
+            store,
+            content_hash="h1",
+            header=ReassureHeader(created_date="2026-01-01T00:00:00+00:00"),
+            entries=(_entry(name=_SERIES_NAME, durations=(10.0,), counts=(1.0,)),),
+        )
+        id_b = _seed_import(
+            store,
+            content_hash="h2",
+            header=ReassureHeader(created_date="2026-01-02T00:00:00+00:00"),
+            entries=(_entry(name=_SERIES_NAME, durations=(20.0,), counts=(2.0,)),),
+        )
+        id_c = _seed_import(
+            store,
+            content_hash="h3",
+            header=ReassureHeader(created_date="2026-01-03T00:00:00+00:00"),
+            entries=(_entry(name=_SERIES_NAME, durations=(30.0,), counts=(3.0,)),),
+        )
+
+        queries: list[str] = []
+        store._conn.set_trace_callback(queries.append)
+        try:
+            points = store.reassure_series(_SERIES_NAME, 10)
+        finally:
+            store._conn.set_trace_callback(None)
+    finally:
+        store.close()
+
+    # oldest -> newest, matching `history_runs`'s chart order.
+    assert [p.import_id for p in points] == [id_a, id_b, id_c]
+    assert [p.entry.duration.p50 for p in points] == [10.0, 20.0, 30.0]
+    assert [p.entry.count.p50 for p in points] == [1.0, 2.0, 3.0]
+    assert len(queries) == 3
+    # [load-bearing] I1 — no executed SQL text ever joins the two sample
+    # tables; each series is reduced by its own independent query.
+    assert not any(
+        "reassure_duration_sample" in query and "reassure_count_sample" in query
+        for query in queries
+    )
+
+
+def test_series_limit_selects_most_recent_imports_not_oldest(tmp_path: Path):
+    """[unmissable] A naive `ORDER BY ... ASC LIMIT ?` would return the
+    OLDEST `limit` imports instead. With real data exceeding `limit`,
+    `reassure_series` must select the MOST RECENT `limit` imports, then
+    present them oldest-first — distinct values so a wrong window fails
+    loudly rather than looking identical on a small fixture."""
+    store = _store(tmp_path)
+    try:
+        days = ["01", "02", "03", "04", "05"]
+        ids = [
+            _seed_import(
+                store,
+                content_hash=f"h{day}",
+                header=ReassureHeader(created_date=f"2026-01-{day}T00:00:00+00:00"),
+                entries=(
+                    _entry(
+                        name=_SERIES_NAME,
+                        durations=(float(10 * (index + 1)),),
+                        counts=(float(index + 1),),
+                    ),
+                ),
+            )
+            for index, day in enumerate(days)
+        ]
+
+        points = store.reassure_series(_SERIES_NAME, 2)
+    finally:
+        store.close()
+
+    # Most recent two imports are day 04 and day 05 (ids[3], ids[4]),
+    # presented oldest-first. The oldest three (ids[0:3], values 10/20/30)
+    # must be entirely absent — NOT the first two.
+    assert [p.import_id for p in points] == [ids[3], ids[4]]
+    assert [p.entry.duration.p50 for p in points] == [40.0, 50.0]
+
+
+def test_series_same_commit_and_branch_imports_stay_two_distinct_points(tmp_path: Path):
+    """[unmissable] Two imports sharing `commit_hash` AND `branch` — 0006's
+    real verified case, baseline's timestamp three hours newer than
+    current's — both containing `name`, must stay TWO DISTINCT points, each
+    carrying its OWN value. A test that would still pass if the two
+    collapsed into one averaged point is worthless — this is exactly the
+    failure mode `statistics.median_by_commit` would introduce, and
+    `reassure_series` must never call it nor group by `commit_hash`."""
+    store = _store(tmp_path)
+    try:
+        shared_commit = "abc123"
+        shared_branch = "main"
+        id_current = _seed_import(
+            store,
+            content_hash="h-current",
+            header=ReassureHeader(
+                branch=shared_branch,
+                commit_hash=shared_commit,
+                created_date="2026-01-01T00:00:00+00:00",
+            ),
+            entries=(_entry(name=_SERIES_NAME, durations=(10.0,), counts=(1.0,)),),
+        )
+        id_baseline = _seed_import(
+            store,
+            content_hash="h-baseline",
+            header=ReassureHeader(
+                branch=shared_branch,
+                commit_hash=shared_commit,
+                created_date="2026-01-01T03:00:00+00:00",
+            ),
+            entries=(_entry(name=_SERIES_NAME, durations=(99.0,), counts=(9.0,)),),
+        )
+
+        points = store.reassure_series(_SERIES_NAME, 10)
+    finally:
+        store.close()
+
+    assert len(points) == 2
+    assert [p.import_id for p in points] == [id_current, id_baseline]
+    assert points[0].commit_hash == shared_commit
+    assert points[1].commit_hash == shared_commit
+    assert points[0].branch == shared_branch
+    assert points[1].branch == shared_branch
+    assert points[0].entry.duration.p50 == 10.0
+    assert points[1].entry.duration.p50 == 99.0
+
+
+def test_series_import_missing_name_contributes_nothing_no_shift(tmp_path: Path):
+    """`name` present in imports A and C but absent from B yields exactly
+    TWO points; B contributes nothing, and neither A's nor C's data shifts
+    into B's slot. This is what makes `reassure_series(name, limit=2)`'s
+    last two points mean "latest" and "immediately preceding import that
+    also contains `name`" — the exact semantics PR2b's D5 state transition
+    relies on."""
+    store = _store(tmp_path)
+    try:
+        other_name = "SomeOtherComponent renders correctly"
+        id_a = _seed_import(
+            store,
+            content_hash="hA",
+            header=ReassureHeader(created_date="2026-01-01T00:00:00+00:00"),
+            entries=(_entry(name=_SERIES_NAME, durations=(10.0,), counts=(1.0,)),),
+        )
+        _seed_import(
+            store,
+            content_hash="hB",
+            header=ReassureHeader(created_date="2026-01-02T00:00:00+00:00"),
+            entries=(_entry(name=other_name, durations=(999.0,), counts=(9.0,)),),
+        )
+        id_c = _seed_import(
+            store,
+            content_hash="hC",
+            header=ReassureHeader(created_date="2026-01-03T00:00:00+00:00"),
+            entries=(_entry(name=_SERIES_NAME, durations=(30.0,), counts=(3.0,)),),
+        )
+
+        points = store.reassure_series(_SERIES_NAME, 10)
+    finally:
+        store.close()
+
+    assert [p.import_id for p in points] == [id_a, id_c]
+    assert [p.entry.duration.p50 for p in points] == [10.0, 30.0]
+
+
+def test_series_preserves_initial_update_count_none_vs_zero_on_nested_entry(
+    tmp_path: Path,
+):
+    """`initial_update_count` rides on the nested `entry` (design "Read
+    Models"). `None` (never measured) and `0` (measured, clean) are
+    different facts and must never collapse — the fact PR2b's D5 depends
+    on."""
+    store = _store(tmp_path)
+    try:
+        id_never_measured = _seed_import(
+            store,
+            content_hash="h1",
+            header=ReassureHeader(created_date="2026-01-01T00:00:00+00:00"),
+            entries=(_entry(name=_SERIES_NAME, initial_update_count=None),),
+        )
+        id_clean = _seed_import(
+            store,
+            content_hash="h2",
+            header=ReassureHeader(created_date="2026-01-02T00:00:00+00:00"),
+            entries=(_entry(name=_SERIES_NAME, initial_update_count=0),),
+        )
+
+        points = store.reassure_series(_SERIES_NAME, 10)
+    finally:
+        store.close()
+
+    assert [p.import_id for p in points] == [id_never_measured, id_clean]
+    assert points[0].entry.initial_update_count is None
+    assert points[1].entry.initial_update_count == 0

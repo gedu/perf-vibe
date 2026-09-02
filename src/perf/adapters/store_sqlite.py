@@ -67,6 +67,7 @@ from perf.domain.model import (
     ReassureEntryRow,
     ReassureImportRow,
     ReassureParseResult,
+    ReassureSeriesPoint,
     RunContext,
     RunPoint,
     SystemSample,
@@ -590,6 +591,122 @@ class SqliteStore:
                 )
             )
         return tuple(entries)
+
+    def reassure_series(self, name: str, limit: int) -> Sequence[ReassureSeriesPoint]:
+        """`reassure history`/`reassure compare`'s shared read model (design
+        A2's third read method, "Ports" > "Query budget" row "`reassure
+        history`") — ONE point per import that CONTAINS `name`, ordered
+        OLDEST FIRST, matching `history_runs`'s chart order (the OPPOSITE
+        direction from `reassure_imports`'s listing order).
+
+        `limit` selects the MOST RECENT `limit` imports containing `name` —
+        NOT the oldest. The window query orders `DESC` (newest first) with
+        `LIMIT ?`, exactly like `reassure_imports`, then this method
+        reverses the fetched rows to `ASC` before building points. A naive
+        `ORDER BY ... ASC LIMIT ?` would instead select the OLDEST `limit`
+        imports — silently wrong once real data exceeds `limit`, and
+        indistinguishable from correct on a small fixture.
+
+        An import that does not contain `name` is excluded by the `JOIN`
+        below and contributes NOTHING — no gap is filled by a neighboring
+        import's data (design "Read Models" `ReassureSeriesPoint`).
+
+        `commit_hash`/`branch` are carried on each point as LABELS ONLY:
+        two imports may legitimately share both (`0006`'s real
+        baseline/current pair does) and MUST still surface as two distinct
+        points, since nothing here groups, filters, or joins on them — this
+        method never calls `statistics.median_by_commit` (invariant I2).
+
+        Exactly THREE queries total, never per-row: the name-joined import
+        window (this JOINs `reassure_import` with `reassure_entry` — NOT
+        the two sample tables, so invariant I1 is untouched), then the same
+        two independent batched sample reductions `reassure_entries` uses
+        (`_reduce_reassure_samples`, reused rather than duplicated). Every
+        value is `?`-bound; the `IN (...)` placeholder string is TEXT only,
+        never a bound value (SKILL rule 4)."""
+
+        window = self._conn.execute(
+            """
+            SELECT ri.import_id, ri.created_date, ri.imported_at,
+                   ri.commit_hash, ri.branch,
+                   re.entry_id, re.name, re.entry_type, re.runs,
+                   re.issues_initial_update_count
+            FROM reassure_import ri
+            JOIN reassure_entry re ON re.import_id = ri.import_id AND re.name = ?
+            ORDER BY COALESCE(ri.created_date, ri.imported_at) DESC, ri.import_id DESC
+            LIMIT ?
+            """,
+            (name, limit),
+        ).fetchall()
+        if not window:
+            return ()
+
+        # DESC (most recent `limit`) -> reverse to ASC (oldest first) — see
+        # the "MOST RECENT `limit`" note above.
+        window = list(reversed(window))
+
+        entry_ids = [row[5] for row in window]
+        placeholders = ",".join("?" for _ in entry_ids)
+
+        duration_rows = self._conn.execute(
+            f"""
+            SELECT entry_id, duration_ms
+            FROM reassure_duration_sample
+            WHERE entry_id IN ({placeholders})
+            """,
+            tuple(entry_ids),
+        ).fetchall()
+        count_rows = self._conn.execute(
+            f"""
+            SELECT entry_id, render_count
+            FROM reassure_count_sample
+            WHERE entry_id IN ({placeholders})
+            """,
+            tuple(entry_ids),
+        ).fetchall()
+
+        duration_by_entry = self._reduce_reassure_samples(
+            duration_rows, metric_name="duration_ms", unit="ms"
+        )
+        count_by_entry = self._reduce_reassure_samples(
+            count_rows, metric_name="render_count", unit="count"
+        )
+
+        points: list[ReassureSeriesPoint] = []
+        for (
+            import_id,
+            created_date,
+            imported_at,
+            commit_hash,
+            branch,
+            entry_id,
+            entry_name,
+            entry_type,
+            runs,
+            initial_update_count,
+        ) in window:
+            ordering_key = "created_date" if created_date is not None else "imported_at"
+            ordered_at = created_date if created_date is not None else imported_at
+            entry = ReassureEntryRow(
+                entry_id=entry_id,
+                name=entry_name,
+                entry_type=entry_type,
+                runs=runs,
+                duration=duration_by_entry.get(entry_id),
+                count=count_by_entry.get(entry_id),
+                initial_update_count=initial_update_count,
+            )
+            points.append(
+                ReassureSeriesPoint(
+                    import_id=import_id,
+                    ordered_at=ordered_at,
+                    ordering_key=ordering_key,
+                    entry=entry,
+                    commit_hash=commit_hash,
+                    branch=branch,
+                )
+            )
+        return tuple(points)
 
     @staticmethod
     def _reduce_reassure_samples(
