@@ -267,12 +267,13 @@ error). Like every other command, `markers` **never** exits `1`.
 ```
 perfvibe reassure import [<path>] [--kind current|baseline|unknown]
 perfvibe reassure list [--limit N]
+perfvibe reassure entries <import-id>
 ```
 
-A command **group** (`import`/`list`/… are sub-commands of `reassure`), read-only
-except for `import`'s own persistence step. This page covers `import` and `list`
-only — `entries`, `show`, `history`, `compare`, and `run` are added by their own
-slices of this capability, once they ship.
+A command **group** (`import`/`list`/`entries`/… are sub-commands of `reassure`),
+read-only except for `import`'s own persistence step. This page covers `import`,
+`list`, and `entries` only — `show`, `history`, `compare`, and `run` are added by
+their own slices of this capability, once they ship.
 
 The flat `perfvibe reassure-import <path>` form still works exactly as before
 (same implementation, same `--json` payload) but is now **deprecated**: it is
@@ -333,13 +334,45 @@ roster still exits `0`.
 `ordered_at` are deliberately absent from the payload — both are mechanically
 derivable from `created_date`/`imported_at` already in each row.
 
-### Exit codes (`reassure import` / `reassure list`)
+### `reassure entries <import-id>`
 
-`0` success (including an empty `list` roster, and an `import` of a readable
-file that recovered zero entries) · `2` usage error (missing/unreadable
-`.perf` path, invalid `--kind`) · `3` runtime/tooling failure
-(store/transaction/render). Like every other command, `reassure` **never**
-exits `1`.
+Reports every measurement line for ONE import: its `name`, `entry_type`, the
+`runs` count the file DECLARED, and its duration/count summaries. Duration and
+count are two INDEPENDENTLY-reduced series (`durations` is outlier-filtered,
+`counts` is the unfiltered post-warmup set) — their `n`s are never forced to
+agree, and `runs` is never reconciled against either; a mismatch between them
+is a real fact about the source file, not something this command repairs. An
+entry with zero stored samples for one series reports that series absent
+(`null` in `--json`, `-` in every column of its row in the pretty view) —
+never a measured zero standing in for "no data". An unknown `import-id` is a
+usage error (exit `2`); a real import with zero entries is a valid, distinct
+state (exit `0`, an empty list) — the two are never conflated.
+
+```text
+┌─ perfvibe reassure entries · import 7 · 2 entrie(s)
+│
+│   NAME                                      TYPE      RUNS   DUR P50   DUR P90   DUR N   CNT P50   CNT P90   CNT N
+│   ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+│   WidgetPanel renders correctly             render       8      10.2      10.6       6       1.0       2.0       8
+│   NotificationBanner renders after dismiss  render       3         -         -       -       5.0       6.0       3
+│
+└─
+```
+
+**`--json`** → `reassure_entries_v1` payload (`schema_version = 1`):
+`{"schema_version", "import_id", "entries": [{"name", "entry_type", "runs",
+"duration", "count"}, ...]}`, where `duration`/`count` are each either `null`
+or `{"p50", "p90", "n", "unit"}`. `entry_id` (the internal store row id) and
+`initial_update_count` (a `reassure show`-only field, per D5) are deliberately
+absent — see `contracts/reassure_entries_v1.py` for the full reasoning.
+
+### Exit codes (`reassure import` / `reassure list` / `reassure entries`)
+
+`0` success (including an empty `list` roster, an `import` of a readable file
+that recovered zero entries, and an `entries` call on a real import with zero
+entries) · `2` usage error (missing/unreadable `.perf` path, invalid `--kind`,
+an unknown `entries <import-id>`) · `3` runtime/tooling failure (store/
+transaction/render). Like every other command, `reassure` **never** exits `1`.
 
 ---
 

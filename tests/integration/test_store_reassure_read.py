@@ -1,6 +1,7 @@
 """Integration tests for the PR1a read-path `Store` methods —
 `reassure_imports`/`reassure_entries` (design "Read Models", "Ports",
-"Query budget" — this repo files store/parser tests here, not `unit/`).
+"Query budget" — this repo files store/parser tests here, not `unit/`),
+plus PR1c's `reassure_import_exists`.
 
 RED-before-GREEN: written before either method existed. Proves:
   - `reassure_imports` orders by `COALESCE(created_date, imported_at) DESC`
@@ -15,6 +16,21 @@ RED-before-GREEN: written before either method existed. Proves:
   - an entry with zero rows in one sample table yields `None` on that
     series, never a zero-valued `HistoryMetric`,
   - an import with zero entries returns an empty sequence, not an error.
+
+`reassure_import_exists` (PR1c, added while implementing `reassure entries
+<import-id>`'s usage-error check — task 1c.4's "validate `import_id`
+exists" cannot be satisfied by `reassure_imports`'s WINDOWED roster (an id
+outside `--limit`'s window is not "unknown") nor by `reassure_entries`'s
+emptiness (a real import with zero entries and an unknown import id are
+BOTH `()`, and the spec requires different outcomes for each — spec
+"reassure entries <import-id>": exit `2` on unknown, exit `0` with an
+empty list on a real-but-empty import). This is a narrow, UNBOUNDED
+single-row lookup — the third store method design A2 did not anticipate,
+flagged here rather than forced into the wrong existing method):
+  - a seeded import id reports `True`,
+  - an id nothing ever wrote reports `False`,
+  - a real import with zero entries STILL reports `True` (existence, not
+    entry count).
 """
 
 from __future__ import annotations
@@ -190,3 +206,34 @@ def test_import_with_zero_entries_returns_empty_sequence(tmp_path: Path):
         store.close()
 
     assert rows == ()
+
+
+def test_reassure_import_exists_true_for_a_seeded_import(tmp_path: Path):
+    store = _store(tmp_path)
+    try:
+        import_id = _seed_import(store, content_hash="h1", entries=(_entry(),))
+        assert store.reassure_import_exists(import_id) is True
+    finally:
+        store.close()
+
+
+def test_reassure_import_exists_false_for_an_id_nothing_ever_wrote(tmp_path: Path):
+    store = _store(tmp_path)
+    try:
+        assert store.reassure_import_exists(999999) is False
+    finally:
+        store.close()
+
+
+def test_reassure_import_exists_true_for_a_real_import_with_zero_entries(tmp_path: Path):
+    """The trap this method exists to avoid: `reassure_entries` returning
+    `()` is ambiguous between "unknown import" and "real import, zero
+    entries" — `reassure_import_exists` disambiguates by checking the
+    `reassure_import` row directly, never entry count."""
+    store = _store(tmp_path)
+    try:
+        import_id = _seed_import(store, content_hash="h1", entries=())
+        assert store.reassure_entries(import_id) == ()
+        assert store.reassure_import_exists(import_id) is True
+    finally:
+        store.close()

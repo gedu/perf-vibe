@@ -81,3 +81,25 @@ directly; **there is no `init` step in the CI pipeline itself.**
 
 This keeps the set of flows CI measures explicit and reviewable in the PR diff, rather
 than implicitly whatever `init` happens to (re-)discover on a CI runner.
+
+## The `reassure_path` setting
+
+`perfvibe reassure import` (and its config-driven sibling, `perfvibe reassure run`,
+once it ships) read a `@callstack/reassure` `.perf` JSON-Lines file from a path you
+can override per invocation with a positional argument, or set once in
+`perfvibe.toml`:
+
+```toml
+reassure_path = ".reassure/current.perf"
+```
+
+This is a top-level key, like `bundle_id` — not nested under `[flows]`. It defaults
+to `.reassure/current.perf` (`DEFAULT_REASSURE_PATH`, `config/loader.py`) when
+neither the config nor an explicit CLI argument sets it. Unlike `flows[].maestro_path`,
+it is an INPUT path `perfvibe` only ever reads from — nothing under this capability
+writes to it, so it is never anchored under `base_dir` the way `results_dir` is.
+
+```bash
+perfvibe reassure import                      # reads config's reassure_path
+perfvibe reassure import path/to/other.perf   # overrides it for this call only
+```

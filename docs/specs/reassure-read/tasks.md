@@ -276,31 +276,45 @@ method... it gets smaller, which helps the riskiest slice"'s sibling).
 **Branch**: `reassure-read/slice1c-entries` · **Base**: `reassure-read/slice1b-subapp-list`
 (retarget to `main` once PR1b merges) · **Est. lines**: ~430 (High — see forecast)
 
-- [ ] 1c.1 RED — `tests/contract/test_reassure_entries_v1_contract.py` [new]: exact key set —
+- [x] 1c.1 RED — `tests/contract/test_reassure_entries_v1_contract.py` [new]: exact key set —
   per-entry `name`, `entry_type`, `runs`, independent duration/count `HistoryMetric`s.
-- [ ] 1c.2 GREEN — `src/perf/contracts/reassure_entries_v1.py` [new]: `SCHEMA_VERSION = 1`;
+- [x] 1c.2 GREEN — `src/perf/contracts/reassure_entries_v1.py` [new]: `SCHEMA_VERSION = 1`;
   pure `build_reassure_entries_payload(**kwargs)`.
-- [ ] 1c.3 RED — `tests/integration/test_cli_reassure_entries.py` [new]: valid `import-id`
+- [x] 1c.3 RED — `tests/integration/test_cli_reassure_entries.py` [new]: valid `import-id`
   returns every entry with independent `n`s (5-count/8-duration case); unknown `import-id`
   exits `2`, no `--json` payload emitted.
-- [ ] 1c.4 GREEN — `src/perf/cli/commands/reassure.py`: add `reassure_entries_command` —
-  validate `import_id` exists (via `reassure_imports`/a lookup), then
-  `store.reassure_entries(import_id)` → payload → render; exit `2` on unknown id; register as
-  `"entries"`.
-- [ ] 1c.5 RED — `tests/golden/test_reassure_entries_pretty_golden.py` [new]: duration
+- [x] 1c.4 GREEN — `src/perf/cli/commands/reassure.py`: add `reassure_entries_command` —
+  validate `import_id` exists, then `store.reassure_entries(import_id)` → payload → render;
+  exit `2` on unknown id; register as `"entries"`. **Deviation, flagged not silently done**:
+  neither `reassure_imports`(windowed roster — an id outside `--limit` is not "unknown") nor
+  `reassure_entries`'s own emptiness (ambiguous between "unknown" and "real, zero entries",
+  and the spec requires different exits for each) can validate existence unambiguously. Added
+  a FOURTH `Store` method, `reassure_import_exists(import_id) -> bool` (`domain/ports.py`,
+  `adapters/store_sqlite.py`, `tests/fakes.py`, 3 new RED→GREEN tests in
+  `tests/integration/test_store_reassure_read.py`) — one unbounded `SELECT 1 ... LIMIT 1`.
+  Not in design A2's three-method list; documented at both the Protocol and adapter.
+- [x] 1c.5 RED — `tests/golden/test_reassure_entries_pretty_golden.py` [new]: duration
   p50/p90 and count p50/p90 as SEPARATE columns (I1 in the UI).
-- [ ] 1c.6 GREEN — `src/perf/cli/output/reassure_entries_pretty.py` [new]: box + table with
+- [x] 1c.6 GREEN — `src/perf/cli/output/reassure_entries_pretty.py` [new]: box + table with
   separate duration/count column groups; regenerate golden.
-- [ ] 1c.7 GREEN — `docs/commands.md`: add the `entries` subcommand section.
-- [ ] 1c.8 GREEN — `docs/configuring-flows.md`: document `reassure_path` (currently
+- [x] 1c.7 GREEN — `docs/commands.md`: add the `entries` subcommand section.
+- [x] 1c.8 GREEN — `docs/configuring-flows.md`: document `reassure_path` (currently
   undocumented anywhere).
-- [ ] 1c.9 GREEN — `AGENTS.md`, `CLAUDE.md`: record the agent-facing `--json`-only contract for
-  `reassure entries` (extending the `import`/`list` entries 1b already added).
-- [ ] 1c.10 Verify slice: `./.venv/bin/pytest -q
+- [x] 1c.9 GREEN — `AGENTS.md`, `CLAUDE.md`: record the agent-facing `--json`-only contract for
+  `reassure entries`. **Correction, not silently done**: PR1b's own task list (1b.0-1b.14)
+  never included an `AGENTS.md`/`CLAUDE.md` task — grep-verified zero "reassure" mentions in
+  either file before this slice. This task's premise ("extending the import/list entries 1b
+  already added") does not hold; this is the FIRST such addition, covering `import`/`list`/
+  `entries` together, not an extension of a prior one.
+- [x] 1c.10 Verify slice: `./.venv/bin/pytest -q
   tests/contract/test_reassure_entries_v1_contract.py
   tests/golden/test_reassure_entries_pretty_golden.py
-  tests/integration/test_cli_reassure_entries.py`.
-- [ ] 1c.11 Verify gates.
+  tests/integration/test_cli_reassure_entries.py` → 37 passed.
+- [x] 1c.11 Verify gates: ruff check/format, mypy, pytest --cov all green (1204 passed, up
+  from 1164; coverage 95.43%, floor 93%). Real-CLI manual exercise against a temp db also
+  performed (real import / unknown id / real-zero-entries import) — found and fixed one
+  cosmetic `--help` text defect (a hyphen line-wrapped mid-word in the docstring rendered as
+  a literal `independently- reduced` in `--help` output).
 
 ---
 

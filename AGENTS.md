@@ -28,6 +28,20 @@ baseline windowing/exclusion in `perf.adapters.store_sqlite`, the
 median-by-commit + threshold logic in `perf.adapters.analyzer_sql` and
 `perf.domain.regression`, defaults in `perf.config.loader`.
 
+`perfvibe reassure import|list|entries` read/persist `@callstack/reassure`
+data (a SEPARATE store of data from `run`/`compare`/`history` — reassure
+imports are never joined with, or compared against, flow-world runs). Same
+exit-code discipline as above: `0`/`2`/`3` only, never `1`; `reassure`
+reports and never gates, so a regression in `reassure` data is never a
+non-zero exit on its own. `reassure entries <import-id>` needs its exit
+codes read carefully: an **unknown** `import-id` exits `2` with no `--json`
+payload at all, while a **real** import that happens to have zero entries
+exits `0` with `"entries": []` — do not treat an empty `entries` list as an
+error, and do not treat exit `2` as "maybe just empty". `duration`/`count`
+on each entry are independently-sized series (`durations` is
+outlier-filtered, `counts` is not) — never assume their `n`s match, and
+never index into one using an offset derived from the other.
+
 ## Commands
 
 Everything CI runs, and nothing is on `PATH` — go through the venv:

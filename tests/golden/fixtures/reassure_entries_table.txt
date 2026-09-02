@@ -1,0 +1,8 @@
+┌─ perfvibe reassure entries · import 7 · 2 entrie(s)
+│
+│   NAME                                      TYPE      RUNS   DUR P50   DUR P90   DUR N   CNT P50   CNT P90   CNT N
+│   ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+│   WidgetPanel renders correctly             render       8      10.2      10.6       6       1.0       2.0       8
+│   NotificationBanner renders after dismiss  render       3         -         -       -       5.0       6.0       3
+│
+└─

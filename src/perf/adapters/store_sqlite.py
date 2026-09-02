@@ -506,6 +506,20 @@ class SqliteStore:
             )
         return tuple(imports)
 
+    def reassure_import_exists(self, import_id: int) -> bool:
+        """`reassure entries <import-id>`'s usage-error check (PR1c, design
+        A2 gap — see `domain/ports.py`'s `Store.reassure_import_exists`
+        docstring for why this third method exists). ONE unbounded
+        `?`-bound row lookup — never derived from `reassure_imports`'s
+        windowed roster, and never from `reassure_entries`'s emptiness,
+        since both are ambiguous for this exact question."""
+
+        row = self._conn.execute(
+            "SELECT 1 FROM reassure_import WHERE import_id = ? LIMIT 1",
+            (import_id,),
+        ).fetchone()
+        return row is not None
+
     def reassure_entries(self, import_id: int) -> Sequence[ReassureEntryRow]:
         """`reassure entries`'s read model — every measurement line for one
         import, ALREADY REDUCED (invariant I1: no read model carries a raw
