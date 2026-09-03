@@ -191,7 +191,9 @@ def test_missing_toml_files_fall_back_to_defaults(tmp_path):
 def test_compare_tuning_defaults_when_nothing_configured(tmp_path):
     cfg = load_config(env={}, project_dir=tmp_path)
     assert cfg.threshold_pct == 5.0
-    assert cfg.floors == {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 2.0}
+    # D7 (reassure-read PR4a): `count` is an explicit `0.0` default now, not
+    # merely absent — see `config/loader.py`'s rationale comment.
+    assert cfg.floors == {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 2.0, "count": 0.0}
     assert cfg.min_baseline_commits == 3
     assert cfg.warmup_k == 1
     assert cfg.baseline_n == 10
@@ -217,8 +219,9 @@ def test_perf_toml_overrides_threshold_and_partial_floor(tmp_path):
     assert cfg.warmup_k == 2
     assert cfg.baseline_n == 20
     # Partial floor override keeps the OTHER unit defaults intact — a
-    # single-unit override must never drop the rest of the floor map.
-    assert cfg.floors == {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 1.5}
+    # single-unit override must never drop the rest of the floor map,
+    # including D7's `count: 0.0`.
+    assert cfg.floors == {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 1.5, "count": 0.0}
 
 
 def test_adaptive_floor_can_be_disabled_via_toml(tmp_path):
@@ -309,4 +312,7 @@ def test_full_floors_override_replaces_all_units(tmp_path):
         """,
     )
     cfg = load_config(env={}, project_dir=tmp_path)
-    assert cfg.floors == {"ms": 10.0, "mb": 10.0, "pct": 5.0, "fps": 3.0}
+    # `count` is not named in this override, so it survives from
+    # `DEFAULT_FLOORS` (D7) — the merge is always additive, never a
+    # wholesale replacement of unnamed units.
+    assert cfg.floors == {"ms": 10.0, "mb": 10.0, "pct": 5.0, "fps": 3.0, "count": 0.0}
