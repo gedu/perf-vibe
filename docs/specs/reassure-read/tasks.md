@@ -501,32 +501,44 @@ Review Workload Forecast)**
 ## PR4b — `reassure compare` (D3, D7)
 
 **Branch**: `reassure-read/slice4b-compare-cli` · **Base**:
-`reassure-read/slice4a-compare-domain` · **Est. lines**: ~450 — **budget decision deferred to
-apply time against the real diff**
+`reassure-read/slice4a-compare-domain` · **Est. lines**: ~450 — **actual: 388 `src/`-only
+changed lines, under the 400 gate**
 
-- [ ] 4b.1 RED — `tests/contract/test_reassure_compare_v1_contract.py` [new]: exact key set incl.
+- [x] 4b.1 RED — `tests/contract/test_reassure_compare_v1_contract.py` [new]: exact key set incl.
   the three flat D5 keys, a `verdicts` array in fixed order (`duration_ms`, `render_count`),
   `baseline_import_n`; D5 negatives (no `*_delta_pct`, NULL asserted `is None`).
-- [ ] 4b.2 GREEN — `src/perf/contracts/reassure_compare_v1.py` [new]: `SCHEMA_VERSION = 1`;
-  pure `build_reassure_compare_payload(**kwargs)`.
-- [ ] 4b.3 RED — `tests/integration/test_cli_reassure_compare.py` [new]: a regressed
+- [x] 4b.2 GREEN — `src/perf/contracts/reassure_compare_v1.py` [new]: `SCHEMA_VERSION = 1`;
+  pure `build_reassure_compare_payload(**kwargs)` (14/14 contract tests passing).
+- [x] 4b.3 RED — `tests/integration/test_cli_reassure_compare.py` [new]: a regressed
   `render_count` still exits `0` with the regression verdict (D3); one-import `name` (no
   baseline window) exits `0` with an explicit insufficient-data state; unknown `name` exits
   `2`.
-- [ ] 4b.4 GREEN — `src/perf/cli/commands/reassure.py`: add `reassure_compare` —
+- [x] 4b.4 GREEN — `src/perf/cli/commands/reassure.py`: add `reassure_compare` —
   `store.reassure_series(name, config.baseline_n + 1)` (A8) →
   `reassure_compare.compare_series(...)` → payload → render; ALWAYS exit `0` except unknown
-  `name` (`2`) / store failure (`3`); register as `"compare"`.
-- [ ] 4b.5 RED — `tests/golden/test_reassure_compare_pretty_golden.py` [new]: verdict table +
-  the D5 sentence below the table, color forced off.
-- [ ] 4b.6 GREEN — `src/perf/cli/output/reassure_compare_pretty.py` [new]: box + verdict table
+  `name` (`2`) / store failure (`3`); register as `"compare"`. Renamed the shared
+  `_UnknownReassureHistoryName` → `_UnknownReassureSeriesName`, now used by both `history` and
+  `compare` (11/11 CLI integration tests passing).
+- [x] 4b.5 RED — `tests/golden/test_reassure_compare_pretty_golden.py` [new]: verdict table +
+  the D5 sentence below the table, color forced off. Confirmed genuinely RED (3 missing-fixture
+  `FileNotFoundError`s, 13 non-golden guards already green from 4b.4's renderer).
+- [x] 4b.6 GREEN — `src/perf/cli/output/reassure_compare_pretty.py` [new]: box + verdict table
   reusing `table_line`/`header_line`/`Cell`/`arrow_and_pct`/`sparkline`/`GLYPH_*`; private
   `_row_glyph`/`_status_code`/`_status_word` trio (not promoted to `primitives.py` — rule of
-  three not met); regenerate golden.
-- [ ] 4b.7 GREEN — `docs/baselines-and-history.md`: add the explicit per-import-vs-per-commit
-  CONTRAST section (not merely an append).
-- [ ] 4b.8 Verify slice.
-- [ ] 4b.9 Verify gates.
+  three not met); regenerated golden fixtures (16/16 golden tests passing). The D5 sentence is
+  **reused verbatim** via a newly-public `reassure_show_pretty.d5_sentence` (renamed from
+  `_d5_sentence`) rather than a second copy of the six-line wording table — precedent:
+  `cli/output/flow_picker_terminal.py` already imports from `cli/output/flow_picker.py`.
+- [x] 4b.7 **Already complete from PR3** — `docs/baselines-and-history.md`'s
+  "`reassure`: one point per import, not per commit" section already existed. Verified and
+  tightened: its closing sentence said "`reassure compare` (once it ships) reuses..." (future
+  tense, written before this command existed) — rewritten to present tense with `compare_series`'s
+  actual mechanics (`baseline_n + 1` fetch, plain median, `MIN_BASELINE_IMPORTS = 3`) and a link
+  to the new `docs/commands.md#reassure-compare-name` section. No second section added, no
+  contradiction with the first.
+- [x] 4b.8 Verify slice — all reassure-scoped tests: 366 passed (`pytest -k reassure`).
+- [x] 4b.9 Verify gates — `ruff check .`, `ruff format --check .`, `mypy src/perf` (73 files, no
+  issues), `pytest -q --cov=perf` all clean (1369 passed, 95.60% coverage, floor 93%).
 
 ---
 

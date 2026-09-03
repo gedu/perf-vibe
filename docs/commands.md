@@ -270,13 +270,14 @@ perfvibe reassure list [--limit N]
 perfvibe reassure entries <import-id>
 perfvibe reassure show <name> [--import <id>]
 perfvibe reassure history <name>
+perfvibe reassure compare <name>
 ```
 
-A command **group** (`import`/`list`/`entries`/`show`/`history`/… are
-sub-commands of `reassure`), read-only except for `import`'s own persistence
-step. This page covers `import`, `list`, `entries`, `show`, and `history` —
-`compare` and `run` are added by their own slices of this capability, once
-they ship.
+A command **group** (`import`/`list`/`entries`/`show`/`history`/`compare`/…
+are sub-commands of `reassure`), read-only except for `import`'s own
+persistence step. This page covers `import`, `list`, `entries`, `show`,
+`history`, and `compare` — `run` is added by its own slice of this
+capability, once it ships.
 
 The flat `perfvibe reassure-import <path>` form still works exactly as before
 (same implementation, same `--json` payload) but is now **deprecated**: it is
@@ -490,17 +491,77 @@ X-axis labels use the short `commit_hash` when present, else the date part of
 `duration`/`count` are each either `null` or `{"p50", "p90", "n", "unit"}`.
 `branch` is deliberately absent — nothing in this command reads it.
 
+### `reassure compare <name>`
+
+Compares `name`'s LATEST import against a baseline window of the
+`baseline_n` (default **10**) PRIOR imports (A8: fetches `baseline_n + 1`
+imports total via the same `reassure_series` method `history` uses, just at
+this much smaller, config-driven limit) — reusing `regression.classify`,
+`statistics.median`/`percentile` and the same D7 `[floors]` config, but
+**never** `statistics.median_by_commit` (see
+[`docs/baselines-and-history.md`](./baselines-and-history.md#reassure-one-point-per-import-not-per-commit)
+for the full per-import-vs-per-commit contrast). `duration_ms` and
+`render_count` are graded INDEPENDENTLY as two separate verdicts (invariant
+I1 — never a combined score), both with `higher_is_better = false` (A6) and
+`render_count`'s floor defaulting to exactly `0.0` (D7 — render counts are
+deterministic, so `threshold_pct` alone is the correct guard). Below
+`MIN_BASELINE_IMPORTS` (**3**) baseline imports, BOTH verdicts report an
+explicit `insufficient-data` status — never a silent `stable`.
+
+> ⚠️ **D3 — THE MOST IMPORTANT FACT ABOUT THIS COMMAND**: `reassure compare`
+> **ALWAYS exits `0`**, including when a verdict reports `regression`. The
+> exit code carries **no verdict information at all** — this command
+> reports, it never gates. Read the `status` field inside each entry of the
+> `--json` payload's `verdicts` array to learn the actual result. Treating a
+> non-zero exit from this command as "regression found" is silently unsafe:
+> it will **never** fire, no matter how bad the regression. `perfvibe
+> budget-check` remains the only command in this tool that exits `1` on a
+> confirmed regression, and it does not gate on `reassure` data at all (D3
+> keeps `reassure` out of gating in v1).
+
+```text
+┌─ perfvibe reassure compare · WidgetPanel renders correctly · baseline 5 import(s)
+│
+│      METRIC               LATEST     BASELINE          Δ  STATUS             TREND
+│   ────────────────────────────────────────────────────────────────────────────────
+│   ·  duration_ms        100.0 ms     100.0 ms    → +0.0%  stable             ▅█▁▅
+│   ✗  render_count      9.0 count    1.0 count  ↑ +800.0%  REGRESSION         ▁▁▁█
+│
+│   ✗ extra mount render introduced (0 -> 1)
+└─
+```
+
+The D5 sentence below the table follows the exact same six-shape table as
+`reassure show` (see above) — `d5_sentence` is the SAME shared function,
+never a second copy of the wording.
+
+**`--json`** → `reassure_compare_v1` payload (`schema_version = 1`): a FLAT
+dict with exactly eight keys: `schema_version`, `name`, `latest_import_id`
+(the import the verdicts were computed against), `baseline_import_n`
+(**imports**, never commits — the honest name for the naming friction
+`regression.classify`'s own `baseline_commit_n` parameter carries),
+`verdicts` (a list, FIXED order — `duration_ms` then `render_count`, never
+re-sorted; each entry has `metric`, `unit`, `direction`, `latest_value`,
+`baseline_value`, `delta_pct`, `threshold_pct`, `floor`, `status`,
+`sample_n`, `baseline_commit_n` — the SAME per-verdict shape `perf compare`
+already uses), and the THREE flat D5 keys `initial_update_count`,
+`baseline_initial_update_count` (both `int` or `null` — `null` means "never
+measured", `0` means "measured, clean") and `initial_update_state`. There is
+deliberately **no** `*_delta_pct`/`*_pct` key anywhere for the update
+count — D5 is a state transition, never a delta.
+
 ### Exit codes (`reassure import` / `reassure list` / `reassure entries` /
-`reassure show` / `reassure history`)
+`reassure show` / `reassure history` / `reassure compare`)
 
 `0` success (including an empty `list` roster, an `import` of a readable file
-that recovered zero entries, and an `entries` call on a real import with zero
-entries) · `2` usage error (missing/unreadable `.perf` path, invalid `--kind`,
-an unknown `entries <import-id>`, `name` absent from the target import in
-`show`, `--import <id>` naming an import `show` cannot find `name` in, or
-`name` absent from every import in `history`) · `3` runtime/tooling failure
-(store/transaction/render). Like every other command, `reassure` **never**
-exits `1`.
+that recovered zero entries, an `entries` call on a real import with zero
+entries, **and a `compare` that reports a `regression` or `insufficient-data`
+verdict — see the D3 warning above**) · `2` usage error (missing/unreadable
+`.perf` path, invalid `--kind`, an unknown `entries <import-id>`, `name`
+absent from the target import in `show`, `--import <id>` naming an import
+`show` cannot find `name` in, or `name` absent from every import in
+`history`/`compare`) · `3` runtime/tooling failure (store/transaction/render).
+Like every other command, `reassure` **never** exits `1`.
 
 ---
 

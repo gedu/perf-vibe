@@ -16,10 +16,13 @@ from `run`/`compare` as "regression found"; read the verdict out of the
 `--json` payload. For `budget-check`, the exit code IS the gate signal — but
 still read `--json` for the offending metric names.
 
-`perfvibe reassure import|list|entries` read/persist a SEPARATE reassure
-store (never joined with `run`/`compare`/`history`). Same `0`/`2`/`3`
-discipline. `reassure entries <import-id>`: unknown id exits `2` with no
-`--json` payload; a real import with zero entries exits `0` with `[]` —
-never conflate the two. See `AGENTS.md` for the full contract.
+`perfvibe reassure import|list|entries|show|history|compare` read/persist a
+SEPARATE reassure store (never joined with `run`/`compare`/`history`). Same
+`0`/`2`/`3` discipline. `reassure entries <import-id>`: unknown id exits `2`
+with no `--json` payload; a real import with zero entries exits `0` with
+`[]` — never conflate the two. `reassure compare <name>` **always exits
+`0`, including on a confirmed regression** — same rule as `run`/`compare`
+above: never treat its exit code as a verdict, always read `--json`'s
+`verdicts[].status`. See `AGENTS.md` for the full contract.
 
 See `AGENTS.md` for project skill registration and coding standards.

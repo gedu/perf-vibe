@@ -1,0 +1,9 @@
+┌─ perfvibe reassure compare · WidgetPanel renders correctly · baseline 1 import(s)
+│
+│      METRIC               LATEST     BASELINE          Δ  STATUS             TREND
+│   ────────────────────────────────────────────────────────────────────────────────
+│   ·  duration_ms               -            -        - -  insufficient-data
+│   ·  render_count              -            -        - -  insufficient-data
+│
+│   · mount render diagnostics unavailable (not measured in one of the two imports)
+└─

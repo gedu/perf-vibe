@@ -57,9 +57,18 @@ or mode dimension to key a per-commit collapse against, and — unlike
 chronological commit order. A per-commit median would require inventing an
 ordering the data does not actually carry. `min_baseline_commits`,
 `baseline_n`'s *distinct-commit* windowing, and the `-dirty` tag above are
-therefore all flow-world-only concepts; `reassure compare` (once it ships)
-reuses the same `baseline_n` config value, but as a **count of imports**, never
-distinct commits.
+therefore all flow-world-only concepts; `reassure compare` reuses the same
+`baseline_n` config value (default **10**), but as a **count of imports**,
+never distinct commits: it fetches `baseline_n + 1` imports (the window plus
+the latest one) and takes a **plain** `statistics.median` of the baseline
+window's per-import p90s — no per-commit grouping step exists in that
+computation at all. Below **3** baseline imports (`MIN_BASELINE_IMPORTS`, a
+module constant independent of `min_baseline_commits`), `reassure compare`
+reports an explicit `insufficient-data` verdict, exactly like the flow
+world's `min_baseline_commits` gate — but counting imports, never commits.
+See [`docs/commands.md`](./commands.md#reassure-compare-name) for `reassure
+compare`'s exact `--json` shape and exit-code discipline (D3: it always exits
+`0`, even on a confirmed regression — it reports, it never gates).
 
 ## The `-dirty` tag: uncommitted work never builds history
 
