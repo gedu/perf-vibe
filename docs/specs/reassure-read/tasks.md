@@ -373,28 +373,28 @@ method... it gets smaller, which helps the riskiest slice"'s sibling).
 · **Est. lines**: ~430 — **budget decision deferred to apply time against the real diff (see
 Review Workload Forecast)**
 
-- [ ] 2b.1 RED — `tests/integration/test_store_reassure_read.py`: `reassure_entries(import_id,
+- [x] 2b.1 RED — `tests/integration/test_store_reassure_read.py`: `reassure_entries(import_id,
   name="X")` returns exactly the one entry named `"X"`; `name` absent from that import returns
   an empty sequence.
-- [ ] 2b.2 GREEN — `src/perf/domain/ports.py`: widen `Store.reassure_entries` to `(self,
+- [x] 2b.2 GREEN — `src/perf/domain/ports.py`: widen `Store.reassure_entries` to `(self,
   import_id: int, name: str | None = None) -> Sequence[ReassureEntryRow]`.
-- [ ] 2b.3 GREEN — `src/perf/adapters/store_sqlite.py`: add a `WHERE name = ?` clause (bound
+- [x] 2b.3 GREEN — `src/perf/adapters/store_sqlite.py`: add a `WHERE name = ?` clause (bound
   value), applied only when `name is not None`.
-- [ ] 2b.4 GREEN — `tests/fakes.py`: `FakeStore.reassure_entries` honors the `name` filter.
-- [ ] 2b.5 RED — `tests/contract/test_reassure_show_v1_contract.py` [new]: exact flat key set
+- [x] 2b.4 GREEN — `tests/fakes.py`: `FakeStore.reassure_entries` honors the `name` filter.
+- [x] 2b.5 RED — `tests/contract/test_reassure_show_v1_contract.py` [new]: exact flat key set
   incl. the three D5 keys (`initial_update_count: int|null`, `baseline_initial_update_count:
   int|null`, `initial_update_state: str`) + duration/count summaries + declared-vs-actual
   `runs`; asserts NO key matching `*_delta_pct`/`*_pct` for the update count.
-- [ ] 2b.6 GREEN — `src/perf/contracts/reassure_show_v1.py` [new]: `SCHEMA_VERSION = 1`; pure
+- [x] 2b.6 GREEN — `src/perf/contracts/reassure_show_v1.py` [new]: `SCHEMA_VERSION = 1`; pure
   `build_reassure_show_payload(**kwargs)`.
-- [ ] 2b.7 RED — `tests/integration/test_cli_reassure_show.py` [new]: D8 default (latest import
+- [x] 2b.7 RED — `tests/integration/test_cli_reassure_show.py` [new]: D8 default (latest import
   overall) vs `--import <id>` override; `name` absent from the LATEST import exits `2`, no
   walk-back (A14); `name` absent from EVERY import exits `2`; a `0 -> 1` transition renders
   `initial_update_state == "introduced"`; a `NULL -> 0` transition renders `"unknown"` (never
   `"unchanged"` or a `0 -> 0` label), asserted `is None`, never falsy; a `name` present ONLY in
   the latest import (no prior import contains it) renders `"unknown"`/"no prior diagnostic",
   never a fabricated baseline.
-- [ ] 2b.8 GREEN — `src/perf/cli/commands/reassure.py`: add `reassure_show`. D8 default: `store.
+- [x] 2b.8 GREEN — `src/perf/cli/commands/reassure.py`: add `reassure_show`. D8 default: `store.
   reassure_imports(1)` then `store.reassure_entries(latest_id, name)` (exit `2` if empty, A14).
   **D5 fix (the resolved gap)**: call `store.reassure_series(name, limit=2)` — because
   `reassure_series` only returns points for imports containing `name` (2a.3), its last two
@@ -405,16 +405,16 @@ Review Workload Forecast)**
   (name, limit=<uncapped>)`, locate the point matching `id`, and take the one immediately
   before it. No new store method, no new model field — both were already shipped in 1a/2a.
   Register as `"show"`.
-- [ ] 2b.9 RED — `tests/golden/test_reassure_show_pretty_golden.py` [new]: box + labelled
+- [x] 2b.9 RED — `tests/golden/test_reassure_show_pretty_golden.py` [new]: box + labelled
   key/value block + ONE D5 sentence line (never a table row, never a percentage) covering all
   five D5 states from `design.md`'s exact-wording table.
-- [ ] 2b.10 GREEN — `src/perf/cli/output/reassure_show_pretty.py` [new]: key/value block
+- [x] 2b.10 GREEN — `src/perf/cli/output/reassure_show_pretty.py` [new]: key/value block
   (mirrors `render_reassure_import`'s shape) + the D5 sentence + a `declared runs N != stored
   n M` line on disagreement; regenerate golden.
-- [ ] 2b.11 GREEN — `docs/commands.md`: document `reassure show` — `--import`, exit codes,
+- [x] 2b.11 GREEN — `docs/commands.md`: document `reassure show` — `--import`, exit codes,
   `--json` shape, D5 sentence forms.
-- [ ] 2b.12 Verify slice.
-- [ ] 2b.13 Verify gates.
+- [x] 2b.12 Verify slice.
+- [x] 2b.13 Verify gates.
 
 ---
 
