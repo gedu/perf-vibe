@@ -16,13 +16,18 @@ from `run`/`compare` as "regression found"; read the verdict out of the
 `--json` payload. For `budget-check`, the exit code IS the gate signal — but
 still read `--json` for the offending metric names.
 
-`perfvibe reassure import|list|entries|show|history|compare` read/persist a
-SEPARATE reassure store (never joined with `run`/`compare`/`history`). Same
-`0`/`2`/`3` discipline. `reassure entries <import-id>`: unknown id exits `2`
-with no `--json` payload; a real import with zero entries exits `0` with
-`[]` — never conflate the two. `reassure compare <name>` **always exits
-`0`, including on a confirmed regression** — same rule as `run`/`compare`
-above: never treat its exit code as a verdict, always read `--json`'s
-`verdicts[].status`. See `AGENTS.md` for the full contract.
+`perfvibe reassure import|list|entries|show|history|compare|run` read/persist
+a SEPARATE reassure store (never joined with the flow-world `run`/`compare`/
+`history`). Same `0`/`2`/`3` discipline. `reassure entries <import-id>`:
+unknown id exits `2` with no `--json` payload; a real import with zero
+entries exits `0` with `[]` — never conflate the two. `reassure compare
+<name>` **always exits `0`, including on a confirmed regression** — same
+rule as `run`/`compare` above: never treat its exit code as a verdict,
+always read `--json`'s `verdicts[].status`. `reassure run` executes the
+project's configured `reassure_command` (a TOML array only — a bare string
+is rejected, exit `2`) then imports, emitting the SAME `reassure_import_v1`
+payload as `reassure import`; a failed child process exits `3` and persists
+nothing, and the child's own output never touches stdout. See `AGENTS.md`
+for the full contract.
 
 See `AGENTS.md` for project skill registration and coding standards.

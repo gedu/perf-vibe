@@ -28,20 +28,38 @@ baseline windowing/exclusion in `perf.adapters.store_sqlite`, the
 median-by-commit + threshold logic in `perf.adapters.analyzer_sql` and
 `perf.domain.regression`, defaults in `perf.config.loader`.
 
-`perfvibe reassure import|list|entries|show|history|compare` read/persist
-`@callstack/reassure` data (a SEPARATE store of data from `run`/`compare`/
-`history` — reassure imports are never joined with, or compared against,
-flow-world runs). Same exit-code discipline as above: `0`/`2`/`3` only,
-never `1`; `reassure` reports and never gates, so a regression in `reassure`
-data is never a non-zero exit on its own. `reassure entries <import-id>`
-needs its exit codes read carefully: an **unknown** `import-id` exits `2`
-with no `--json` payload at all, while a **real** import that happens to
-have zero entries exits `0` with `"entries": []` — do not treat an empty
-`entries` list as an error, and do not treat exit `2` as "maybe just empty".
-`duration`/`count` on each entry are independently-sized series
-(`durations` is outlier-filtered, `counts` is not) — never assume their
-`n`s match, and never index into one using an offset derived from the
-other.
+`perfvibe reassure import|list|entries|show|history|compare|run` read/persist
+`@callstack/reassure` data (a SEPARATE store of data from the flow-world
+`run`/`compare`/`history` — reassure imports are never joined with, or
+compared against, flow-world runs). Same exit-code discipline as above:
+`0`/`2`/`3` only, never `1`; `reassure` reports and never gates, so a
+regression in `reassure` data is never a non-zero exit on its own. `reassure
+entries <import-id>` needs its exit codes read carefully: an **unknown**
+`import-id` exits `2` with no `--json` payload at all, while a **real**
+import that happens to have zero entries exits `0` with `"entries": []` —
+do not treat an empty `entries` list as an error, and do not treat exit `2`
+as "maybe just empty". `duration`/`count` on each entry are
+independently-sized series (`durations` is outlier-filtered, `counts` is
+not) — never assume their `n`s match, and never index into one using an
+offset derived from the other.
+
+**`reassure run` is the one `reassure` subcommand that spawns an external
+process.** It executes the project's configured `reassure_command`
+(`perfvibe.toml`, default `["npx", "reassure"]`) and, on a clean exit,
+imports the configured `reassure_path` through the exact same path
+`reassure import` uses — it emits the SAME `reassure_import_v1` payload
+`reassure import` does; there is no separate `reassure_run_v1` contract, so
+parse `run`'s `--json` output the same way you already parse `import`'s. If
+the child process exits non-zero, OR the configured binary is missing/not
+executable, `run` exits `3` and persists **nothing** — never assume a
+`reassure run` invocation imported data just because it ran; check the exit
+code (or `already_imported`/`entries_imported` in the payload) first. The
+child process's own stdout/stderr (progress lines, warnings, anything it
+prints) is relayed to **stderr only** and never appears on `run`'s own
+stdout, so `--json` parsing is unaffected by how noisy the underlying tool
+is. `reassure_command` MUST be a TOML array of strings (e.g. `["yarn",
+"reassure"]`) — a bare string value is a usage error (exit `2`) and is
+never split into an argv list.
 
 **`reassure compare <name>` is where the above sentence becomes
 load-bearing rather than academic**: it is the one `reassure` subcommand

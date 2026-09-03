@@ -215,7 +215,19 @@ def test_empty_reassure_command_array_in_toml_exits_2(monkeypatch, tmp_path: Pat
 # ===== exit 1 must never appear =====
 
 
-def test_exit_1_never_appears_anywhere_in_this_suite(monkeypatch, tmp_path: Path):
+def test_mocked_subprocess_nonzero_returncode_never_exits_1(monkeypatch, tmp_path: Path):
+    """Pins the MOCKED-runner path specifically: a `CommandResult` with a
+    non-zero `returncode` (the runner itself completed, it just reported
+    failure) must map to exit `3`, never `1`. This test monkeypatches
+    `run_streamed` and therefore can NEVER reach a real `subprocess.Popen`
+    call — it does NOT and CANNOT prove the launch-failure case (a missing
+    or non-executable binary, which raises `OSError` from `Popen` itself,
+    before any `CommandResult` exists at all). That case is covered by
+    `test_nonexistent_binary_exits_3_never_1_no_traceback` and
+    `test_non_executable_file_exits_3_never_1_no_traceback` below, which
+    deliberately do NOT monkeypatch the runner (coordinator finding C-1:
+    a test named for this invariant that structurally cannot observe it
+    is worse than no test)."""
     monkeypatch.setattr(
         RealSubprocessRunner, "run_streamed", _fake_run_streamed(returncode=1, stderr="boom")
     )
@@ -224,3 +236,63 @@ def test_exit_1_never_appears_anywhere_in_this_suite(monkeypatch, tmp_path: Path
 
     result = runner.invoke(main_module.app, ["--json", "reassure", "run"])
     assert result.exit_code != 1, result.output
+    assert result.exit_code == 3, result.output
+
+
+# ===== C-1: the REAL launch path (no monkeypatched runner) — a missing or
+# non-executable `reassure_command` binary raises `OSError` (`FileNotFound
+# Error`/`PermissionError`) straight out of `subprocess.Popen`, BEFORE any
+# `CommandResult` exists. Uncaught, this reaches Python's default exit `1`
+# with a traceback — exactly the "never exits 1" contract this whole tool
+# is built on, and the default `reassure_command` (`npx reassure`,
+# scaffolded by `perfvibe init`) hits it on the very first run on any
+# machine without Node. Mirrors `context_bash_perfmeta.py`'s documented
+# `except OSError` precedent around its own runner calls. =====
+
+
+def test_nonexistent_binary_exits_3_never_1_no_traceback(monkeypatch, tmp_path: Path):
+    db_path = tmp_path / "perf.db"
+    _patch_load_config(
+        monkeypatch,
+        db_path=str(db_path),
+        reassure_path=str(_FIXTURE),
+        reassure_command=("definitely-not-a-real-binary-xyz",),
+    )
+
+    result = runner.invoke(main_module.app, ["--json", "reassure", "run"])
+
+    assert result.exit_code == 3, result.output
+    assert result.exit_code != 1
+    # The ONLY exception CliRunner may observe is the command's own
+    # controlled `typer.Exit` (-> `SystemExit`) — never the raw `OSError`
+    # `subprocess.Popen` raised, which would mean it escaped uncaught.
+    assert not isinstance(result.exception, OSError)
+    assert result.stdout.strip() == ""
+    assert "reassure_command" in result.stderr  # hint names the config key to fix
+
+    # No import was attempted either.
+    list_result = runner.invoke(main_module.app, ["--json", "reassure", "list"])
+    assert list_result.exit_code == 0, list_result.output
+    assert json.loads(list_result.stdout)["imports"] == []
+
+
+def test_non_executable_file_exits_3_never_1_no_traceback(monkeypatch, tmp_path: Path):
+    script = tmp_path / "notexec.sh"
+    script.write_text("#!/bin/sh\necho hi\n")
+    script.chmod(0o644)  # not executable
+
+    db_path = tmp_path / "perf.db"
+    _patch_load_config(
+        monkeypatch,
+        db_path=str(db_path),
+        reassure_path=str(_FIXTURE),
+        reassure_command=(str(script),),
+    )
+
+    result = runner.invoke(main_module.app, ["--json", "reassure", "run"])
+
+    assert result.exit_code == 3, result.output
+    assert result.exit_code != 1
+    assert not isinstance(result.exception, OSError)
+    assert result.stdout.strip() == ""
+    assert "reassure_command" in result.stderr

@@ -576,18 +576,37 @@ def reassure_run(ctx: typer.Context) -> None:
     become a persisted import. `reassure_command` itself is validated by
     `config/loader.py` at config-load time (a bare string or an empty
     array is a usage error, exit `2`, before this command body ever
-    runs)."""
+    runs).
+
+    A well-formed but not-installed/not-executable `reassure_command`
+    (the default, `npx reassure`, on any machine without Node) is an
+    ENVIRONMENT failure, not a config-shape one — `subprocess.Popen`
+    raises `FileNotFoundError`/`PermissionError` (both `OSError`) before a
+    `CommandResult` even exists. Caught here and mapped to the same exit
+    `3` as a non-zero subprocess exit (mirrors `context_bash_perfmeta.py`'s
+    documented `except OSError` precedent around its own runner calls) —
+    an uncaught `OSError` would otherwise escape as Python's default exit
+    `1`, forbidden by SKILL rule 7, on this tool's very first `reassure
+    run` on a Node-less machine."""
 
     state: dict = ctx.obj or {}
     output: OutputContext = state["output"]
     config: PerfConfig = state["config"]
 
     argv = list(config.reassure_command)
-    result = run_reassure(
-        SubprocessRunner(),
-        argv,
-        on_line=lambda line: typer.echo(line, err=True),
-    )
+    try:
+        result = run_reassure(
+            SubprocessRunner(),
+            argv,
+            on_line=lambda line: typer.echo(line, err=True),
+        )
+    except OSError as exc:
+        emit_error(
+            output,
+            f"failed to launch reassure command `{' '.join(argv)}`: {exc}; no import attempted",
+            hint="check `reassure_command` in perfvibe.toml names an installed, executable binary",
+        )
+        raise typer.Exit(code=3) from None
     if result.returncode != 0:
         diagnostics = bounded_diagnostics(result.stderr)
         emit_error(
