@@ -420,29 +420,35 @@ Review Workload Forecast)**
 
 ## PR3 — `reassure history`
 
-**Branch**: `reassure-read/slice3-history` · **Base**: `reassure-read/slice2b-show`
+**Branch**: `reassure-read/slice3-history` · **Base**: `reassure-read/slice2b-show-cli`
+(PR2b was split at apply time into `slice2b-show-logic` and `slice2b-show-cli`
+— this base name is the latter's tip)
 · **Est. lines**: ~450 — **budget decision deferred to apply time against the real diff**
 
-- [ ] 3.1 RED — `tests/contract/test_reassure_history_v1_contract.py` [new]: exact key set —
+- [x] 3.1 RED — `tests/contract/test_reassure_history_v1_contract.py` [new]: exact key set —
   array of per-import points, each with `import_id`, `ordered_at`, `ordering_key`,
   `commit_hash` (label), independent duration/count `HistoryMetric` summaries.
-- [ ] 3.2 GREEN — `src/perf/contracts/reassure_history_v1.py` [new]: `SCHEMA_VERSION = 1`;
+- [x] 3.2 GREEN — `src/perf/contracts/reassure_history_v1.py` [new]: `SCHEMA_VERSION = 1`;
   pure `build_reassure_history_payload(**kwargs)`.
-- [ ] 3.3 RED — `tests/integration/test_cli_reassure_history.py` [new]: coverage-gap scenario
+- [x] 3.3 RED — `tests/integration/test_cli_reassure_history.py` [new]: coverage-gap scenario
   yields exactly 2 series points; unknown `name` exits `2`.
-- [ ] 3.4 GREEN — `src/perf/cli/commands/reassure.py`: add `reassure_history` —
+- [x] 3.4 GREEN — `src/perf/cli/commands/reassure.py`: add `reassure_history` —
   `store.reassure_series(name, limit=<uncapped window>)` → payload → render; unknown `name`
   (empty series) exits `2`; register as `"history"`.
-- [ ] 3.5 RED — `tests/golden/test_reassure_history_pretty_golden.py` [new]: TWO sections (one
+- [x] 3.5 RED — `tests/golden/test_reassure_history_pretty_golden.py` [new]: TWO sections (one
   per series), each with its own `chart_lines`/`sparkline`/table; empty-series, single-point,
   zero-variance edges.
-- [ ] 3.6 GREEN — `src/perf/cli/output/reassure_history_pretty.py` [new]: box + two per-series
+- [x] 3.6 GREEN — `src/perf/cli/output/reassure_history_pretty.py` [new]: box + two per-series
   sections copying `history_pretty._metric_section:233-254`; x-labels: short `commit_hash`,
   else the date part of `ordered_at`, else `#<import_id>`; regenerate golden.
-- [ ] 3.7 GREEN — `docs/baselines-and-history.md`: add the per-import (D2: one import = one
-  point) note.
-- [ ] 3.8 Verify slice.
-- [ ] 3.9 Verify gates.
+- [x] 3.7 GREEN — `docs/baselines-and-history.md`: add a CONTRASTING section (not an append) —
+  reassure's per-import (D2) baseline rule vs. the flow world's per-commit rule this doc
+  otherwise describes. Also updated `docs/commands.md` (its own text at line 276-277 promised
+  `history` would be documented "once it ships" — this slice ships it) with a `reassure
+  history <name>` section and the exit-code table, which task 3.7 as originally scoped did
+  not mention; see the apply report for the file:line evidence.
+- [x] 3.8 Verify slice.
+- [x] 3.9 Verify gates.
 
 ---
 

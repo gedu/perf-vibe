@@ -22,6 +22,45 @@ run #2  commit abc1234   total_time_ms = 820   ┐
 run #3  commit abc1234   total_time_ms = 810   ┘── one baseline point: 810 (median)
 ```
 
+## `reassure`: one point per import, not per commit
+
+Everything above — the median-by-commit collapse, `-dirty`, `min_baseline_commits`
+— describes the **flow world** (`perfvibe run`/`compare`/`history`, backed by
+`git rev-parse HEAD`). `perfvibe reassure history`/`reassure compare` (backed by
+persisted `@callstack/reassure` results) follow a **different rule on purpose**:
+**one baseline point per IMPORT, never per commit** (design decision D2). A
+reader who assumes the rule above also governs `reassure` will misread it, so
+this section says explicitly where the two diverge and why.
+
+```text
+reassure import #1   commit abc1234   duration p90 = 108
+reassure import #2   commit abc1234   duration p90 = 138   ← STILL a separate point
+```
+
+Two `reassure` imports sharing the exact same `commit_hash` — even the same
+`commit_hash` **and** `branch` — stay **two distinct points**, never collapsed
+into one median. `perf.domain.statistics.median_by_commit` (the function behind
+the flow world's collapse) is never called anywhere in the `reassure` read path;
+verified imports recorded by `db/migrations/0006_add_reassure_import_kind.sql`
+include a real baseline/current pair that shares both fields, which is exactly
+the case this rule protects: collapsing them would silently average two
+independently-meaningful runs into one.
+
+Ordering follows the import's own `created_date` (falling back to `imported_at`
+when the file's header carried none), **not** commit recency — `commit_hash` is
+a display LABEL on a `reassure` point, never a grouping key.
+
+Why the divergence, rather than one shared rule: `reassure` has no flow, device,
+or mode dimension to key a per-commit collapse against, and — unlike
+`perfvibe run`, which measures the working tree it is invoked from —
+`@callstack/reassure` imports are file-based and do not necessarily arrive in
+chronological commit order. A per-commit median would require inventing an
+ordering the data does not actually carry. `min_baseline_commits`,
+`baseline_n`'s *distinct-commit* windowing, and the `-dirty` tag above are
+therefore all flow-world-only concepts; `reassure compare` (once it ships)
+reuses the same `baseline_n` config value, but as a **count of imports**, never
+distinct commits.
+
 ## The `-dirty` tag: uncommitted work never builds history
 
 Every run records the `git rev-parse HEAD` sha it was measured against. If the

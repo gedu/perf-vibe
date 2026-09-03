@@ -1,0 +1,23 @@
+┌─ perfvibe reassure history · WidgetPanel renders correctly · 1 import(s)
+│
+│   duration (ms)   window ▁
+│
+│     110.0 ┤ ██
+│             └────────
+│             deadbee
+│
+│   IMPORT    DATE        COMMIT          P50         P90       N
+│   ─────────────────────────────────────────────────────────────
+│   2001      2026-02-01  deadbee       100.0       110.0       5
+│
+│   count (count)   window ▁
+│
+│       1.0 ┤ ██
+│             └────────
+│             deadbee
+│
+│   IMPORT    DATE        COMMIT          P50         P90       N
+│   ─────────────────────────────────────────────────────────────
+│   2001      2026-02-01  deadbee         1.0         1.0       5
+│
+└─
