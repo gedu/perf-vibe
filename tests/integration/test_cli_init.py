@@ -139,6 +139,37 @@ def test_fresh_config_created_and_round_trips_through_load_config_and_driver(mon
         assert command.argv[0] == "maestro"  # never raises ValueError(unknown flow)
 
 
+# ===== reassure-read PR5, task 5.6: fresh init scaffolds reassure_path =====
+
+
+def test_fresh_config_scaffolds_reassure_path_and_command(monkeypatch, tmp_path):
+    """A fresh `perfvibe init` on a directory with NO existing config
+    writes BOTH `reassure_path` and `reassure_command` into the generated
+    `perfvibe.toml` — unlike `bundle_id`, these two keys always have a
+    concrete default (`DEFAULT_REASSURE_PATH`/`DEFAULT_REASSURE_COMMAND`),
+    so there is no "nothing detected" state to skip scaffolding for
+    (reassure-read spec req 10, D6). Non-interactive here (no TTY), so the
+    wizard prompts never fire — the defaults are written as-is."""
+    _patch_load_config(monkeypatch)
+    config_path = tmp_path / "perfvibe.toml"
+
+    result = runner.invoke(
+        main_module.app,
+        ["--config", str(config_path), "init", str(FLOWS_DIR), "--bundle-id", "com.example.app"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert config_path.is_file()
+    merged = tomllib.loads(config_path.read_text())
+    assert merged["reassure_path"] == ".reassure/current.perf"
+    assert merged["reassure_command"] == ["npx", "reassure"]
+
+    # Round-trips through the REAL `load_config` too.
+    loaded = load_config(cli_config_path=str(config_path))
+    assert loaded.reassure_path == ".reassure/current.perf"
+    assert loaded.reassure_command == ("npx", "reassure")
+
+
 def test_fresh_config_pretty_output_exits_0(monkeypatch, tmp_path):
     _patch_load_config(monkeypatch)
     config_path = tmp_path / "perfvibe.toml"

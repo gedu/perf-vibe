@@ -547,34 +547,34 @@ changed lines, under the 400 gate**
 **Branch**: `reassure-read/slice5-run` · **Base**: `reassure-read/slice4b-compare-cli`
 · **Est. lines**: ~420
 
-- [ ] 5.1 RED — `tests/unit/test_reassure_run.py` [new]: `run_reassure(runner, argv, *,
+- [x] 5.1 RED — `tests/unit/test_reassure_run.py` [new]: `run_reassure(runner, argv, *,
   on_line)` with a fake runner — non-zero returncode → no import attempted; `argv` is always a
   LIST, never a shell string.
-- [ ] 5.2 RED — same file: `detect_package_manager(root)` returns the right value per
+- [x] 5.2 RED — same file: `detect_package_manager(root)` returns the right value per
   `yarn.lock`/`pnpm-lock.yaml`/`package-lock.json`, and the documented default when none exist.
-- [ ] 5.3 GREEN — implement `run_reassure(runner, argv, *, on_line)` on the house
+- [x] 5.3 GREEN — implement `run_reassure(runner, argv, *, on_line)` on the house
   `SubprocessRunner.run_streamed` seam (A12); add a fake runner to `tests/fakes.py`.
-- [ ] 5.4 GREEN — `src/perf/config/loader.py`: add `reassure_command: Sequence[str] = ("npx",
+- [x] 5.4 GREEN — `src/perf/config/loader.py`: add `reassure_command: Sequence[str] = ("npx",
   "reassure")` to `PerfConfig`, overridable ONLY as a TOML array.
-- [ ] 5.5 GREEN — `src/perf/cli/commands/init.py`: pure `detect_package_manager(root: Path) ->
+- [x] 5.5 GREEN — `src/perf/cli/commands/init.py`: pure `detect_package_manager(root: Path) ->
   str` + a `reassure` wizard block reusing `_prompt_bundle_id`'s dim pre-filled-default idiom
   (`:435-453`), prompting for `reassure_path` and `reassure_command`.
-- [ ] 5.6 RED — `tests/integration/test_cli_init.py` (extend): fresh `perfvibe init` on a
+- [x] 5.6 RED — `tests/integration/test_cli_init.py` (extend): fresh `perfvibe init` on a
   directory with no existing config produces a `perfvibe.toml` containing `reassure_path`.
-- [ ] 5.7 RED — `tests/integration/test_cli_reassure_run.py` [new]: `reassure run` and
+- [x] 5.7 RED — `tests/integration/test_cli_reassure_run.py` [new]: `reassure run` and
   `reassure import <path>` against the same file produce the SAME `reassure_import_v1` payload
   shape and exit code; a failing subprocess exits `3`, no import attempted; a noisy fake
   command's stdout under `--json` still parses as exactly one JSON object; unset/invalid
   `reassure_command` exits `2`.
-- [ ] 5.8 GREEN — `src/perf/cli/commands/reassure.py`: add `reassure_run` — resolve
+- [x] 5.8 GREEN — `src/perf/cli/commands/reassure.py`: add `reassure_run` — resolve
   `config.reassure_path`/`config.reassure_command`, run via `run_reassure`; non-zero →
   `emit_error` + exit `3` (no import); zero → delegate into the SAME parse-then-store path
   `reassure_import` uses, emit `reassure_import_v1` (A11, no new contract); register as
   `"run"`, the LAST subcommand.
-- [ ] 5.9 GREEN — `docs/commands.md`, `docs/configuring-flows.md`: document `reassure run` and
+- [x] 5.9 GREEN — `docs/commands.md`, `docs/configuring-flows.md`: document `reassure run` and
   `reassure_command`.
-- [ ] 5.10 Verify slice.
-- [ ] 5.11 Verify gates + full chain: `./.venv/bin/pytest -q --cov=perf` (>= 93%) with all ten
+- [x] 5.10 Verify slice.
+- [x] 5.11 Verify gates + full chain: `./.venv/bin/pytest -q --cov=perf` (>= 93%) with all ten
   slices merged.
-- [ ] 5.12 Runtime harness: `perfvibe reassure run --json` against a fake/real reassure
+- [x] 5.12 Runtime harness: `perfvibe reassure run --json` against a fake/real reassure
   invocation — confirm payload shape and exit discipline end-to-end.

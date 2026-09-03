@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -28,6 +28,7 @@ __all__ = [
     "DEFAULT_FLOORS",
     "DEFAULT_ITERATIONS",
     "DEFAULT_MIN_BASELINE_COMMITS",
+    "DEFAULT_REASSURE_COMMAND",
     "DEFAULT_REASSURE_PATH",
     "DEFAULT_THRESHOLD_PCT",
     "DEFAULT_WARMUP_K",
@@ -93,6 +94,16 @@ DEFAULT_ADAPTIVE_FLOOR = True
 # below and `_under_base`'s docstring).
 DEFAULT_REASSURE_PATH = ".reassure/current.perf"
 
+# `reassure run`'s default subprocess argv (reassure-read PR5, D6/A11/A12).
+# Overridable ONLY as a TOML array (`reassure_command = ["yarn",
+# "reassure"]`) — NEVER a string that gets split into argv at load time
+# (see `load_config`'s validation below). A string value has no
+# unambiguous split rule (quoting, spaces-in-paths) and would reintroduce
+# exactly the shell-quoting surface `SubprocessRunner` (never `shell=True`)
+# is designed to have none of; refusing it outright means there is no
+# splitting logic to ever get wrong.
+DEFAULT_REASSURE_COMMAND: tuple[str, ...] = ("npx", "reassure")
+
 GLOBAL_CONFIG_PATH = Path.home() / ".config" / "perf" / "config.toml"
 PROJECT_CONFIG_FILENAMES: tuple[str, ...] = ("perfvibe.toml", ".perfvibe.toml")
 
@@ -132,6 +143,10 @@ class PerfConfig:
     # `replay_flashlight` above: perfvibe reads FROM here, it does not
     # write here).
     reassure_path: str = DEFAULT_REASSURE_PATH
+    # `reassure run`'s subprocess argv (D6/A11/A12) — a `Sequence[str]`
+    # ALWAYS, never a string (see `DEFAULT_REASSURE_COMMAND` above and
+    # `load_config`'s array-only validation below).
+    reassure_command: Sequence[str] = field(default_factory=lambda: DEFAULT_REASSURE_COMMAND)
     flows: Mapping[str, FlowConfig] = field(default_factory=dict)
 
     # ===== compare tuning knobs (design Rev 2/3, decision #58) =====
@@ -206,6 +221,25 @@ def _normalize_optional_source(value: object) -> str | None:
     if text == "" or text.lower() == "none":
         return None
     return text
+
+
+def _typed_reassure_command(layers: Mapping[str, object]) -> tuple[str, ...]:
+    """`reassure_command` is accepted ONLY as a non-empty TOML array of
+    strings — NEVER a bare string (which would need an ambiguous split
+    rule and reintroduce a shell-quoting-style surface `SubprocessRunner`
+    never has, D6/A12). A missing key resolves to
+    `DEFAULT_REASSURE_COMMAND`; anything else that is not a well-formed
+    array of strings is a usage error (`ConfigError` -> exit 2), never a
+    silent best-effort coercion."""
+
+    raw = layers.get("reassure_command", list(DEFAULT_REASSURE_COMMAND))
+    if not isinstance(raw, list) or not raw or not all(isinstance(item, str) for item in raw):
+        raise ConfigError(
+            "`reassure_command` must be a non-empty TOML array of strings",
+            hint='e.g. reassure_command = ["yarn", "reassure"] — a bare '
+            "string is rejected outright, never split",
+        )
+    return tuple(raw)
 
 
 def _build_flows(raw: Mapping[str, object]) -> Mapping[str, FlowConfig]:
@@ -336,6 +370,7 @@ def load_config(
         replay_logcat=layers.get("replay_logcat"),
         replay_flashlight=layers.get("replay_flashlight"),
         reassure_path=str(layers.get("reassure_path", DEFAULT_REASSURE_PATH)),
+        reassure_command=_typed_reassure_command(layers),
         flows=flows,
         threshold_pct=_typed_float(layers, "threshold_pct", DEFAULT_THRESHOLD_PCT),
         floors=floors,

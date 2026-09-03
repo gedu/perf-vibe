@@ -282,6 +282,43 @@ def test_ill_typed_floor_value_raises_config_error(tmp_path):
         load_config(env={}, project_dir=tmp_path)
 
 
+# ===== `reassure_command` (reassure-read PR5, D6/A12): array-only, never
+# a string that gets split — see `loader._typed_reassure_command`. =====
+
+
+def test_reassure_command_defaults_to_npx_reassure(tmp_path):
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.reassure_command == ("npx", "reassure")
+
+
+def test_reassure_command_toml_array_overrides_the_default(tmp_path):
+    _write(tmp_path / "perfvibe.toml", 'reassure_command = ["yarn", "reassure"]\n')
+    cfg = load_config(env={}, project_dir=tmp_path)
+    assert cfg.reassure_command == ("yarn", "reassure")
+
+
+def test_reassure_command_as_a_bare_string_raises_config_error_never_split(tmp_path):
+    """A string value must be rejected outright — NEVER split into argv,
+    which would reintroduce a shell-quoting-style surface `SubprocessRunner`
+    (argv-list only, `shell=True` never set) is designed to have none of."""
+    _write(tmp_path / "perfvibe.toml", 'reassure_command = "yarn reassure"\n')
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(env={}, project_dir=tmp_path)
+    assert "reassure_command" in str(excinfo.value)
+
+
+def test_reassure_command_empty_array_raises_config_error(tmp_path):
+    _write(tmp_path / "perfvibe.toml", "reassure_command = []\n")
+    with pytest.raises(ConfigError):
+        load_config(env={}, project_dir=tmp_path)
+
+
+def test_reassure_command_array_with_a_non_string_item_raises_config_error(tmp_path):
+    _write(tmp_path / "perfvibe.toml", "reassure_command = [1, 2]\n")
+    with pytest.raises(ConfigError):
+        load_config(env={}, project_dir=tmp_path)
+
+
 def test_explicit_config_path_missing_raises_config_error(tmp_path):
     """An EXPLICITLY passed `--config` that does not exist must fail loudly —
     silently falling back to defaults turns a typo'd path into a baffling

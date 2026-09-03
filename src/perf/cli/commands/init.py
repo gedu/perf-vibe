@@ -28,7 +28,7 @@ from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
 from perf.cli.output.errors import emit_error
 from perf.cli.output.json_reporter import render_json
 from perf.cli.output.primitives import DIM, GREEN, style
-from perf.config.loader import PerfConfig
+from perf.config.loader import DEFAULT_REASSURE_COMMAND, DEFAULT_REASSURE_PATH, PerfConfig
 from perf.contracts.init_v1 import build_init_payload
 
 __all__ = [
@@ -37,6 +37,7 @@ __all__ = [
     "DuplicateFlowStemError",
     "FlowCollisionError",
     "compute_pruned_flows",
+    "detect_package_manager",
     "discover_flows",
     "has_comments",
     "init",
@@ -210,6 +211,12 @@ def _serialize_value(value: object) -> str:
         return str(value)
     if isinstance(value, str):
         return _serialize_string(value)
+    if isinstance(value, (list, tuple)):
+        # `reassure_command`'s TOML-array-only shape (reassure-read PR5,
+        # D6/A12) is the first list-typed value this scaffolder ever
+        # writes — a flat array of already-`_serialize_value`d items,
+        # never a table.
+        return "[" + ", ".join(_serialize_value(item) for item in value) + "]"
     raise TypeError(f"Unsupported TOML value type: {type(value)!r}")
 
 
@@ -429,6 +436,44 @@ def _render_confirmation(
     return "\n".join(lines) + "\n"
 
 
+# ===== Package-manager detection (reassure-read PR5, D6) =====
+
+_PACKAGE_MANAGER_LOCKFILES: Final[tuple[tuple[str, str], ...]] = (
+    ("yarn.lock", "yarn"),
+    ("pnpm-lock.yaml", "pnpm"),
+    ("package-lock.json", "npm"),
+)
+_DEFAULT_PACKAGE_MANAGER: Final = "npm"
+
+
+_REASSURE_COMMAND_BY_MANAGER: Final[Mapping[str, tuple[str, ...]]] = {
+    "yarn": ("yarn", "reassure"),
+    "pnpm": ("pnpm", "reassure"),
+}
+"""`npm` (and the no-lockfile default) fall through to
+`DEFAULT_REASSURE_COMMAND` (`("npx", "reassure")`) instead — plain `npm
+reassure` is not a valid invocation the way `yarn reassure`/`pnpm reassure`
+are; `npx` is npm's own runner for an unlisted script/binary."""
+
+
+def detect_package_manager(root: Path) -> str:
+    """Pure filesystem inspection ONLY — no subprocess, no network (mirrors
+    `discover_flows`'s local-fs-only discipline). Detects `yarn`/`pnpm`/
+    `npm` from whichever of `yarn.lock`/`pnpm-lock.yaml`/`package-lock.json`
+    is present directly under `root`, checked in that order (`yarn.lock`
+    wins when more than one coexists — the most common source of an
+    accidentally-stale `package-lock.json` left behind after a migration).
+    Falls back to the documented default, `npm`, when none exist — matching
+    `DEFAULT_REASSURE_COMMAND`'s own `("npx", "reassure")` default, since
+    `npx` is the one runner guaranteed to exist alongside any npm
+    install."""
+
+    for filename, manager in _PACKAGE_MANAGER_LOCKFILES:
+        if (root / filename).is_file():
+            return manager
+    return _DEFAULT_PACKAGE_MANAGER
+
+
 # ===== Interactive wizard (spec "Interactive Wizard vs Non-Interactive Mode") =====
 
 
@@ -451,6 +496,39 @@ def _prompt_base_dir(candidate: str, *, color: bool) -> str | None:
     styled_default = style(candidate, color=color, code=DIM)
     raw = typer.prompt(f"base_dir [{styled_default}]", default=candidate, show_default=False)
     return raw.strip() or None
+
+
+def _prompt_reassure_path(candidate: str, *, color: bool) -> str:
+    """Dim, pre-filled placeholder default — mirrors `_prompt_bundle_id`
+    exactly (reassure-read PR5, D6): Enter accepts the existing/default
+    `reassure_path` as-is; typed input overrides it. Unlike `bundle_id`,
+    there is always a concrete candidate (`DEFAULT_REASSURE_PATH` when
+    nothing is configured yet), so an empty typed value falls back to that
+    candidate rather than clearing the key."""
+
+    styled_default = style(candidate, color=color, code=DIM)
+    raw = typer.prompt(f"reassure_path [{styled_default}]", default=candidate, show_default=False)
+    return raw.strip() or candidate
+
+
+def _prompt_reassure_command(candidate: Sequence[str], *, color: bool) -> list[str]:
+    """Dim, pre-filled placeholder default — mirrors `_prompt_bundle_id`.
+    The default is shown space-joined (`npx reassure`), the way a human
+    would type it; a typed reply is whitespace-split back into an argv
+    LIST before being written as a TOML array. This split happens ONLY
+    here, on a human's OWN interactive input at their OWN terminal — never
+    on a TOML value at load time, which `config/loader.py` accepts
+    strictly as an array or rejects outright as a usage error (D6/A12: no
+    string-splitting surface at the point a config file could be
+    authored/tampered with by someone else)."""
+
+    default_text = " ".join(candidate)
+    styled_default = style(default_text, color=color, code=DIM)
+    raw = typer.prompt(
+        f"reassure_command [{styled_default}]", default=default_text, show_default=False
+    )
+    typed = raw.strip()
+    return typed.split() if typed else list(candidate)
 
 
 def _render_mismatch_conflict_message(conflict: Sequence[str], *, color: bool) -> str:
@@ -725,6 +803,45 @@ def init(
     else:
         resolved_base_dir = None
 
+    # reassure block (reassure-read PR5, D6/spec req 10): unlike
+    # `bundle_id`, `reassure_path`/`reassure_command` always have a
+    # concrete default (`DEFAULT_REASSURE_PATH`/`DEFAULT_REASSURE_COMMAND`)
+    # — there is no "detection" step that can come back empty — so BOTH
+    # keys are always scaffolded into the written config, interactive or
+    # not. Interactive mode offers the SAME dim pre-filled-default idiom as
+    # `bundle_id`/`base_dir` to override either; an already-configured
+    # value (re-run) is offered back as that default rather than clobbered.
+    existing_reassure_path = existing_data.get("reassure_path")
+    default_reassure_path = (
+        str(existing_reassure_path) if existing_reassure_path else DEFAULT_REASSURE_PATH
+    )
+    existing_reassure_command_raw = existing_data.get("reassure_command")
+    if isinstance(existing_reassure_command_raw, list) and existing_reassure_command_raw:
+        default_reassure_command = [str(item) for item in existing_reassure_command_raw]
+    else:
+        # No existing override: derive a smarter default from whichever
+        # lockfile is present at the config's own directory (typically the
+        # JS project root) — `npm`/no-lockfile falls through to
+        # `DEFAULT_REASSURE_COMMAND` (`npx reassure`).
+        detected_manager = detect_package_manager(config_path.parent)
+        default_reassure_command = list(
+            _REASSURE_COMMAND_BY_MANAGER.get(detected_manager, DEFAULT_REASSURE_COMMAND)
+        )
+    if interactive:
+        try:
+            resolved_reassure_path = _prompt_reassure_path(
+                default_reassure_path, color=output.color_enabled
+            )
+            resolved_reassure_command = _prompt_reassure_command(
+                default_reassure_command, color=output.color_enabled
+            )
+        except typer.Abort:
+            emit_error(output, "aborted during interactive prompt")
+            raise typer.Exit(code=3) from None
+    else:
+        resolved_reassure_path = default_reassure_path
+        resolved_reassure_command = default_reassure_command
+
     try:
         merged = merge_config(existing_data, flows, resolved_bundle_id, force, prune=prune)
     except FlowCollisionError as exc:
@@ -743,6 +860,8 @@ def init(
         merged["db_path"] = db
     if resolved_base_dir is not None:
         merged["base_dir"] = resolved_base_dir
+    merged["reassure_path"] = resolved_reassure_path
+    merged["reassure_command"] = resolved_reassure_command
 
     try:
         config_path.write_text(serialize_toml(merged))
