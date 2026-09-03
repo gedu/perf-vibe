@@ -152,7 +152,14 @@ class Store(Protocol):
     # UNBOUNDED single-row lookup is the only unambiguous check.
     def reassure_import_exists(self, import_id: int) -> bool: ...
 
-    def reassure_entries(self, import_id: int) -> Sequence[ReassureEntryRow]: ...
+    # `reassure-read` PR2b: `name` is an OPTIONAL filter, added for
+    # `reassure show <name>`'s single-entry lookup (design Slice Map, "Slice
+    # 2 contains one store-layer line" — deliberately not a separate
+    # method: one WHERE clause plus one Protocol default). `None` (PR1c's
+    # original behavior) returns every entry in the import, unchanged.
+    def reassure_entries(
+        self, import_id: int, name: str | None = None
+    ) -> Sequence[ReassureEntryRow]: ...
 
     # `reassure-read` PR2a (design A2's third read method): a name-joined
     # import window, OLDEST->NEWEST, ONE point per import that CONTAINS

@@ -460,3 +460,63 @@ def test_series_preserves_initial_update_count_none_vs_zero_on_nested_entry(
     assert [p.import_id for p in points] == [id_never_measured, id_clean]
     assert points[0].entry.initial_update_count is None
     assert points[1].entry.initial_update_count == 0
+
+
+# ===== PR2b: `reassure_entries(import_id, name=...)` filter =====
+
+
+def test_entries_name_filter_returns_exactly_the_one_matching_entry(tmp_path: Path):
+    """`reassure show <name>`'s detail lookup (design "D5 GAP" / task 2b.1):
+    `reassure_entries(import_id, name="X")` returns exactly the one entry
+    named `"X"`, never every entry in the import."""
+    store = _store(tmp_path)
+    try:
+        import_id = _seed_import(
+            store,
+            content_hash="h1",
+            entries=(
+                _entry(name="A", durations=(1.0,), counts=(1.0,)),
+                _entry(name="B", durations=(2.0,), counts=(2.0,)),
+            ),
+        )
+        rows = store.reassure_entries(import_id, name="A")
+    finally:
+        store.close()
+
+    assert len(rows) == 1
+    assert rows[0].name == "A"
+    assert rows[0].duration.p50 == 1.0
+
+
+def test_entries_name_filter_absent_from_import_returns_empty_sequence(tmp_path: Path):
+    """`name` absent from THIS import (even if it exists in others) returns
+    an empty sequence — the caller (`reassure show`'s A14 no-walk-back
+    check) decides what an empty result means, never this method."""
+    store = _store(tmp_path)
+    try:
+        import_id = _seed_import(
+            store, content_hash="h1", entries=(_entry(name="A", durations=(1.0,), counts=(1.0,)),)
+        )
+        rows = store.reassure_entries(import_id, name="does-not-exist")
+    finally:
+        store.close()
+
+    assert rows == ()
+
+
+def test_entries_without_name_filter_still_returns_every_entry(tmp_path: Path):
+    """Approval test — the default (`name=None`) call, exercised by
+    `reassure entries <import-id>` (PR1c), must stay unchanged by this
+    slice's new optional parameter."""
+    store = _store(tmp_path)
+    try:
+        import_id = _seed_import(
+            store,
+            content_hash="h1",
+            entries=(_entry(name="A"), _entry(name="B")),
+        )
+        rows = store.reassure_entries(import_id)
+    finally:
+        store.close()
+
+    assert {row.name for row in rows} == {"A", "B"}
