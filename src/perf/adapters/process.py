@@ -28,6 +28,25 @@ class CommandResult:
     stderr: str
 
 
+class SubprocessStreamError(OSError):
+    """Raised by `run_streamed` when the child process LAUNCHED
+    successfully (`Popen` returned) but a LATER step — reading its output,
+    closing the pipe, or waiting for it to exit — raised `OSError` (e.g. a
+    broken pipe writing a relayed line to an already-closed stderr).
+
+    Deliberately an `OSError` SUBCLASS, never a distinct exception
+    hierarchy: every other `run_streamed` caller in this codebase
+    (`driver_maestro.py`) lets any `OSError` propagate to a broad
+    `except Exception` with no phase-specific message, so wrapping here
+    changes nothing for them. It exists ONLY so a caller that cares about
+    the distinction (`reassure_run`, R-2) can `isinstance`-check it apart
+    from an `OSError` `Popen` itself raised BEFORE the child ever
+    started — 're-verification finding R-2: "failed to launch" reported for
+    failures after a successful launch' — without narrowing the guard's
+    `except` clause (which would silently reopen R-1, the NUL-byte/
+    `ValueError` gap the same guard exists to close)."""
+
+
 @dataclass(frozen=True)
 class CaptureResult:
     """Outcome of `SubprocessRunner.stop_capture()` (resilience fix): carries
@@ -196,23 +215,38 @@ class SubprocessRunner:
             bufsize=1,
         )
 
-        accumulated: list[str] = []
-        accumulated_len = 0
-        assert process.stdout is not None  # guaranteed by stdout=PIPE above
-        for raw_line in process.stdout:
-            # `raw_line` keeps its trailing line terminator (or none, for a
-            # final partial line) — strip only the terminator so a `\r` used
-            # mid-line (e.g. a progress-bar redraw) is preserved verbatim
-            # rather than silently dropped.
-            line = raw_line.rstrip("\n")
-            scrubbed = scrub_secrets(line, argv_list)
-            if on_line is not None:
-                on_line(scrubbed)
-            if accumulated_len < _MAX_STREAM_BUFFER_CHARS:
-                accumulated.append(scrubbed)
-                accumulated_len += len(scrubbed) + 1
-        process.stdout.close()
-        returncode = process.wait()
+        # Everything from here on happens AFTER the child has already
+        # launched (`Popen` above already returned). An `OSError` raised by
+        # `Popen` itself is left completely unwrapped — a caller telling
+        # launch failures apart from post-launch ones (R-2) needs that
+        # boundary to be exactly "did `Popen` return", nothing narrower.
+        try:
+            accumulated: list[str] = []
+            accumulated_len = 0
+            assert process.stdout is not None  # guaranteed by stdout=PIPE above
+            for raw_line in process.stdout:
+                # `raw_line` keeps its trailing line terminator (or none, for
+                # a final partial line) — strip only the terminator so a `\r`
+                # used mid-line (e.g. a progress-bar redraw) is preserved
+                # verbatim rather than silently dropped.
+                line = raw_line.rstrip("\n")
+                scrubbed = scrub_secrets(line, argv_list)
+                if on_line is not None:
+                    on_line(scrubbed)
+                if accumulated_len < _MAX_STREAM_BUFFER_CHARS:
+                    accumulated.append(scrubbed)
+                    accumulated_len += len(scrubbed) + 1
+            process.stdout.close()
+            returncode = process.wait()
+        except OSError as exc:
+            # Re-verification R-2: this used to propagate as a bare
+            # `OSError`, indistinguishable from a `Popen` launch failure to
+            # any caller catching `except OSError` around the whole call —
+            # `reassure_run` did exactly that and reported a healthy launch
+            # as "failed to launch". Wrapped in a dedicated subclass so a
+            # caller that wants the honest phase can ask for it; a caller
+            # that only catches `OSError` broadly sees no change at all.
+            raise SubprocessStreamError(str(exc)) from exc
 
         merged = "\n".join(accumulated)
         return CommandResult(returncode=returncode, stdout=merged, stderr=merged)

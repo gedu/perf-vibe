@@ -34,7 +34,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from perf.adapters.process import CommandResult
+from perf.adapters.process import CommandResult, SubprocessStreamError
 from perf.adapters.process import SubprocessRunner as RealSubprocessRunner
 from perf.config import loader as config_loader_module
 from perf.config.loader import PerfConfig
@@ -296,3 +296,84 @@ def test_non_executable_file_exits_3_never_1_no_traceback(monkeypatch, tmp_path:
     assert not isinstance(result.exception, OSError)
     assert result.stdout.strip() == ""
     assert "reassure_command" in result.stderr
+
+
+# ===== R-1 (re-verification finding, CRITICAL): a NUL byte in
+# `reassure_command` reaches `subprocess.Popen` as `ValueError: embedded
+# null byte`, which is NOT an `OSError` — invisible to the launch guard
+# above. Primary fix: rejected at config-load time (exit 2). Backstop fix:
+# the launch guard itself is widened to `except (OSError, ValueError)` so
+# the NEXT unknown non-`OSError` `Popen` failure still never exits 1. =====
+
+
+def test_nul_byte_in_reassure_command_exits_2_not_1(monkeypatch, tmp_path: Path):
+    """The REAL `config/loader.py` validation path (mirrors
+    `test_invalid_reassure_command_string_in_toml_exits_2` above) — a
+    hand-written `perfvibe.toml` with a `\\u0000` escape must be rejected
+    as a malformed config, never reach `Popen` at all."""
+    monkeypatch.setattr(
+        config_loader_module, "GLOBAL_CONFIG_PATH", tmp_path / "nonexistent-global.toml"
+    )
+    config_path = tmp_path / "perfvibe.toml"
+    config_path.write_text('reassure_command = ["/bin/ls\\u0000evil"]\n')
+
+    result = runner.invoke(
+        main_module.app, ["--json", "--config", str(config_path), "reassure", "run"]
+    )
+
+    assert result.exit_code == 2, result.output
+    assert result.exit_code != 1
+    assert result.stdout.strip() == ""
+    assert "reassure_command" in result.stderr
+
+
+def test_non_oserror_launch_failure_still_exits_3_never_1(monkeypatch, tmp_path: Path):
+    """Backstop test: even a `reassure_command` that somehow slips past
+    config validation and reaches `Popen` with a non-`OSError` failure
+    (here simulated directly at the runner boundary, since the config
+    guard above already closes the only known real-world route) must
+    still exit 3, never Python's default exit 1. Proves the launch guard
+    itself now catches `ValueError`, not just `OSError`."""
+    monkeypatch.setattr(
+        RealSubprocessRunner,
+        "run_streamed",
+        lambda self, argv, *, env=None, cwd=None, on_line=None: (_ for _ in ()).throw(
+            ValueError("embedded null byte")
+        ),
+    )
+    db_path = tmp_path / "perf.db"
+    _patch_load_config(monkeypatch, db_path=str(db_path), reassure_path=str(_FIXTURE))
+
+    result = runner.invoke(main_module.app, ["--json", "reassure", "run"])
+
+    assert result.exit_code == 3, result.output
+    assert result.exit_code != 1
+    assert not isinstance(result.exception, ValueError)
+    assert result.stdout.strip() == ""
+
+
+# ===== R-2 (re-verification finding, WARNING): the launch guard's
+# `except OSError` lexically wraps the WHOLE `run_reassure(...)` call, not
+# just the `Popen` construction — a post-launch `OSError` (e.g. a broken
+# stderr pipe while relaying a noisy child's output) was mislabelled
+# "failed to launch". `SubprocessRunner.run_streamed` now wraps any
+# `OSError` raised AFTER `Popen` returns in `SubprocessStreamError`, so the
+# CLI can tell the two apart and report the honest phase — the exit code
+# stays 3 either way. =====
+
+
+def test_post_launch_failure_reports_failed_while_running_not_failed_to_launch(
+    monkeypatch, tmp_path: Path
+):
+    def fake_run_streamed(self, argv, *, env=None, cwd=None, on_line=None):
+        raise SubprocessStreamError("Broken pipe")
+
+    monkeypatch.setattr(RealSubprocessRunner, "run_streamed", fake_run_streamed)
+    db_path = tmp_path / "perf.db"
+    _patch_load_config(monkeypatch, db_path=str(db_path), reassure_path=str(_FIXTURE))
+
+    result = runner.invoke(main_module.app, ["--json", "reassure", "run"])
+
+    assert result.exit_code == 3, result.output
+    assert "failed while running" in result.stderr
+    assert "failed to launch" not in result.stderr

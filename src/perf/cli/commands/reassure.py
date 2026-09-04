@@ -76,6 +76,7 @@ import typer
 from perf.adapters.process import (
     CommandResult,
     SubprocessRunner,
+    SubprocessStreamError,
     bounded_diagnostics,
 )
 from perf.adapters.registry import build_store
@@ -587,7 +588,27 @@ def reassure_run(ctx: typer.Context) -> None:
     documented `except OSError` precedent around its own runner calls) —
     an uncaught `OSError` would otherwise escape as Python's default exit
     `1`, forbidden by SKILL rule 7, on this tool's very first `reassure
-    run` on a Node-less machine."""
+    run` on a Node-less machine.
+
+    R-1 (re-verification finding, CRITICAL): a `reassure_command` element
+    carrying an embedded NUL byte (reachable via a `\\u0000` TOML escape,
+    which `tomllib` accepts) makes `subprocess.Popen` raise `ValueError`,
+    NOT `OSError` — invisible to an `except OSError`-only guard. The
+    primary fix is `config/loader.py` rejecting a NUL at config-load time
+    (exit `2`, before this command body ever runs); this guard is widened
+    to `except (OSError, ValueError)` as a BACKSTOP — the same "never
+    exit 1" contract this whole method exists to hold applies to any
+    unhandled exception type, known or not, not just the two named here.
+
+    R-2 (re-verification finding, WARNING): this guard used to wrap the
+    ENTIRE `run_reassure(...)` call, so an `OSError` raised AFTER a
+    successful launch (e.g. a broken pipe while relaying the child's
+    output) was reported as "failed to launch" — sending someone to check
+    an install that worked. `SubprocessRunner.run_streamed` now raises
+    `SubprocessStreamError` (an `OSError` subclass) specifically for a
+    post-launch failure, so it is checked FIRST and reported with its own,
+    honest message; a plain `OSError`/`ValueError` still means the process
+    never started at all."""
 
     state: dict = ctx.obj or {}
     output: OutputContext = state["output"]
@@ -600,7 +621,15 @@ def reassure_run(ctx: typer.Context) -> None:
             argv,
             on_line=lambda line: typer.echo(line, err=True),
         )
-    except OSError as exc:
+    except SubprocessStreamError as exc:
+        emit_error(
+            output,
+            f"reassure command `{' '.join(argv)}` failed while running: {exc}; no import attempted",
+            hint="the process launched successfully and failed partway through — "
+            "check its own output above for the real cause",
+        )
+        raise typer.Exit(code=3) from None
+    except (OSError, ValueError) as exc:
         emit_error(
             output,
             f"failed to launch reassure command `{' '.join(argv)}`: {exc}; no import attempted",
