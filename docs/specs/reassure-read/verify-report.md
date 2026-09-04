@@ -1,14 +1,14 @@
 ```yaml
 schema: gentle-ai.verify-result/v1
-evidence_revision: sha256:7467b1b97c103332a2034f822b37f1f373b3d3ad5486ef781dafdb378f7eebe3
+evidence_revision: sha256:a5e87cb26b9eaa4a22301172a344a38c1f2fff31a21188b7bf92d6a519837f50
 verdict: fail
-blockers: 2
-critical_findings: 2
-requirements: 12/15
+blockers: 1
+critical_findings: 1
+requirements: 14/15
 scenarios: 23/24
 test_command: ./.venv/bin/pytest -q --cov=perf
 test_exit_code: 0
-test_output_hash: sha256:2c7058ab578c39b037f97564179a76a226d85914f4f1ecbbdfbce6623d232f58
+test_output_hash: sha256:17080c698eaaed5e7893f631193896b22045694f787bcfe1a2d41c3f1e568165
 build_command: ./.venv/bin/mypy src/perf
 build_exit_code: 0
 build_output_hash: sha256:25499469eab292b707aaafb426bb37ffc20ebb6f29a73f5d9ab147221e899cc4
@@ -607,3 +607,274 @@ that does **not** monkeypatch `run_streamed`, fix C-2, correct the two now-false
 "never exits 1" sentences, and re-verify. The WARNINGs, particularly W-5 (the
 `show`/`compare` walk-back contradiction) and W-6 (terminal-control-sequence injection),
 deserve tickets but should not gate this chain.
+
+---
+
+# 12. RE-VERIFICATION - scoped, `c4d9ff1` to `39bd3c8`
+
+> **Sections 1 through 11 above are the original verification and are left exactly as
+> committed in `b0e71c1`.** Nothing in them has been rewritten. They remain the honest
+> record of the state at `c4d9ff1`, including the FAIL verdict. This section records what
+> changed and what I re-derived. **The YAML envelope at the top of this file has been
+> updated** to describe the current tip, because it is machine-readable state that a gate
+> reads; the prose record is untouched.
+
+**Scope**: C-1 and C-2 only, plus regression checking of the fix itself. The nine WARNINGs
+and six SUGGESTIONs from sections 7 and 9 are being triaged separately and were not
+re-examined here, except where the fix touched them.
+
+**Under review**: `39bd3c8` ("fix(reassure): never exit 1 when the configured command
+cannot launch"), on top of `b0e71c1` (the report itself). Same worktree, same branch, tree
+clean. The `src/` delta is 31 changed lines in one file, `cli/commands/reassure.py`.
+
+## 12.1 Gates, re-derived (not taken on trust)
+
+| Gate | Command | Exit | Output |
+|---|---|---|---|
+| Lint | `./.venv/bin/ruff check .` | `0` | `All checks passed!` |
+| Format | `./.venv/bin/ruff format --check .` | `0` | `173 files already formatted` |
+| Types | `./.venv/bin/mypy src/perf` | `0` | `Success: no issues found in 73 source files` |
+| Tests | `./.venv/bin/pytest -q --cov=perf` | `0` | `1392 passed in 8.71s`, coverage `95.57%` (floor 93) |
+
+The coordinator's reported numbers are accurate. 1390 to 1392 is exactly the two new tests;
+coverage is unchanged at 95.57%.
+
+## 12.2 C-1 - **CLOSED**, and it holds well past the two reproductions I was given
+
+The fix wraps the `run_reassure(...)` call in `except OSError`, mapping it to `emit_error`
+plus exit `3` with a hint naming `reassure_command`. `FileNotFoundError` and
+`PermissionError` are both `OSError` subclasses, so both original reproductions are covered.
+
+I re-ran the coordinator's two and then probed six more launch-failure shapes, all through
+the real binary against a temp DB:
+
+| Probe | Exit | stdout | Traceback |
+|---|---|---|---|
+| nonexistent binary (original repro 1) | `3` | 0 bytes | none |
+| mode-644 file (original repro 2) | `3` | 0 bytes | none |
+| **a directory as the command** | `3` | 0 bytes | none |
+| **a broken symlink** | `3` | 0 bytes | none |
+| **an empty-string element** `[""]` | `3` | 0 bytes | none |
+| **bare `/` (root directory)** | `3` | 0 bytes | none |
+| **`/dev/null` as the command** | `3` | 0 bytes | none |
+| **oversized argv (E2BIG)** | `3` | 0 bytes | none |
+
+All eight land on `3` with byte-empty stdout, no traceback, and a hint naming the config
+key. E2BIG is worth calling out: it is a bare `OSError` rather than a named subclass, so
+catching the base class rather than the two named ones is what makes it work. That choice
+was right.
+
+I also confirmed the other six subcommands are unaffected: `import` `0`, `list` `0`,
+`entries` `0`/`2`, `show` `0`/`2`, `history` `0`/`2`, `compare` `0`/`2`, corrupt DB `3`.
+
+**The `2` versus `3` split is correct and I agree with the reasoning.** A malformed
+`reassure_command` (bare string, empty array) is a config-*shape* error caught at load time
+before the command body runs, and still exits `2`. A well-formed command naming an
+uninstalled binary is an *environment* failure and exits `3`. That is the same line
+`perfvibe` draws everywhere else.
+
+**Residual: one narrow exit-1 path survives. See R-1 in section 12.5.** It is not the
+reported defect and it is not on any default path, but it violates the same clause C-1 did,
+so scenario 16 remains unsatisfied and the envelope verdict stays `fail`.
+
+## 12.3 C-2 - **CLOSED**
+
+Both files now enumerate all seven subcommands (`AGENTS.md:31`, `CLAUDE.md:19`) and both
+carry a `reassure run` contract paragraph.
+
+I judged this against the question that matters, namely *could an agent reading only these
+two files misuse `reassure run`?*, rather than against string presence. The four hazards
+that distinguish `run` from every other reassure subcommand are all covered:
+
+| Hazard | Covered in AGENTS.md | Covered in CLAUDE.md |
+|---|---|---|
+| Payload equivalence with `import`; no `reassure_run_v1` | yes, and it explicitly tells the agent to parse it the same way | yes |
+| Exit `3` persists **nothing**; do not assume data landed | yes, and it names the payload fields to check (`already_imported`/`entries_imported`) | yes |
+| Child stdout/stderr relayed to stderr only; `--json` unaffected | yes | yes |
+| `reassure_command` is array-only; a bare string is exit `2` | yes | yes |
+
+The AGENTS.md paragraph also folds in the C-1 fix correctly: *"If the child process exits
+non-zero, OR the configured binary is missing/not executable, `run` exits `3` and persists
+nothing."* That is the new behaviour, described accurately.
+
+Nit, not a finding: inserting the `run` paragraph between the first reassure paragraph and
+the `compare` paragraph broke the latter's opening referent. *"where the above sentence
+becomes load-bearing"* used to point at the `duration`/`count` independence sentence and
+now points at the `reassure_command` array sentence. The `compare` warning restates its own
+claim immediately afterward, so no misreading is possible; it just reads oddly.
+
+## 12.4 Did the fix introduce anything new?
+
+**Yes, one, and it is the exact thing the coordinator asked about.**
+
+### The `except OSError` is wider than "launch"
+
+The `try` lexically encloses the whole `run_reassure(...)` call, and `run_reassure` is not
+just the launch. `SubprocessRunner.run_streamed` (`adapters/process.py:187-218`) does
+`Popen`, then the relay loop `for raw_line in process.stdout` with its `on_line(scrubbed)`
+callback, then `process.stdout.close()`, then `process.wait()`. **Every one of those can
+raise `OSError` after a completely successful launch**, and all of them are caught by the
+same handler and reported as `failed to launch reassure command ...`.
+
+`reassure_run` passes `on_line=lambda line: typer.echo(line, err=True)`, so a closed or
+broken stderr during streaming is the realistic trigger.
+
+Demonstrated in-process against a **real** `SubprocessRunner` and a **real** child that
+launches and streams fine:
+
+```
+run_reassure raised Boom AFTER a successful launch -> Boom(32, 'Broken pipe')
+reassure_run's `except OSError` would catch this and report:
+   "failed to launch reassure command `/bin/sh -c ...`: [Errno 32] Broken pipe"
+```
+
+**Assessment: WARNING, not a blocker.** The *exit code* is right either way, since a
+mid-stream I/O failure is a runtime/tooling failure and `3` is correct. Only the message is
+wrong, and it is wrong in a way that would send someone to check whether their binary is
+installed when the binary ran fine. Narrowing the `try` to the `Popen` call, or catching
+separately around the stream, would fix it. Filed as R-2.
+
+### Everything else checks out
+
+- `except OSError` shadows nothing it should not: `typer.Exit`, `SystemExit` and
+  `KeyboardInterrupt` are all confirmed non-subclasses of `OSError`.
+- The success path is untouched; the `try` adds no behaviour when nothing raises.
+- The post-run import step (`reassure_import(ctx, path=None, kind=None)`) is **outside** the
+  `try`, so a disk or store error while reading or writing the `.perf` file still flows
+  through `reassure_import`'s own handling and is not mislabelled as a launch failure. This
+  was the coordinator's other stated worry and it is not a problem.
+- No lint, format, type or coverage regression.
+
+## 12.5 R-1 - residual exit-1 path: a \u0000 escape in `reassure_command` (CRITICAL)
+
+The coordinator asked for anything reaching `Popen` that is **not** an `OSError` subclass.
+There is one, and it is reachable from a config file:
+
+```
+$ cat perfvibe.toml
+reassure_command = ["/bin/ls\u0000evil"]
+
+$ perfvibe --json reassure run
+exit=1     stdout=0 bytes
+ValueError: embedded null byte      (+ full traceback)
+```
+
+The chain: `tomllib` **accepts** a `\u0000` escape in a basic string and decodes it to a
+real NUL character; `_typed_reassure_command` (`config/loader.py:236`) accepts it, because
+it only checks "non-empty list of strings" and a NUL-bearing string is a valid `str`;
+`subprocess.Popen` then raises `ValueError: embedded null byte`, which is **not** an
+`OSError`, so the new handler does not catch it and it escapes as exit `1` with a traceback.
+It fires for a NUL in `argv[0]` and equally for a NUL in any later argument.
+
+I checked the neighbouring non-`OSError` candidates too:
+
+| Input | Popen raises | `OSError`? | CLI exit |
+|---|---|---|---|
+| NUL byte in `argv[0]` | `ValueError` | no | **`1`** |
+| NUL byte in `argv[1]` | `ValueError` | no | **`1`** |
+| lone surrogate (`\ud800`) | `UnicodeEncodeError` | no | `2` - `tomllib` rejects it first, so it never reaches `Popen` |
+| oversized argv | `OSError` (E2BIG) | yes | `3` |
+
+So the surrogate case is already safe by accident of TOML validation, and NUL is the only
+survivor.
+
+### Why this is graded CRITICAL, and the honest argument against
+
+My first instinct was to grade this WARNING on reachability, and I want to show the reasoning
+rather than bury it, because the coordinator may reasonably weigh it differently.
+
+**The case for WARNING**: C-1 fired on the **default** configuration. `perfvibe init`
+scaffolds `["npx", "reassure"]`, so the first `reassure run` on any Node-less machine hit
+it. R-1 requires someone to hand-write a `\u0000` escape into `perfvibe.toml`. That is not
+a typo anyone makes, and no generated config can produce it. By impact, the two are not
+remotely comparable.
+
+**The case for CRITICAL, which is the one I am acting on**: it is the *same requirement*,
+violated the *same way*, with a *live reproduction*. The requirement is written without a
+reachability qualifier - *"Exit `1` MUST NEVER be used by any `reassure` subcommand"* - and
+scenario 16 says *"any combination of valid/invalid input"*, which a NUL in a config file
+plainly is. I graded C-1 CRITICAL on that text. Grading an identical violation of the same
+clause as WARNING because it is harder to reach would mean the severity floats with my
+estimate of user behaviour rather than with the contract, and the next verifier would have
+no principled line to hold. Scenario 16 is therefore **not** satisfied, and a report cannot
+honestly mark a scenario unsatisfied and still carry a passing verdict.
+
+**This is not a re-run of C-1 and should not be read as one.** C-1 and C-2 are closed; see
+12.2 and 12.3 for the evidence. R-1 is a third, far smaller instance found only because the
+coordinator asked me to look for non-`OSError` paths, which was the right thing to ask.
+
+**The fix is one token**: `except (OSError, ValueError)`. Alternatively, reject a NUL in any
+`reassure_command` element at config-load time, which would make it a `2` and is arguably
+more correct, since a NUL in a config string is a config-shape problem rather than an
+environment one. Either way this is minutes of work and retires the last known
+counterexample to the invariant the whole change is organised around.
+
+## 12.6 Did the tests close the gap, or relabel it?
+
+**Genuinely closed.** I proved this two ways rather than reading the diff.
+
+**(a) The new tests reach a real `Popen`.** I ran the three tests under a plugin that spies
+on every real `subprocess.Popen` construction and records the exception it raised:
+
+```
+=== REAL subprocess.Popen constructions observed ===
+  argv[0]='definitely-not-a-real-binary-xyz'    raised=FileNotFoundError
+  argv[0]='.../notexec.sh'                      raised=PermissionError
+  total: 2
+```
+
+Two real launches, two real `OSError`s, from the two new tests. The renamed mocked test
+contributed **zero** `Popen` constructions, which is precisely what its new docstring says
+about itself. Neither new test contains any `monkeypatch.setattr` on the runner; they patch
+only `load_config`.
+
+**(b) The new tests fail against the pre-fix code.** I swapped the `run` subcommand's
+callback back to the `c4d9ff1` implementation at collection time, without touching any file,
+and re-ran all three:
+
+```
+FAILED test_nonexistent_binary_exits_3_never_1_no_traceback   - assert 1 == 3
+FAILED test_non_executable_file_exits_3_never_1_no_traceback  - assert 1 == 3
+2 failed, 1 passed
+```
+
+Both new tests fail with exactly the defect I reported, `1` where `3` belongs. The renamed
+mocked test still passes under the revert, which is direct confirmation that it never could
+observe the bug: the whole reason the original name was misleading.
+
+**The rename is the right call and the docstring is honest.** It states what the test does
+prove (a mocked non-zero returncode maps to `3`), states plainly that it "does NOT and
+CANNOT prove the launch-failure case", and points at the two tests that do. It also now
+asserts `exit_code == 3` rather than only `!= 1`, which is a real strengthening. A future
+reader cannot mistake its coverage for the invariant's coverage.
+
+Not covered by any test: R-1's NUL-byte path, and R-2's post-launch mislabelling.
+
+## 12.7 Re-verification verdict
+
+**Both reported blockers are cleared. Read that first, because the envelope still says
+`fail` and the reason is a different, much smaller defect.**
+
+- **C-1 - CLOSED.** Verified across eight launch-failure shapes, not just the two I was
+  given. All exit `3`, byte-empty stdout, no traceback. The `OSError` base-class choice
+  correctly picks up E2BIG as well as the two named subclasses. The fix is well-scoped, the
+  `2`-versus-`3` split is right, and the docstring explaining it is accurate.
+- **C-2 - CLOSED.** Both agent files enumerate all seven subcommands and cover all four
+  `run`-specific hazards. An agent reading only those two files has what it needs.
+
+**What still blocks archival: R-1, and only R-1.** A NUL escape in `reassure_command`
+reaches exit `1` through `ValueError`, which the new `except OSError` does not catch. Same
+requirement as C-1, same violation, far smaller blast radius, one-token fix. Scenario 16
+stays unsatisfied at 23/24, so the envelope verdict stays `fail`.
+
+Also filed, not blocking:
+
+- **R-2** (WARNING) - `except OSError` also catches post-launch stream failures and
+  mislabels them "failed to launch". The exit code is correct; the message is not.
+
+Tally at `39bd3c8`: **1 CRITICAL** (R-1), **10 WARNING** (9 original plus R-2), **6
+SUGGESTION**. Down from 2 CRITICAL at `c4d9ff1`.
+
+**Recommendation**: widen the catch to `except (OSError, ValueError)` (or validate NUL at
+config load), add one test for it, and this passes. Nothing else found in this pass needs to
+happen before archive.
