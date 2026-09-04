@@ -50,6 +50,7 @@ from perf.cli.output.primitives import (
     Cell,
     ColumnSpec,
     format_value,
+    sanitize_untrusted_text,
     style,
     table_line,
 )
@@ -162,7 +163,9 @@ def render_reassure_show(
         blocks.append([f"│   {line}" for line in mismatch_lines])
 
     lines: list[str] = [
-        f"┌─ perfvibe reassure show · {entry.name} · import {import_id}",
+        # W-6: `entry.name` is attacker-controlled `.perf` content —
+        # sanitized before it ever reaches a real terminal.
+        f"┌─ perfvibe reassure show · {sanitize_untrusted_text(entry.name)} · import {import_id}",
         "│",
     ]
     for block in blocks:

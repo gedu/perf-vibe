@@ -48,6 +48,7 @@ from perf.cli.output.primitives import (
     arrow_and_pct,
     format_value,
     header_line,
+    sanitize_untrusted_text,
     sparkline,
     table_line,
 )
@@ -140,7 +141,9 @@ def render_reassure_compare(comparison: ReassureComparison, *, color: bool = Fal
     escapes at all."""
 
     lines: list[str] = [
-        f"┌─ perfvibe reassure compare · {comparison.name} · "
+        # W-6: `comparison.name` is attacker-controlled `.perf` content —
+        # sanitized before it ever reaches a real terminal.
+        f"┌─ perfvibe reassure compare · {sanitize_untrusted_text(comparison.name)} · "
         f"baseline {comparison.baseline_import_n} import(s)",
         "│",
         f"│   {_HEADER_LINE}",

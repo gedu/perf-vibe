@@ -46,6 +46,7 @@ byte-identical for the golden tests (`perf-cli-output` output contract).
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Sequence
 from typing import NamedTuple
 
@@ -80,6 +81,7 @@ __all__ = [
     "device_label",
     "format_value",
     "header_line",
+    "sanitize_untrusted_text",
     "sparkline",
     "style",
     "table_line",
@@ -319,6 +321,37 @@ def chart_lines(
     lines.append(gutter + "└" + "─" * (col_w * len(values)))
     lines.append((gutter + "".join(f"{label:<{col_w}}" for label in labels)).rstrip())
     return lines
+
+
+def sanitize_untrusted_text(text: str) -> str:
+    """Replaces every Unicode CONTROL code point (`unicodedata.category(ch)
+    == "Cc"`: C0 `0x00`-`0x1F`, `DEL` `0x7F`, and the C1 range `0x80`-`0x9F`,
+    which some terminals treat as 8-bit escape/CSI introducers just like
+    the more familiar `ESC` `0x1B`) with `U+FFFD` (REPLACEMENT CHARACTER)
+    (re-verification finding W-6).
+
+    WHY THIS EXISTS. `reassure-read` is the first code in this CLI to
+    render text it did not generate itself onto a real terminal: a
+    reassure entry's `name` (and a `.perf` header's `branch`/`commit_hash`)
+    come straight from a third-party-generated `.perf` file, fully
+    attacker-controlled. A crafted name carrying `ESC[31m`/`ESC[0m` (an
+    SGR color override) or a cursor-movement/erase-line sequence can
+    repaint or overwrite ALREADY-PRINTED output — including a `REGRESSION`
+    row or the D5 sentence — the moment it reaches a real TTY. Invisible to
+    a capture-based test, because `click.echo`'s ANSI stripping (and every
+    test in this suite capturing rather than allocating a pty) only
+    triggers on a NON-terminal stream.
+
+    SCOPE, DELIBERATELY NARROW. Only the `Cc` category is touched — real
+    script text (Cyrillic, CJK, Arabic, emoji, combining marks) is NOT in
+    that category and passes through completely untouched; reassure test
+    names are human-written English in practice, but nothing here assumes
+    ASCII. This is a RENDERING-ONLY concern: the `--json` path is never
+    routed through this function — `json.dumps` already escapes every
+    control byte as `\\uXXXX`, and mangling raw payload bytes here would
+    corrupt data an agent needs to match against its own records."""
+
+    return "".join("�" if unicodedata.category(ch) == "Cc" else ch for ch in text)
 
 
 def device_label(device_key: str) -> str:
