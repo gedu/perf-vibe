@@ -73,6 +73,18 @@ it. An agent that gates a CI step on `reassure compare`'s exit code will
 regression — always parse `--json` and read `status` per verdict. Only an
 unknown `name` (`2`) or a store/render failure (`3`) ever differ from `0`.
 
+`compare` can also silently target an OLDER import than the newest one:
+it only ever compares against an import that actually measured `name`, so
+if the true newest import doesn't contain `name` at all, the verdict is
+computed against whichever import before it still does — never refused
+(unlike `reassure show`, which refuses that same situation outright). This
+is never silent: a `warning:` line goes to stderr either way, and the
+`--json` payload carries BOTH `latest_import_id` (the import verdicts were
+actually computed against) and `most_recent_import_id` (the true newest
+import overall). Compare the two: if they differ, the verdict you are
+reading is stale relative to the newest import, and an agent parsing
+`--json` alone can detect this without a second `reassure list` call.
+
 ## Commands
 
 Everything CI runs, and nothing is on `PATH` — go through the venv:

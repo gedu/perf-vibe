@@ -23,7 +23,11 @@ unknown id exits `2` with no `--json` payload; a real import with zero
 entries exits `0` with `[]` — never conflate the two. `reassure compare
 <name>` **always exits `0`, including on a confirmed regression** — same
 rule as `run`/`compare` above: never treat its exit code as a verdict,
-always read `--json`'s `verdicts[].status`. `reassure run` executes the
+always read `--json`'s `verdicts[].status`. `compare` may also silently
+target an older import when `name` is absent from the newest one — compare
+`--json`'s `latest_import_id` against `most_recent_import_id`; a mismatch
+means the verdict is stale (a stderr `warning:` also fires either way).
+`reassure run` executes the
 project's configured `reassure_command` (a TOML array only — a bare string
 is rejected, exit `2`) then imports, emitting the SAME `reassure_import_v1`
 payload as `reassure import`; a failed child process exits `3` and persists

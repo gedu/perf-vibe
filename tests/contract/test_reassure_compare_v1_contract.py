@@ -5,14 +5,18 @@
 per-verdict key set and `test_reassure_show_v1_contract.py`'s D5
 exact-key/negative discipline.
 
-`schema_version=1`. Top-level FLAT dict with exactly EIGHT keys:
-`schema_version`, `name`, `latest_import_id`, `baseline_import_n`
-(IMPORTS, never commits — `ReassureComparison`'s honest name, design "The
-Verdict Function"), `verdicts` (a list, FIXED order — `duration_ms` then
-`render_count`, never re-sorted), and the THREE flat D5 keys:
-`initial_update_count`, `baseline_initial_update_count` (both `int | None`
-— `None` means "never measured", `0` means "measured, clean"; the two
-facts must never collapse), and `initial_update_state`.
+`schema_version=1`. Top-level FLAT dict with exactly NINE keys:
+`schema_version`, `name`, `latest_import_id`, `most_recent_import_id`
+(W-5 re-verification finding — the true newest import overall, regardless
+of whether it measured `name`; see `contracts/reassure_compare_v1.py`'s
+module docstring for why this is genuinely new information rather than a
+derivable duplicate), `baseline_import_n` (IMPORTS, never commits —
+`ReassureComparison`'s honest name, design "The Verdict Function"),
+`verdicts` (a list, FIXED order — `duration_ms` then `render_count`, never
+re-sorted), and the THREE flat D5 keys: `initial_update_count`,
+`baseline_initial_update_count` (both `int | None` — `None` means "never
+measured", `0` means "measured, clean"; the two facts must never
+collapse), and `initial_update_state`.
 
 There is deliberately NO `*_delta_pct`/`*_pct` key anywhere for the update
 count (D5 is a state transition, never a delta — design A13); the negative
@@ -46,6 +50,7 @@ _TOP_LEVEL_KEYS_AND_TYPES = {
     "schema_version": int,
     "name": str,
     "latest_import_id": int,
+    "most_recent_import_id": int,
     "baseline_import_n": int,
     "verdicts": list,
     "initial_update_count": (int, type(None)),
@@ -122,8 +127,10 @@ def _comparison(**overrides: object) -> ReassureComparison:
     return ReassureComparison(**defaults)
 
 
-def _payload(**overrides: object) -> dict:
-    return build_reassure_compare_payload(comparison=_comparison(**overrides))
+def _payload(*, most_recent_import_id: int = 7, **overrides: object) -> dict:
+    return build_reassure_compare_payload(
+        comparison=_comparison(**overrides), most_recent_import_id=most_recent_import_id
+    )
 
 
 def test_schema_version_is_1():
@@ -138,10 +145,10 @@ def test_top_level_keys_present_with_correct_types():
         assert isinstance(payload[key], expected_type)
 
 
-def test_exact_eight_top_level_keys_no_more_no_fewer():
+def test_exact_nine_top_level_keys_no_more_no_fewer():
     payload = _payload()
     assert set(payload.keys()) == set(_TOP_LEVEL_KEYS_AND_TYPES)
-    assert len(payload) == 8
+    assert len(payload) == 9
 
 
 def test_name_matches_the_comparison():
@@ -152,6 +159,21 @@ def test_name_matches_the_comparison():
 def test_latest_import_id_matches_the_latest_point():
     payload = _payload(latest=_latest_point(import_id=42))
     assert payload["latest_import_id"] == 42
+
+
+def test_most_recent_import_id_carries_the_caller_supplied_value():
+    """W-5: `most_recent_import_id` is NOT derived from `comparison` at all —
+    it is the true newest import overall, which the CLI resolves separately
+    (`store.reassure_imports(1)`, the same call `show`'s D8 default uses)
+    and passes in. The builder only shapes it onto the wire."""
+    payload = _payload(most_recent_import_id=99, latest=_latest_point(import_id=42))
+    assert payload["most_recent_import_id"] == 99
+    assert payload["latest_import_id"] == 42
+
+
+def test_most_recent_import_id_equals_latest_import_id_when_no_walk_back():
+    payload = _payload(most_recent_import_id=7, latest=_latest_point(import_id=7))
+    assert payload["most_recent_import_id"] == payload["latest_import_id"] == 7
 
 
 def test_baseline_import_n_matches_the_comparison_never_commits():
