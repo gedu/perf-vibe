@@ -64,7 +64,6 @@ _VERDICT_KEYS_AND_TYPES = {
     "floor": (float, int),
     "status": str,
     "sample_n": int,
-    "baseline_commit_n": int,
 }
 
 
@@ -177,6 +176,19 @@ def test_exact_verdict_key_set():
     payload = _payload()
     for verdict_payload in payload["verdicts"]:
         assert set(verdict_payload.keys()) == set(_VERDICT_KEYS_AND_TYPES)
+
+
+def test_baseline_commit_n_is_never_on_the_wire():
+    """W-2 (re-verification finding): `baseline_commit_n` duplicated the
+    top-level `baseline_import_n` under the one name D2 exists to keep out
+    of reassure (`ReassureComparison`'s honest name for the same count) —
+    mechanically derivable from a field already in the same payload, which
+    the "no second source of truth" requirement forbids. Reassure-only
+    correction: `compare_v1`/`budget_check_v1`'s OWN `baseline_commit_n`
+    (the flow world, where the count really is commits) is untouched."""
+    payload = _payload()
+    for verdict_payload in payload["verdicts"]:
+        assert "baseline_commit_n" not in verdict_payload
 
 
 # ===== D5: three flat keys, NULL survives, no *_delta_pct anywhere =====
