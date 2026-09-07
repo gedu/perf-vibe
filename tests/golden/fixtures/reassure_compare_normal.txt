@@ -1,0 +1,9 @@
+┌─ perfvibe reassure compare · WidgetPanel renders correctly · baseline 5 import(s)
+│
+│      METRIC               LATEST     BASELINE          Δ  STATUS             TREND
+│   ────────────────────────────────────────────────────────────────────────────────
+│   ·  duration_ms        100.0 ms     100.0 ms    → +0.0%  stable             ▅█▁▅
+│   ✗  render_count      9.0 count    1.0 count  ↑ +800.0%  REGRESSION         ▁▁▁█
+│
+│   ✗ extra mount render introduced (0 -> 1)
+└─

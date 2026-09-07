@@ -32,7 +32,16 @@ itself calls out as "most easily missed".
 Also prints a `declared runs N != stored n M` line per series, but ONLY
 on disagreement — surfacing, never repairing, the ingest mismatch
 `ReassureEntryRow`'s own docstring describes (I2 corollary; `runs` stays
-declared-only, forever)."""
+declared-only, forever).
+
+`d5_sentence` is PUBLIC (not `_d5_sentence`) and reused verbatim by
+`cli/output/reassure_compare_pretty.py` (PR4b) — the exact-wording table
+is exactly the kind of thing "the D5 rule must be fixable in ONE place"
+(`domain/reassure_compare.py`'s own docstring) applies to on the rendering
+side too: a second copy of this six-line table is exactly how the two
+views' wording would quietly drift apart. Precedent for a renderer
+importing a sibling renderer: `cli/output/flow_picker_terminal.py`
+imports from `cli/output/flow_picker.py`."""
 
 from __future__ import annotations
 
@@ -47,7 +56,7 @@ from perf.cli.output.primitives import (
 from perf.domain.model import HistoryMetric, ReassureEntryRow
 from perf.domain.reassure_compare import derive_update_count_change
 
-__all__ = ["render_reassure_show"]
+__all__ = ["d5_sentence", "render_reassure_show"]
 
 # Label/value pairs, not a real table — mirrors `reassure_import_pretty`'s
 # `_COUNTER_COLUMNS` shape; this view owns its own widths.
@@ -72,11 +81,13 @@ def _metric_rows(label: str, metric: HistoryMetric | None) -> list[tuple[str, st
     ]
 
 
-def _d5_sentence(baseline: int | None, latest: int | None, *, color: bool) -> str | None:
-    """The exact-wording table from `design.md:376-383`. Returns `None`
-    for the one state this view omits entirely: both sides measured at
-    `0` (`'unchanged'` with `latest == 0`) — nothing ever went wrong and
-    nothing changed, so there is no line to print."""
+def d5_sentence(baseline: int | None, latest: int | None, *, color: bool) -> str | None:
+    """The exact-wording table from `design.md:376-383`, shared verbatim
+    with `cli/output/reassure_compare_pretty.py` (both views render the
+    SAME six-line table, never a table row, never an arrow-and-percentage).
+    Returns `None` for the one state both views omit entirely: both sides
+    measured at `0` (`'unchanged'` with `latest == 0`) — nothing ever went
+    wrong and nothing changed, so there is no line to print."""
 
     change = derive_update_count_change(baseline, latest)
     if change.state == "introduced":
@@ -142,7 +153,7 @@ def render_reassure_show(
         ]
     ]
 
-    sentence = _d5_sentence(baseline_initial_update_count, entry.initial_update_count, color=color)
+    sentence = d5_sentence(baseline_initial_update_count, entry.initial_update_count, color=color)
     if sentence is not None:
         blocks.append([f"│   {sentence}"])
 

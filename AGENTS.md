@@ -28,19 +28,32 @@ baseline windowing/exclusion in `perf.adapters.store_sqlite`, the
 median-by-commit + threshold logic in `perf.adapters.analyzer_sql` and
 `perf.domain.regression`, defaults in `perf.config.loader`.
 
-`perfvibe reassure import|list|entries` read/persist `@callstack/reassure`
-data (a SEPARATE store of data from `run`/`compare`/`history` — reassure
-imports are never joined with, or compared against, flow-world runs). Same
-exit-code discipline as above: `0`/`2`/`3` only, never `1`; `reassure`
-reports and never gates, so a regression in `reassure` data is never a
-non-zero exit on its own. `reassure entries <import-id>` needs its exit
-codes read carefully: an **unknown** `import-id` exits `2` with no `--json`
-payload at all, while a **real** import that happens to have zero entries
-exits `0` with `"entries": []` — do not treat an empty `entries` list as an
-error, and do not treat exit `2` as "maybe just empty". `duration`/`count`
-on each entry are independently-sized series (`durations` is
-outlier-filtered, `counts` is not) — never assume their `n`s match, and
-never index into one using an offset derived from the other.
+`perfvibe reassure import|list|entries|show|history|compare` read/persist
+`@callstack/reassure` data (a SEPARATE store of data from `run`/`compare`/
+`history` — reassure imports are never joined with, or compared against,
+flow-world runs). Same exit-code discipline as above: `0`/`2`/`3` only,
+never `1`; `reassure` reports and never gates, so a regression in `reassure`
+data is never a non-zero exit on its own. `reassure entries <import-id>`
+needs its exit codes read carefully: an **unknown** `import-id` exits `2`
+with no `--json` payload at all, while a **real** import that happens to
+have zero entries exits `0` with `"entries": []` — do not treat an empty
+`entries` list as an error, and do not treat exit `2` as "maybe just empty".
+`duration`/`count` on each entry are independently-sized series
+(`durations` is outlier-filtered, `counts` is not) — never assume their
+`n`s match, and never index into one using an offset derived from the
+other.
+
+**`reassure compare <name>` is where the above sentence becomes
+load-bearing rather than academic**: it is the one `reassure` subcommand
+that actually renders a verdict (`stable`/`regression`/`improvement`/
+`insufficient-data`, one per series), and it **ALWAYS exits `0`** — a
+confirmed `regression` on either `duration_ms` or `render_count` is still
+exit `0`. The verdict lives ONLY in the `--json` payload's `verdicts`
+array (`verdicts[i].status`); the exit code carries zero information about
+it. An agent that gates a CI step on `reassure compare`'s exit code will
+**never** observe a failure from this command, no matter how severe the
+regression — always parse `--json` and read `status` per verdict. Only an
+unknown `name` (`2`) or a store/render failure (`3`) ever differ from `0`.
 
 ## Commands
 

@@ -51,7 +51,21 @@ for the same store method. An empty result (`name` in zero imports) is a
 usage error (exit `2`), mirroring `entries`'s unknown-id / `show`'s
 unknown-name discipline; a coverage gap within the series (an import that
 does not contain `name`) is not an error at all — `reassure_series`'s own
-JOIN already excludes it, contributing nothing and shifting nothing."""
+JOIN already excludes it, contributing nothing and shifting nothing.
+
+`compare` (this slice, PR4b) is the ONE view in this whole capability
+that renders a verdict (spec "reassure compare <name> — Baseline Verdict
+(D3, D7)"). Calls `store.reassure_series(name, limit=config.baseline_n +
+1)` (A8) then the pure `domain.reassure_compare.compare_series` — same
+empty-series-is-unknown-name discipline as `history` (both share
+`_UnknownReassureSeriesName`, since `reassure_series`'s own coverage-gap
+guarantee makes an empty result mean exactly the same thing for either
+command). **D3 — THE LOAD-BEARING RULE FOR THIS COMMAND**: `compare`
+ALWAYS exits `0`, including on a confirmed regression or an explicit
+`insufficient-data` verdict — it reports, it never gates. The exit code
+carries NO verdict information; only an unknown `name` (`2`) or a
+store/render failure (`3`) ever differ. See `AGENTS.md`/`CLAUDE.md` for
+the full agent-facing warning this asymmetry demands."""
 
 from __future__ import annotations
 
@@ -63,19 +77,23 @@ from perf.cli.commands.reassure_import import reassure_import
 from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
 from perf.cli.output.errors import emit_error
 from perf.cli.output.json_reporter import render_json
+from perf.cli.output.reassure_compare_pretty import render_reassure_compare
 from perf.cli.output.reassure_entries_pretty import render_reassure_entries
 from perf.cli.output.reassure_history_pretty import render_reassure_history
 from perf.cli.output.reassure_list_pretty import render_reassure_list
 from perf.cli.output.reassure_show_pretty import render_reassure_show
 from perf.config.loader import PerfConfig
+from perf.contracts.reassure_compare_v1 import build_reassure_compare_payload
 from perf.contracts.reassure_entries_v1 import build_reassure_entries_payload
 from perf.contracts.reassure_history_v1 import build_reassure_history_payload
 from perf.contracts.reassure_list_v1 import build_reassure_list_payload
 from perf.contracts.reassure_show_v1 import build_reassure_show_payload
 from perf.domain.model import ReassureEntryRow
+from perf.domain.reassure_compare import compare_series
 
 __all__ = [
     "reassure_app",
+    "reassure_compare",
     "reassure_entries_command",
     "reassure_history",
     "reassure_list",
@@ -109,12 +127,15 @@ class _UnknownReassureShowTarget(Exception):
         self.hint = hint
 
 
-class _UnknownReassureHistoryName(Exception):
+class _UnknownReassureSeriesName(Exception):
     """Internal control-flow signal ONLY — never escapes this module.
     Raised when `name` matches no entry in ANY persisted import —
     `store.reassure_series` returns an empty sequence exactly in that
     case (its own coverage-gap guarantee), which is a usage error (exit
-    `2`), never a crash and never a silently empty `--json` payload."""
+    `2`), never a crash and never a silently empty `--json` payload.
+    Shared by `history` AND `compare` (PR4b) — both call
+    `store.reassure_series` and both mean exactly the same thing by "empty
+    result": `name` was never measured, anywhere."""
 
     def __init__(self, name: str) -> None:
         super().__init__(name)
@@ -399,8 +420,8 @@ def reassure_history(
         store = build_store(config.db_path)
         points = store.reassure_series(name, limit=_IMPORT_HISTORY_LOOKUP_LIMIT)
         if not points:
-            raise _UnknownReassureHistoryName(name)
-    except _UnknownReassureHistoryName as exc:
+            raise _UnknownReassureSeriesName(name)
+    except _UnknownReassureSeriesName as exc:
         emit_error(
             output,
             f"no reassure entry named `{exc.name}` in any import",
@@ -428,8 +449,80 @@ def reassure_history(
     raise typer.Exit(code=0)
 
 
+def reassure_compare(
+    ctx: typer.Context,
+    name: str = _SHOW_NAME_ARGUMENT,
+) -> None:
+    """Compares `name`'s latest import against a `config.baseline_n`-import
+    baseline window (A8) via the pure `domain.reassure_compare.
+    compare_series` (spec "reassure compare <name> — Baseline Verdict (D3,
+    D7)"). Read-only, show-only.
+
+    **D3 — ALWAYS exits `0`**, including on a confirmed regression on
+    EITHER series, or an explicit `insufficient-data` state when the
+    baseline window has fewer than `MIN_BASELINE_IMPORTS` (3) points —
+    `reassure` reports, it never gates, and the exit code carries NO
+    verdict information (read `--json`'s `verdicts` array instead). `name`
+    absent from EVERY persisted import is a usage error (exit `2`, no
+    `--json` payload, same discipline as `history`'s unknown-name case); a
+    store/render failure exits `3`. Never exit `1`."""
+
+    state: dict = ctx.obj or {}
+    output: OutputContext = state["output"]
+    config: PerfConfig = state["config"]
+
+    store = None
+    try:
+        store = build_store(config.db_path)
+        # A8: the baseline window is `config.baseline_n` PRIOR imports plus
+        # the latest one — the same `reassure_series` method `history`
+        # uses, just at a much smaller, config-driven limit.
+        points = store.reassure_series(name, limit=config.baseline_n + 1)
+        if not points:
+            raise _UnknownReassureSeriesName(name)
+        comparison = compare_series(
+            points, threshold_pct=config.threshold_pct, floors=config.floors
+        )
+    except _UnknownReassureSeriesName as exc:
+        emit_error(
+            output,
+            f"no reassure entry named `{exc.name}` in any import",
+            hint="see `perfvibe reassure list` for known imports",
+        )
+        raise typer.Exit(code=2) from None
+    except Exception as exc:
+        emit_error(output, f"unexpected failure comparing reassure data: {exc}")
+        raise typer.Exit(code=3) from None
+    finally:
+        _close_store(store)
+
+    # `points` is non-empty here (the branch above exits before reaching
+    # this line otherwise), and `compare_series` only ever returns `None`
+    # for empty input (see its own docstring) — this narrows the type for
+    # mypy without a second, redundant runtime check.
+    assert comparison is not None
+
+    try:
+        if output.json_mode:
+            payload = build_reassure_compare_payload(comparison=comparison)
+            typer.echo(render_json(payload))
+        else:
+            if output.should_nudge_stderr:
+                typer.echo(NON_TTY_NUDGE, err=True)
+            typer.echo(render_reassure_compare(comparison, color=output.color_enabled))
+    except Exception as exc:
+        emit_error(output, f"failed to render reassure compare output: {exc}")
+        raise typer.Exit(code=3) from None
+
+    # D3: `reassure compare` is show-only and NEVER gates — exit `0` here
+    # unconditionally, even when every verdict reports `regression` or
+    # `insufficient-data` (spec "reassure compare ... ALWAYS exits 0").
+    raise typer.Exit(code=0)
+
+
 reassure_app.command(name="import", context_settings=_CTX)(reassure_import)
 reassure_app.command(name="list", context_settings=_CTX)(reassure_list)
 reassure_app.command(name="entries", context_settings=_CTX)(reassure_entries_command)
 reassure_app.command(name="show", context_settings=_CTX)(reassure_show)
 reassure_app.command(name="history", context_settings=_CTX)(reassure_history)
+reassure_app.command(name="compare", context_settings=_CTX)(reassure_compare)
