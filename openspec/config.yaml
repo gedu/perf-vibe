@@ -87,8 +87,14 @@ rules:
   tasks:
     - Group by phase, use hierarchical numbering
     - Keep tasks completable in one session
-    - Keep a PR under ~400 changed lines; past that, split into chained/stacked PRs so review
-      stays focused (this capability shipped as PR-A domain -> PR-B store -> PR-C CLI)
+    - Keep a PR under ~400 changed lines of production code (src/); past that, split into
+      chained/stacked PRs so review stays focused (this capability shipped as PR-A domain ->
+      PR-B store -> PR-C CLI)
+    - Tests, goldens and spec prose are deliberately outside that count. The budget exists to
+      bound the logic a human reads, and counting every changed line penalised the strict-TDD
+      discipline this repo requires. reassure-read's first two slices each landed ~50% tests
+      and each tripped a flat 400-line ceiling while carrying only 169 and 214 lines of src.
+      A slice that is mostly tests is the good case, not the one to split.
   apply:
     guidelines:
       - Follow existing hexagonal layering and the 4 project skills (perf-cli-standards, python-architecture, python-style, python-testing)

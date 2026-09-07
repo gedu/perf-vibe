@@ -16,6 +16,8 @@ from perf.domain.model import (
     ExecutionPlan,
     Marker,
     MarkerParseResult,
+    ReassureEntryRow,
+    ReassureImportRow,
     RunContext,
     SamplerCommand,
     SystemSample,
@@ -255,10 +257,20 @@ class FakeStore:
     """`Store` fake. `save_error` simulates a store-level failure (e.g. a
     disk error mid-transaction) to prove the use-case does not swallow it."""
 
-    def __init__(self, *, save_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        save_error: Exception | None = None,
+        reassure_imports_result: Sequence[ReassureImportRow] = (),
+        reassure_entries_result: Sequence[ReassureEntryRow] = (),
+    ) -> None:
         self._save_error = save_error
         self._next_id = 1
         self.saved_runs: list[dict] = []
+        self._reassure_imports_result = reassure_imports_result
+        self._reassure_entries_result = reassure_entries_result
+        self.reassure_imports_calls: list[int] = []
+        self.reassure_entries_calls: list[int] = []
 
     def save_run(
         self,
@@ -292,6 +304,14 @@ class FakeStore:
 
     def history(self, flow_name: str, metric_name: str, device_key: str, limit: int) -> Sequence:
         return ()
+
+    def reassure_imports(self, limit: int) -> Sequence[ReassureImportRow]:
+        self.reassure_imports_calls.append(limit)
+        return self._reassure_imports_result
+
+    def reassure_entries(self, import_id: int) -> Sequence[ReassureEntryRow]:
+        self.reassure_entries_calls.append(import_id)
+        return self._reassure_entries_result
 
 
 class FakeCommitLog:

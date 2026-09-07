@@ -185,37 +185,37 @@ method... it gets smaller, which helps the riskiest slice"'s sibling).
 **Branch**: `reassure-read/slice1a-read-store` · **Base**: `reassure-read/slice0-duplicate-detection`
 (retarget to `main` once PR0 merges) · **Est. lines**: ~360
 
-- [ ] 1a.1 RED — `tests/integration/test_store_reassure_read.py` [new]: `reassure_imports(limit)`
+- [x] 1a.1 RED — `tests/integration/test_store_reassure_read.py` [new]: `reassure_imports(limit)`
   orders `ORDER BY COALESCE(created_date, imported_at) DESC`; a header-less import sorts by
   `imported_at` and its `ordering_key` reports `'imported_at'`.
-- [ ] 1a.2 RED — same file: `entry_count` per import matches the real row count via one batched
+- [x] 1a.2 RED — same file: `entry_count` per import matches the real row count via one batched
   `IN (...)` query; a counting `sqlite3` trace hook asserts exactly **2** queries execute.
-- [ ] 1a.3 RED — same file: `reassure_entries(import_id)` returns every entry for that import
+- [x] 1a.3 RED — same file: `reassure_entries(import_id)` returns every entry for that import
   with independently-reduced `duration`/`count` `HistoryMetric`s — an 8-count/6-duration entry
   yields `duration.n == 6`, `count.n == 8` from exactly **3** total queries; a trace-hook
   assertion confirms no executed SQL text joins the two sample tables.
-- [ ] 1a.4 RED — same file: an entry with zero rows in one sample table yields `None` on that
+- [x] 1a.4 RED — same file: an entry with zero rows in one sample table yields `None` on that
   series, never a zero-valued `HistoryMetric`.
-- [ ] 1a.5 RED — same file: an `import_id` with zero entries returns an empty sequence, not an
+- [x] 1a.5 RED — same file: an `import_id` with zero entries returns an empty sequence, not an
   error.
-- [ ] 1a.6 GREEN — `src/perf/domain/model.py`: add frozen `ReassureImportRow` and
+- [x] 1a.6 GREEN — `src/perf/domain/model.py`: add frozen `ReassureImportRow` and
   `ReassureEntryRow` per `design.md`'s "Read Models" section (`commit_hash`/`branch` labelled
   LABEL-ONLY; `kind` deliberately absent, A5). `ReassureEntryRow.initial_update_count: int |
   None` is part of this dataclass (`design.md:113`) — it is what makes slice 2a/2b's D5 fix
   possible later; no later slice needs to add it.
-- [ ] 1a.7 GREEN — `src/perf/domain/ports.py`: add `reassure_imports(self, limit: int) ->
+- [x] 1a.7 GREEN — `src/perf/domain/ports.py`: add `reassure_imports(self, limit: int) ->
   Sequence[ReassureImportRow]` and `reassure_entries(self, import_id: int) ->
   Sequence[ReassureEntryRow]` to `Store` (no `name` filter yet — slice 2b owns that, per the
   Slice Map's explicit carve-out, `design.md:445-448`).
-- [ ] 1a.8 GREEN — `src/perf/adapters/store_sqlite.py`: implement `reassure_imports` (window
+- [x] 1a.8 GREEN — `src/perf/adapters/store_sqlite.py`: implement `reassure_imports` (window
   query + one batched `COUNT(*) ... GROUP BY import_id ... WHERE import_id IN (?,?,…)`, the
   `IN (…)` text built via `",".join("?" for …)`, never a bound value) and `reassure_entries`
   (entry window + two independent batched reduction queries, mirroring
   `_history_system_summaries:822-855`, reusing `statistics.median`/`percentile` and
   `_HISTORY_P90`).
-- [ ] 1a.9 GREEN — `tests/fakes.py`: add `reassure_imports`/`reassure_entries` to `FakeStore`.
-- [ ] 1a.10 Verify slice: `./.venv/bin/pytest -q tests/integration/test_store_reassure_read.py`.
-- [ ] 1a.11 Verify gates.
+- [x] 1a.9 GREEN — `tests/fakes.py`: add `reassure_imports`/`reassure_entries` to `FakeStore`.
+- [x] 1a.10 Verify slice: `./.venv/bin/pytest -q tests/integration/test_store_reassure_read.py`.
+- [x] 1a.11 Verify gates.
 
 ---
 
