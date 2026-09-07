@@ -1,0 +1,16 @@
+┌─ perfvibe reassure show · WidgetPanel renders correctly · import 7
+│
+│   entry type                      render
+│   runs (declared)                      8
+│   duration p50                   10.2 ms
+│   duration p90                   10.6 ms
+│   duration n                           6
+│   count p50                    1.0 count
+│   count p90                    2.0 count
+│   count n                              8
+│
+│   ✗ extra mount render introduced (0 -> 1)
+│
+│   declared runs 8 != stored n 6 (duration)
+│
+└─

@@ -268,12 +268,13 @@ error). Like every other command, `markers` **never** exits `1`.
 perfvibe reassure import [<path>] [--kind current|baseline|unknown]
 perfvibe reassure list [--limit N]
 perfvibe reassure entries <import-id>
+perfvibe reassure show <name> [--import <id>]
 ```
 
-A command **group** (`import`/`list`/`entries`/… are sub-commands of `reassure`),
-read-only except for `import`'s own persistence step. This page covers `import`,
-`list`, and `entries` only — `show`, `history`, `compare`, and `run` are added by
-their own slices of this capability, once they ship.
+A command **group** (`import`/`list`/`entries`/`show`/… are sub-commands of
+`reassure`), read-only except for `import`'s own persistence step. This page
+covers `import`, `list`, `entries`, and `show` — `history`, `compare`, and `run`
+are added by their own slices of this capability, once they ship.
 
 The flat `perfvibe reassure-import <path>` form still works exactly as before
 (same implementation, same `--json` payload) but is now **deprecated**: it is
@@ -366,13 +367,73 @@ or `{"p50", "p90", "n", "unit"}`. `entry_id` (the internal store row id) and
 `initial_update_count` (a `reassure show`-only field, per D5) are deliberately
 absent — see `contracts/reassure_entries_v1.py` for the full reasoning.
 
-### Exit codes (`reassure import` / `reassure list` / `reassure entries`)
+### `reassure show <name>`
+
+Reports one `name`'s LATEST detail plus its `issues.initialUpdateCount`
+diagnostic as a **state transition**, never a percentage. Defaults to the
+entry matching `name` in the most recent import **overall** (by `created_date`/
+`imported_at` — D8); `--import <id>` selects a specific import instead. There
+is **no walk-back**: if `name` is missing from the target import, this exits
+`2` — it never silently falls back to an older import that happens to contain
+it (A14). The baseline for the state transition is always the immediately
+preceding import that ALSO contains `name`; if none exists (or the diagnostic
+was never measured on either side), the transition reports `unknown` — `NULL`
+(never measured) and `0` (measured, clean) are never treated as the same
+value.
+
+```text
+┌─ perfvibe reassure show · WidgetPanel renders correctly · import 7
+│
+│   entry type                      render
+│   runs (declared)                      8
+│   duration p50                   10.2 ms
+│   duration p90                   10.6 ms
+│   duration n                           6
+│   count p50                    1.0 count
+│   count p90                    2.0 count
+│   count n                              8
+│
+│   ✗ extra mount render introduced (0 -> 1)
+│
+└─
+```
+
+The one D5 sentence line — never a table row, never an arrow-and-percentage —
+takes one of six shapes for the five states:
+
+| State | Line |
+|---|---|
+| `introduced` (`0 -> N > 0`) | `✗ extra mount render introduced (0 -> N)` |
+| `resolved` (`N > 0 -> 0`) | `✓ extra mount render resolved (N -> 0)` |
+| `changed` (different non-zero values) | `✗ mount render count changed (A -> B)` |
+| `unchanged`, both `0` | *(no line printed — nothing to report)* |
+| `unchanged`, both the same non-zero value | `· mount render count unchanged (N)` (dim) |
+| `unknown` (either side never measured) | `· mount render diagnostics unavailable (not measured in one of the two imports)` (dim) |
+
+A `declared runs N != stored n M (duration|count)` line appears — once per
+series, only on disagreement — when the file's declared `runs` does not match
+that series' actual stored sample count; this is surfaced, never repaired.
+
+**`--json`** → `reassure_show_v1` payload (`schema_version = 1`), a FLAT dict
+with exactly ten keys: `schema_version`, `import_id`, `name`, `entry_type`,
+`runs` (declared), `duration`, `count` (each `null` or `{"p50", "p90", "n",
+"unit"}`), `initial_update_count`, `baseline_initial_update_count` (both `int`
+or `null` — `null` means "never measured", `0` means "measured, clean"; these
+are different facts), and `initial_update_state` (one of `"introduced"`,
+`"resolved"`, `"changed"`, `"unchanged"`, `"unknown"`). There is deliberately
+**no** `*_delta_pct`/`*_pct` key anywhere for the update count — D5 is a state
+transition, never a delta.
+
+### Exit codes (`reassure import` / `reassure list` / `reassure entries` /
+`reassure show`)
 
 `0` success (including an empty `list` roster, an `import` of a readable file
 that recovered zero entries, and an `entries` call on a real import with zero
 entries) · `2` usage error (missing/unreadable `.perf` path, invalid `--kind`,
-an unknown `entries <import-id>`) · `3` runtime/tooling failure (store/
-transaction/render). Like every other command, `reassure` **never** exits `1`.
+an unknown `entries <import-id>`, `name` absent from the target import in
+`show`, or `--import <id>` naming an import `show` cannot find `name` in) · `3`
+runtime/tooling failure (store/transaction/render). Like every other command,
+`reassure` **never** exits `1`.
 
 ---
 
