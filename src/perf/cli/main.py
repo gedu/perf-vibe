@@ -21,6 +21,7 @@ from perf.cli.commands.compare import compare as compare_command
 from perf.cli.commands.history import history as history_command
 from perf.cli.commands.init import init as init_command
 from perf.cli.commands.markers import markers_app
+from perf.cli.commands.reassure import reassure_app
 from perf.cli.commands.reassure_import import reassure_import as reassure_import_command
 from perf.cli.commands.run import run as run_command
 from perf.cli.output.context import OutputContext, resolve_output_context
@@ -138,6 +139,23 @@ app.command(
 app.command(
     name="reassure-import",
     context_settings={"help_option_names": ["--help", "-h"]},
+    hidden=True,  # drops it from root --help (D1)
+    # Annotates --help AND emits at invocation, red, on stderr
+    # (typer/_click/core.py:641,666 and :738-743). The string is appended
+    # after "DeprecationWarning: The command 'reassure-import' is
+    # deprecated." Native Click echo — no shim (design A10).
+    #
+    # Typer's OWN public stub types this parameter `bool` only
+    # (`typer/models.py:256`/`:276` store it as a plain `bool` field) even
+    # though the vendored click `Command` it eventually builds accepts
+    # `bool | str` (`typer/_click/core.py:533`) and duck-types the value
+    # straight through at runtime with no coercion — confirmed directly
+    # against the installed 0.27.2 wheel (see the CLI test suite's
+    # deprecation-notice assertions, which pass against the real string).
+    # mypy has no way to see past typer's own narrower public annotation,
+    # so this is a genuine stub/runtime mismatch, not a type error in this
+    # code.
+    deprecated="use `perfvibe reassure import` instead",  # type: ignore[arg-type]
 )(reassure_import_command)
 
 # First nested-Typer sub-app in the repo (markers-command design "Technical
@@ -145,6 +163,10 @@ app.command(
 # root `Context.obj` (set once by `main_callback` above) down through
 # `add_typer` automatically — no extra plumbing needed.
 app.add_typer(markers_app, name="markers")
+
+# `reassure import`/`reassure list` (D1) — `Context.obj` propagates the same
+# way `markers_app` does, no extra plumbing needed.
+app.add_typer(reassure_app, name="reassure")
 
 
 def main() -> None:

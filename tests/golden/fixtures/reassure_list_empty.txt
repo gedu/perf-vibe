@@ -1,0 +1,5 @@
+┌─ perfvibe reassure list · 0 import(s)
+│
+│   (no imports recorded yet — run `perfvibe reassure import` first)
+│
+└─

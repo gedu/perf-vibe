@@ -9,7 +9,25 @@ description = "Local-first performance lab CLI: run Maestro flows, capture marke
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "typer>=0.12",
+    # Floor-and-ceiling pin on ONE minor line — the ruff-pin precedent below
+    # (`ruff>=0.16,<0.17`), one layer deeper: `typer>=0.12` (no ceiling)
+    # resolves whatever click a given typer pulls in, and pre-0.26 typer
+    # depends on an EXTERNAL click package whose version floats
+    # independently. Two unpinned axes deciding one behavior (the native
+    # `deprecated=str` notice on `reassure-import`, D1/A10) is exactly the
+    # "same commands pass locally, fail in CI" trap the ruff comment
+    # documents. Since 0.26.0, typer VENDORS click (`typer._click`, no
+    # `click*` dependency in `dist-info/METADATA`) — one pin now determines
+    # everything. Verified directly against the installed 0.27.2 wheel
+    # (`typer/_click/core.py:533,738-743`: `deprecated: bool | str`, echoed
+    # at invocation to stderr) AND, independently, against the downloaded
+    # 0.26.0 wheel (identical vendored `_click/core.py` at the same lines) —
+    # so the FIX is available from 0.26.0 onward. The floor is set to 0.27,
+    # not 0.26, because 0.27.2 is what this repo's venv and CI actually
+    # install and test against; pinning the floor to an untested 0.26.x
+    # ceiling would reproduce the exact dev/CI drift this pin exists to
+    # prevent, just one version earlier.
+    "typer>=0.27,<0.28",
 ]
 
 [project.optional-dependencies]

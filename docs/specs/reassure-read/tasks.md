@@ -225,49 +225,49 @@ method... it gets smaller, which helps the riskiest slice"'s sibling).
 `reassure-read/slice1a-read-store` (retarget to `main` once PR1a merges) · **Est. lines**: ~520
 (High — see forecast)
 
-- [ ] 1b.0 Research — read `typer`'s and Click's changelogs for the lowest `typer` version
+- [x] 1b.0 Research — read `typer`'s and Click's changelogs for the lowest `typer` version
   whose vendored click resolves `>= 8.2` (per design's "Typer version dependency"); record the
   floor version and a one-line rationale.
-- [ ] 1b.1 GREEN — `pyproject.toml:12`: tighten `typer>=0.12` to a floor-and-ceiling pin on the
+- [x] 1b.1 GREEN — `pyproject.toml:12`: tighten `typer>=0.12` to a floor-and-ceiling pin on the
   researched minor line; comment cites the ruff-pin incident (`pyproject.toml:20-26`) as
   precedent.
-- [ ] 1b.2 GREEN — `src/perf/cli/commands/reassure.py` [new]: create `reassure_app`
+- [x] 1b.2 GREEN — `src/perf/cli/commands/reassure.py` [new]: create `reassure_app`
   (`add_completion=False`, shared `context_settings`, help text) mirroring `markers.py:324-328`;
   register the EXISTING `reassure_import` function object as `reassure_app.command(name=
   "import", ...)` — no wrapper, no copy.
-- [ ] 1b.3 RED — `tests/integration/test_cli_reassure_deprecation.py` [new]: `reassure-import`
+- [x] 1b.3 RED — `tests/integration/test_cli_reassure_deprecation.py` [new]: `reassure-import`
   and `reassure import` on the same file produce byte-identical `--json` payloads/exit codes;
   `perfvibe --help` omits `reassure-import`; the flat form's deprecation notice lands on
   stderr only, stdout stays byte-pure under `--json`; the sub-app form prints no notice.
-- [ ] 1b.4 GREEN — `src/perf/cli/main.py`: mark the flat `app.command(name="reassure-import",
+- [x] 1b.4 GREEN — `src/perf/cli/main.py`: mark the flat `app.command(name="reassure-import",
   ...)` registration `hidden=True, deprecated="use \`perfvibe reassure import\` instead"`
   (native Click echo, no shim — A10); add `app.add_typer(reassure_app, name="reassure")`.
-- [ ] 1b.5 RED — `tests/contract/test_reassure_list_v1_contract.py` [new]: exact key set for
+- [x] 1b.5 RED — `tests/contract/test_reassure_list_v1_contract.py` [new]: exact key set for
   `reassure_list_v1` (JSON round-trip, version-bump guard, mirrors
   `test_reassure_import_v1_contract.py`'s discipline).
-- [ ] 1b.6 GREEN — `src/perf/contracts/reassure_list_v1.py` [new]: `SCHEMA_VERSION = 1`; pure
+- [x] 1b.6 GREEN — `src/perf/contracts/reassure_list_v1.py` [new]: `SCHEMA_VERSION = 1`; pure
   `build_reassure_list_payload(**kwargs)`.
-- [ ] 1b.7 RED — `tests/integration/test_cli_reassure_list.py` [new]: default `--limit 50`; D2
+- [x] 1b.7 RED — `tests/integration/test_cli_reassure_list.py` [new]: default `--limit 50`; D2
   ordering; empty roster still exits `0`.
-- [ ] 1b.8 GREEN — `src/perf/cli/commands/reassure.py`: add `reassure_list` —
+- [x] 1b.8 GREEN — `src/perf/cli/commands/reassure.py`: add `reassure_list` —
   `store.reassure_imports(limit)` → `build_reassure_list_payload` → render; register as
   `"list"`.
-- [ ] 1b.9 RED — `tests/golden/test_reassure_list_pretty_golden.py` [new]: box+table golden;
+- [x] 1b.9 RED — `tests/golden/test_reassure_list_pretty_golden.py` [new]: box+table golden;
   `ordering_key` shown dim when it fell back to `imported_at`.
-- [ ] 1b.10 GREEN — `src/perf/cli/output/reassure_list_pretty.py` [new]: box + `table_line`
+- [x] 1b.10 GREEN — `src/perf/cli/output/reassure_list_pretty.py` [new]: box + `table_line`
   roster reusing `header_line`/`ColumnSpec`/`style`/`DIM`; regenerate golden.
-- [ ] 1b.11 GREEN — `README.md`: collapse `reassure` into exactly ONE row in the stale
+- [x] 1b.11 GREEN — `README.md`: collapse `reassure` into exactly ONE row in the stale
   "six commands" table (mirroring `markers`'s one-row treatment; `reassure-import` is already
   absent).
-- [ ] 1b.12 GREEN — `docs/commands.md`: document the `reassure` sub-app overview plus
+- [x] 1b.12 GREEN — `docs/commands.md`: document the `reassure` sub-app overview plus
   `import` and `list` — flags, exit codes, `--json` payload shape (`entries`/`show`/`history`/
   `compare`/`run` are added by their own slices, per the "docs ship with the introducing
   slice" rule).
-- [ ] 1b.13 Verify slice: `./.venv/bin/pytest -q
+- [x] 1b.13 Verify slice: `./.venv/bin/pytest -q
   tests/contract/test_reassure_list_v1_contract.py
   tests/golden/test_reassure_list_pretty_golden.py
   tests/integration/test_cli_reassure_{list,deprecation}.py`.
-- [ ] 1b.14 Verify gates.
+- [x] 1b.14 Verify gates.
 
 ---
 

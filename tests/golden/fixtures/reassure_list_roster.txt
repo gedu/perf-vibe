@@ -1,0 +1,8 @@
+┌─ perfvibe reassure list · 2 import(s)
+│
+│   IMPORT  DATE        BRANCH        COMMIT   ENTRIES
+│   ──────────────────────────────────────────────────
+│   2       2026-01-02  main          abc123d        4
+│   1       2026-01-01  main          abc123d        0
+│
+└─
