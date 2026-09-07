@@ -41,7 +41,17 @@ no_shift`) is exactly what makes `points[-2]` mean "the right thing" —
 see `domain/reassure_compare.derive_update_count_change` for the state
 derivation itself (created in THIS slice, ahead of PR4a's
 `compare_series`, per `tasks.md`'s "D5 GAP — RESOLVED by reordering").
-"""
+
+`history` (PR3) reports `name`'s FULL series — one point per import that
+contains it (spec "reassure history <name> — Full Series", D2). Reuses
+`store.reassure_series(name, limit=_IMPORT_HISTORY_LOOKUP_LIMIT)` — the
+SAME store method and the SAME uncapped-window constant `show`'s
+`--import` override already established, never a second "uncapped" value
+for the same store method. An empty result (`name` in zero imports) is a
+usage error (exit `2`), mirroring `entries`'s unknown-id / `show`'s
+unknown-name discipline; a coverage gap within the series (an import that
+does not contain `name`) is not an error at all — `reassure_series`'s own
+JOIN already excludes it, contributing nothing and shifting nothing."""
 
 from __future__ import annotations
 
@@ -54,15 +64,23 @@ from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
 from perf.cli.output.errors import emit_error
 from perf.cli.output.json_reporter import render_json
 from perf.cli.output.reassure_entries_pretty import render_reassure_entries
+from perf.cli.output.reassure_history_pretty import render_reassure_history
 from perf.cli.output.reassure_list_pretty import render_reassure_list
 from perf.cli.output.reassure_show_pretty import render_reassure_show
 from perf.config.loader import PerfConfig
 from perf.contracts.reassure_entries_v1 import build_reassure_entries_payload
+from perf.contracts.reassure_history_v1 import build_reassure_history_payload
 from perf.contracts.reassure_list_v1 import build_reassure_list_payload
 from perf.contracts.reassure_show_v1 import build_reassure_show_payload
 from perf.domain.model import ReassureEntryRow
 
-__all__ = ["reassure_app", "reassure_entries_command", "reassure_list", "reassure_show"]
+__all__ = [
+    "reassure_app",
+    "reassure_entries_command",
+    "reassure_history",
+    "reassure_list",
+    "reassure_show",
+]
 
 
 class _UnknownReassureImport(Exception):
@@ -89,6 +107,18 @@ class _UnknownReassureShowTarget(Exception):
         super().__init__(message)
         self.message = message
         self.hint = hint
+
+
+class _UnknownReassureHistoryName(Exception):
+    """Internal control-flow signal ONLY — never escapes this module.
+    Raised when `name` matches no entry in ANY persisted import —
+    `store.reassure_series` returns an empty sequence exactly in that
+    case (its own coverage-gap guarantee), which is a usage error (exit
+    `2`), never a crash and never a silently empty `--json` payload."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.name = name
 
 
 _CTX = {"help_option_names": ["--help", "-h"]}
@@ -347,7 +377,59 @@ def reassure_show(
     raise typer.Exit(code=0)
 
 
+def reassure_history(
+    ctx: typer.Context,
+    name: str = _SHOW_NAME_ARGUMENT,
+) -> None:
+    """Reports `name`'s full series — one point per import that contains
+    it, ordered per D2 (oldest first), each carrying independently-reduced
+    duration/count summaries (spec "reassure history <name> — Full
+    Series"). Read-only. `name` absent from EVERY import is a usage error
+    (exit `2`, no `--json` payload); a coverage gap within an otherwise
+    non-empty series is not an error at all — the store's own JOIN already
+    excludes an import that never measured `name`, contributing nothing
+    and shifting nothing."""
+
+    state: dict = ctx.obj or {}
+    output: OutputContext = state["output"]
+    config: PerfConfig = state["config"]
+
+    store = None
+    try:
+        store = build_store(config.db_path)
+        points = store.reassure_series(name, limit=_IMPORT_HISTORY_LOOKUP_LIMIT)
+        if not points:
+            raise _UnknownReassureHistoryName(name)
+    except _UnknownReassureHistoryName as exc:
+        emit_error(
+            output,
+            f"no reassure entry named `{exc.name}` in any import",
+            hint="see `perfvibe reassure list` for known imports",
+        )
+        raise typer.Exit(code=2) from None
+    except Exception as exc:
+        emit_error(output, f"unexpected failure reading reassure history data: {exc}")
+        raise typer.Exit(code=3) from None
+    finally:
+        _close_store(store)
+
+    try:
+        if output.json_mode:
+            payload = build_reassure_history_payload(name=name, points=points)
+            typer.echo(render_json(payload))
+        else:
+            if output.should_nudge_stderr:
+                typer.echo(NON_TTY_NUDGE, err=True)
+            typer.echo(render_reassure_history(name, points, color=output.color_enabled))
+    except Exception as exc:
+        emit_error(output, f"failed to render reassure history output: {exc}")
+        raise typer.Exit(code=3) from None
+
+    raise typer.Exit(code=0)
+
+
 reassure_app.command(name="import", context_settings=_CTX)(reassure_import)
 reassure_app.command(name="list", context_settings=_CTX)(reassure_list)
 reassure_app.command(name="entries", context_settings=_CTX)(reassure_entries_command)
 reassure_app.command(name="show", context_settings=_CTX)(reassure_show)
+reassure_app.command(name="history", context_settings=_CTX)(reassure_history)

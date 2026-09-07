@@ -269,12 +269,14 @@ perfvibe reassure import [<path>] [--kind current|baseline|unknown]
 perfvibe reassure list [--limit N]
 perfvibe reassure entries <import-id>
 perfvibe reassure show <name> [--import <id>]
+perfvibe reassure history <name>
 ```
 
-A command **group** (`import`/`list`/`entries`/`show`/… are sub-commands of
-`reassure`), read-only except for `import`'s own persistence step. This page
-covers `import`, `list`, `entries`, and `show` — `history`, `compare`, and `run`
-are added by their own slices of this capability, once they ship.
+A command **group** (`import`/`list`/`entries`/`show`/`history`/… are
+sub-commands of `reassure`), read-only except for `import`'s own persistence
+step. This page covers `import`, `list`, `entries`, `show`, and `history` —
+`compare` and `run` are added by their own slices of this capability, once
+they ship.
 
 The flat `perfvibe reassure-import <path>` form still works exactly as before
 (same implementation, same `--json` payload) but is now **deprecated**: it is
@@ -424,16 +426,81 @@ are different facts), and `initial_update_state` (one of `"introduced"`,
 **no** `*_delta_pct`/`*_pct` key anywhere for the update count — D5 is a state
 transition, never a delta.
 
+### `reassure history <name>`
+
+Reports `name`'s FULL series — one point per import that contains it, oldest
+first (D2: one **import** is one point, never a per-commit collapse; see
+[`docs/baselines-and-history.md`](./baselines-and-history.md#reassure-one-point-per-import-not-per-commit)
+for the contrast with the flow world's baseline rule). Each point carries its
+own independently-reduced `duration`/`count` summaries — the two series are
+drawn as TWO separate sections, each with its own chart and table, never one
+combined chart (invariant I1, surfaced here). A `name` present in zero imports
+is a usage error (exit `2`); a coverage gap within an otherwise non-empty
+series — an import that never measured `name` — is not an error, it simply
+contributes no point and shifts nothing.
+
+```text
+┌─ perfvibe reassure history · WidgetPanel renders correctly · 4 import(s)
+│
+│   duration (ms)   window ▁▂▁█
+│
+│     138.0 ┤                         ██
+│     130.5 ┤                         ██
+│     123.0 ┤                         ██
+│     115.5 ┤                         ██
+│     108.0 ┤ ██      ██      ██      ██
+│             └────────────────────────────────
+│             abcdef0 abcdef1 abcdef2 abcdef3
+│
+│   IMPORT    DATE        COMMIT          P50         P90       N
+│   ─────────────────────────────────────────────────────────────
+│   1000      2026-01-01  abcdef0       100.0       108.0       5
+│   1001      2026-01-02  abcdef1       105.0       113.0       5
+│   1002      2026-01-03  abcdef2       102.0       110.0       5
+│   1003      2026-01-04  abcdef3       130.0       138.0       5
+│
+│   count (count)   window ▁▁██
+│
+│       2.0 ┤                 ██      ██
+│       1.8 ┤                 ██      ██
+│       1.5 ┤                 ██      ██
+│       1.2 ┤                 ██      ██
+│       1.0 ┤ ██      ██      ██      ██
+│             └────────────────────────────────
+│             abcdef0 abcdef1 abcdef2 abcdef3
+│
+│   IMPORT    DATE        COMMIT          P50         P90       N
+│   ─────────────────────────────────────────────────────────────
+│   1000      2026-01-01  abcdef0         1.0         1.0       5
+│   1001      2026-01-02  abcdef1         1.0         1.0       5
+│   1002      2026-01-03  abcdef2         2.0         2.0       5
+│   1003      2026-01-04  abcdef3         2.0         2.0       5
+│
+└─
+```
+
+X-axis labels use the short `commit_hash` when present, else the date part of
+`ordered_at`, else `#<import_id>` — never nothing. Unlike `history`
+(the flow-world command), there is no `Δ` column and no direction-aware color:
+`reassure` views only describe, they never judge (D3).
+
+**`--json`** → `reassure_history_v1` payload (`schema_version = 1`):
+`{"schema_version", "name", "points": [{"import_id", "ordered_at",
+"ordering_key", "commit_hash", "duration", "count"}, ...]}`, where
+`duration`/`count` are each either `null` or `{"p50", "p90", "n", "unit"}`.
+`branch` is deliberately absent — nothing in this command reads it.
+
 ### Exit codes (`reassure import` / `reassure list` / `reassure entries` /
-`reassure show`)
+`reassure show` / `reassure history`)
 
 `0` success (including an empty `list` roster, an `import` of a readable file
 that recovered zero entries, and an `entries` call on a real import with zero
 entries) · `2` usage error (missing/unreadable `.perf` path, invalid `--kind`,
 an unknown `entries <import-id>`, `name` absent from the target import in
-`show`, or `--import <id>` naming an import `show` cannot find `name` in) · `3`
-runtime/tooling failure (store/transaction/render). Like every other command,
-`reassure` **never** exits `1`.
+`show`, `--import <id>` naming an import `show` cannot find `name` in, or
+`name` absent from every import in `history`) · `3` runtime/tooling failure
+(store/transaction/render). Like every other command, `reassure` **never**
+exits `1`.
 
 ---
 
