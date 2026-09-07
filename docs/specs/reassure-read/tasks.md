@@ -457,29 +457,44 @@ Review Workload Forecast)**
 **Branch**: `reassure-read/slice4a-compare-domain` · **Base**: `reassure-read/slice3-history`
 · **Est. lines**: ~320
 
-- [ ] 4a.1 RED — `tests/unit/test_reassure_compare.py` [new] **[unmissable — I2 guard 1]**: two
-  `ReassureSeriesPoint`s sharing `commit_hash` AND `branch` (0006's real baseline/current pair)
-  stay TWO points; p90 values chosen so the collapsed-by-commit median (17.5) and the true
-  plain median (20.0) differ; assert `compare_series(...)` uses the TRUE median.
-- [ ] 4a.2 RED — same file **[unmissable — I2 guard 2]**: `assert "median_by_commit" not in
-  Path(reassure_compare.__file__).read_text()` (precedent `tests/unit/test_domain_boundary.py:41`).
-- [ ] 4a.3 RED — same file: fewer than `MIN_BASELINE_IMPORTS` (3) baseline points → both
+- [x] 4a.1 RED — `tests/unit/test_reassure_compare.py` [extended, not new — see 4a.5 note] **
+  [unmissable — I2 guard 1]**: two `ReassureSeriesPoint`s sharing `commit_hash` AND `branch`
+  (0006's real baseline/current pair) stay TWO points; p90 values `[5.0, 25.0, 20.0]` chosen so
+  the collapsed-by-commit median (17.5) and the true plain median (20.0) differ; asserts
+  `compare_series(...)`'s duration verdict uses the TRUE median (20.0), never 17.5.
+- [x] 4a.2 RED — same file **[unmissable — I2 guard 2 — CORRECTED, AST not textual]**: the
+  literal `assert "median_by_commit" not in Path(reassure_compare.__file__).read_text()` as
+  originally scoped was broken two ways — it would fail immediately against the module's own
+  docstring (which intentionally NAMES `median_by_commit` as the bug it defends against, useful
+  documentation, not a violation), and it misattributed its own precedent: `test_domain_
+  boundary.py`'s guard (`:17-38`) parses real `Import`/`ImportFrom` AST nodes, it does not do a
+  substring check. Implemented instead as `test_module_never_imports_or_calls_median_by_commit`
+  — parses the module with `ast` and asserts `median_by_commit` is never imported and never
+  called, leaving the docstring warning intact. See the apply report for the full rationale.
+- [x] 4a.3 RED — same file: fewer than `MIN_BASELINE_IMPORTS` (3) baseline points → both
   verdicts report insufficient-data, never `stable`.
-- [ ] 4a.4 RED — same file: `count` series floor is exactly `0.0` (D7); `higher_is_better` is
+- [x] 4a.4 RED — same file: `count` series floor is exactly `0.0` (D7); `higher_is_better` is
   `False` on both verdicts (A6).
-- [ ] 4a.5 RED — same file: D5 state table — all five states, `None` on either side asserted
-  `is None` → `'unknown'`, never falsy.
-- [ ] 4a.6 GREEN — `src/perf/domain/reassure_compare.py` [new]: `SERIES_DURATION`/
-  `SERIES_RENDER_COUNT` constants, `MIN_BASELINE_IMPORTS = 3` (A7), frozen `UpdateCountChange`
-  (no delta field, not a `Verdict` — A13) and `ReassureComparison`, and the single public
+- [x] 4a.5 RED — **already complete before this slice started** (PR2b shipped all nine D5
+  state-table tests early, ahead of this slice's own module-extension work — see the module's
+  and this test file's docstrings). Verified, not duplicated.
+- [x] 4a.6 GREEN — `src/perf/domain/reassure_compare.py` [extended, not new — PR2b created it
+  early for `derive_update_count_change`]: `SERIES_DURATION`/`SERIES_RENDER_COUNT` constants,
+  `MIN_BASELINE_IMPORTS = 3` (A7), frozen `UpdateCountChange` (no delta field, not a `Verdict`
+  — A13, pre-existing from PR2b) and `ReassureComparison`, and the single public
   `compare_series(points, *, threshold_pct, floors) -> ReassureComparison | None` per
   `design.md`'s "The Verdict Function" (plain `statistics.median` over per-import p90s,
   `classify()` per series with `higher_is_better=False`, `min_n=MIN_BASELINE_IMPORTS`, a
   comment on the `baseline_commit_n` naming friction).
-- [ ] 4a.7 GREEN — `src/perf/config/loader.py:66`: add explicit `"count": 0.0` to
-  `DEFAULT_FLOORS` with a rationale comment.
-- [ ] 4a.8 Verify slice: `./.venv/bin/pytest -q tests/unit/test_reassure_compare.py`.
-- [ ] 4a.9 Verify gates.
+- [x] 4a.7 GREEN — `src/perf/config/loader.py:66`: added explicit `"count": 0.0` to
+  `DEFAULT_FLOORS` with a rationale comment; updated the three existing `test_config_loader.py`
+  assertions that pinned the old 4-key floor dict literal (`test_compare_tuning_defaults_when_
+  nothing_configured`, `test_perf_toml_overrides_threshold_and_partial_floor`,
+  `test_full_floors_override_replaces_all_units`) to include `"count": 0.0`.
+- [x] 4a.8 Verify slice: `./.venv/bin/pytest -q tests/unit/test_reassure_compare.py` — 17
+  passed.
+- [x] 4a.9 Verify gates — `ruff check .`, `ruff format --check .`, `mypy src/perf`,
+  `pytest -q --cov=perf` all clean (1328 passed, 95.58% coverage, floor 93%).
 
 ---
 

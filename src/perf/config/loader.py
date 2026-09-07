@@ -63,7 +63,21 @@ DEFAULT_TOOL_VERSION = "0.1.0"
 # conservative/low-noise so the tool doesn't cry wolf — all overridable
 # via `perfvibe.toml` / CLI flags.
 DEFAULT_THRESHOLD_PCT = 5.0
-DEFAULT_FLOORS: Mapping[str, float] = {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 2.0}
+# D7 (reassure-read PR4a): `count` (reassure's render-count series,
+# `unit='count'`, `domain/reassure_compare.py`'s `SERIES_RENDER_COUNT`) is
+# explicit at `0.0`, not merely absent-and-therefore-implicitly-zero. The
+# floor exists to suppress timing JITTER; render counts are deterministic
+# (the same component tree renders the same number of times run to run),
+# so there is no jitter to suppress and `threshold_pct` alone is already
+# the correct guard. `adapters/analyzer_sql.py:156`'s
+# `self._floors.get(unit, 0.0)` already yields the same `0.0` for an
+# ABSENT key — adding this entry makes that outcome INTENTIONAL, not an
+# accidental gap a future contributor might "fix" by inventing a nonzero
+# floor. Verified safe: `load_config`'s partial `[floors]` merge
+# (`:276` below) layers a user override ON TOP of `DEFAULT_FLOORS`, so
+# `count` survives untouched — and stays user-overridable — unless
+# explicitly set.
+DEFAULT_FLOORS: Mapping[str, float] = {"ms": 5.0, "mb": 5.0, "pct": 3.0, "fps": 2.0, "count": 0.0}
 DEFAULT_MIN_BASELINE_COMMITS = 3
 DEFAULT_WARMUP_K = 1
 DEFAULT_BASELINE_N = 10
