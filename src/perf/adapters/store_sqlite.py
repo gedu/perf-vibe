@@ -521,7 +521,9 @@ class SqliteStore:
         ).fetchone()
         return row is not None
 
-    def reassure_entries(self, import_id: int) -> Sequence[ReassureEntryRow]:
+    def reassure_entries(
+        self, import_id: int, name: str | None = None
+    ) -> Sequence[ReassureEntryRow]:
         """`reassure entries`'s read model — every measurement line for one
         import, ALREADY REDUCED (invariant I1: no read model carries a raw
         sample array). `duration`/`count` are two independently-reduced
@@ -535,18 +537,27 @@ class SqliteStore:
         batched duration reduction, one batched count reduction — mirroring
         `_history_system_summaries`. Every value is `?`-bound; the
         `IN (...)` placeholder string is TEXT, never a bound value (SKILL
-        rule 4). No `name` filter in this slice — that param lands with
-        `reassure show` (design Slice Map)."""
+        rule 4).
 
-        window = self._conn.execute(
-            """
+        `name` (PR2b, design Slice Map "Slice 2 contains one store-layer
+        line") is an OPTIONAL `?`-BOUND VALUE filter — never an identifier —
+        applied only when given. `None` (the default, PR1c's original
+        behavior) returns every entry in the import, unchanged. `reassure
+        show <name>` uses the filtered form to fetch exactly one entry;
+        `reassure entries <import-id>` keeps calling this unfiltered."""
+
+        query = """
             SELECT entry_id, name, entry_type, runs, issues_initial_update_count
             FROM reassure_entry
             WHERE import_id = ?
-            ORDER BY entry_id
-            """,
-            (import_id,),
-        ).fetchall()
+            """
+        params: list[object] = [import_id]
+        if name is not None:
+            query += " AND name = ?"
+            params.append(name)
+        query += " ORDER BY entry_id"
+
+        window = self._conn.execute(query, tuple(params)).fetchall()
         if not window:
             return ()
 

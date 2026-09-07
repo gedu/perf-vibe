@@ -275,7 +275,7 @@ class FakeStore:
         self._reassure_import_exists_result = reassure_import_exists_result
         self._reassure_series_result = reassure_series_result
         self.reassure_imports_calls: list[int] = []
-        self.reassure_entries_calls: list[int] = []
+        self.reassure_entries_calls: list[tuple[int, str | None]] = []
         self.reassure_import_exists_calls: list[int] = []
         self.reassure_series_calls: list[tuple[str, int]] = []
 
@@ -320,9 +320,13 @@ class FakeStore:
         self.reassure_import_exists_calls.append(import_id)
         return self._reassure_import_exists_result
 
-    def reassure_entries(self, import_id: int) -> Sequence[ReassureEntryRow]:
-        self.reassure_entries_calls.append(import_id)
-        return self._reassure_entries_result
+    def reassure_entries(
+        self, import_id: int, name: str | None = None
+    ) -> Sequence[ReassureEntryRow]:
+        self.reassure_entries_calls.append((import_id, name))
+        if name is None:
+            return self._reassure_entries_result
+        return tuple(row for row in self._reassure_entries_result if row.name == name)
 
     def reassure_series(self, name: str, limit: int) -> Sequence[ReassureSeriesPoint]:
         self.reassure_series_calls.append((name, limit))
