@@ -69,13 +69,20 @@ the full agent-facing warning this asymmetry demands."""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
+
 import typer
 
+from perf.adapters.process import (
+    CommandResult,
+    SubprocessRunner,
+    bounded_diagnostics,
+)
 from perf.adapters.registry import build_store
 from perf.adapters.store_sqlite import SqliteStore
 from perf.cli.commands.reassure_import import reassure_import
 from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
-from perf.cli.output.errors import emit_error
+from perf.cli.output.errors import emit_error, hint_for_diagnostics
 from perf.cli.output.json_reporter import render_json
 from perf.cli.output.reassure_compare_pretty import render_reassure_compare
 from perf.cli.output.reassure_entries_pretty import render_reassure_entries
@@ -97,7 +104,9 @@ __all__ = [
     "reassure_entries_command",
     "reassure_history",
     "reassure_list",
+    "reassure_run",
     "reassure_show",
+    "run_reassure",
 ]
 
 
@@ -178,6 +187,32 @@ _SHOW_IMPORT_OPTION = typer.Option(
 # `LIMIT` is valid SQLite but relies on adapter-specific semantics no
 # other caller in this codebase depends on).
 _IMPORT_HISTORY_LOOKUP_LIMIT = 10_000
+
+
+def run_reassure(
+    runner: SubprocessRunner,
+    argv: Sequence[str],
+    *,
+    on_line: Callable[[str], None],
+) -> CommandResult:
+    """`reassure run`'s ONLY subprocess-spawning seam (design A12) —
+    invokes `argv` (always a LIST, never a shell string) through the house
+    `SubprocessRunner.run_streamed`, relaying every produced line to
+    `on_line` LIVE as the process runs. Performs no parsing, no import
+    logic, and makes no judgment about the result: it returns the raw
+    `CommandResult` unexamined, exactly mirroring `markers.py`'s
+    helpers-above/callbacks-below shape — `reassure_run` (the typer
+    command, below) is the ONLY caller that inspects `returncode`.
+
+    **THE TRAP THIS EXISTS TO AVOID**: `on_line` is the caller's
+    responsibility to route to STDERR, never stdout — `run_streamed`
+    itself never touches stdout/stderr directly, it only calls back. A
+    noisy `npx reassure` invocation (progress lines, jest output,
+    warnings — even lines that themselves look like JSON) must never
+    reach perfvibe's own stdout, or `--json`'s single-JSON-object contract
+    breaks for every downstream automated consumer at once."""
+
+    return runner.run_streamed(list(argv), on_line=on_line)
 
 
 def _close_store(store: object) -> None:
@@ -520,9 +555,62 @@ def reassure_compare(
     raise typer.Exit(code=0)
 
 
+def reassure_run(ctx: typer.Context) -> None:
+    """Shells out to the project's configured reassure command
+    (`config.reassure_command`, default `("npx", "reassure")`) and, on
+    success, imports `config.reassure_path` through the SAME
+    parse-then-store path `reassure import <path>` uses — reusing
+    `reassure_import_v1` VERBATIM (A11, no new contract): `run` performs
+    literally the same operation `import` does, just sourcing its path
+    from config instead of a CLI argument.
+
+    This is the ONLY subcommand in this whole capability that spawns an
+    external process (`run_reassure`, A12). Every line the subprocess
+    produces is relayed LIVE to STDERR ONLY (`on_line` below) — it never
+    reaches stdout, so a noisy `npx reassure` invocation (progress lines,
+    warnings, jest output — even lines that themselves look like JSON)
+    can never corrupt `--json`'s single-JSON-object stdout contract.
+
+    A non-zero subprocess exit is a runtime/tooling failure (exit `3`) and
+    skips the import step ENTIRELY — a failed measurement must never
+    become a persisted import. `reassure_command` itself is validated by
+    `config/loader.py` at config-load time (a bare string or an empty
+    array is a usage error, exit `2`, before this command body ever
+    runs)."""
+
+    state: dict = ctx.obj or {}
+    output: OutputContext = state["output"]
+    config: PerfConfig = state["config"]
+
+    argv = list(config.reassure_command)
+    result = run_reassure(
+        SubprocessRunner(),
+        argv,
+        on_line=lambda line: typer.echo(line, err=True),
+    )
+    if result.returncode != 0:
+        diagnostics = bounded_diagnostics(result.stderr)
+        emit_error(
+            output,
+            f"reassure command `{' '.join(argv)}` exited {result.returncode}; no import attempted",
+            cause=diagnostics,
+            hint=hint_for_diagnostics(diagnostics),
+        )
+        raise typer.Exit(code=3) from None
+
+    # Success: delegate straight into `reassure_import`, exactly as if the
+    # user had run `reassure import` with no explicit path — it resolves
+    # `path or config.reassure_path` itself (A11). Its own `typer.Exit`
+    # (0 on success, 2/3 on a parse/store failure) propagates unchanged.
+    reassure_import(ctx, path=None, kind=None)
+
+
 reassure_app.command(name="import", context_settings=_CTX)(reassure_import)
 reassure_app.command(name="list", context_settings=_CTX)(reassure_list)
 reassure_app.command(name="entries", context_settings=_CTX)(reassure_entries_command)
 reassure_app.command(name="show", context_settings=_CTX)(reassure_show)
 reassure_app.command(name="history", context_settings=_CTX)(reassure_history)
 reassure_app.command(name="compare", context_settings=_CTX)(reassure_compare)
+# `run` is registered LAST (D6: "sequenced LAST" — the only reassure
+# subcommand that spawns an external process).
+reassure_app.command(name="run", context_settings=_CTX)(reassure_run)

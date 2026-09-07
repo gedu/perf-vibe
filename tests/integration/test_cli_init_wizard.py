@@ -77,7 +77,8 @@ def test_wizard_prompt_shown_and_blank_enter_accepts_dim_placeholder_default(mon
     result = runner.invoke(
         main_module.app,
         ["--no-color", "--json", "--config", str(config_path), "init", str(FLOWS_DIR)],
-        input="\n\n",  # blank Enter for bundle_id, then blank Enter for base_dir
+        # blank Enter for bundle_id, base_dir, reassure_path, reassure_command
+        input="\n\n\n\n",
     )
 
     assert result.exit_code == 0, result.output
@@ -100,7 +101,8 @@ def test_wizard_typed_input_overrides_detected_default(monkeypatch, tmp_path):
     result = runner.invoke(
         main_module.app,
         ["--no-color", "--json", "--config", str(config_path), "init", str(FLOWS_DIR)],
-        input="com.overridden.app\n\n",  # typed bundle_id, then blank Enter for base_dir
+        # typed bundle_id, then blank Enter for base_dir/reassure_path/reassure_command
+        input="com.overridden.app\n\n\n\n",
     )
 
     assert result.exit_code == 0, result.output
@@ -122,7 +124,8 @@ def test_wizard_mismatch_prompt_shown_and_resolves_via_typed_input(monkeypatch, 
     result = runner.invoke(
         main_module.app,
         ["--no-color", "--json", "--config", str(config_path), "init", str(FLOWS_MISMATCH_DIR)],
-        input="com.example.app\n\n",  # conflict-resolve bundle_id, then blank Enter for base_dir
+        # conflict-resolve bundle_id, then blank Enter for base_dir/reassure_path/reassure_command
+        input="com.example.app\n\n\n\n",
     )
 
     assert result.exit_code == 0, result.output
@@ -213,7 +216,9 @@ def test_prune_interactive_confirm_accepted_removes_stale_entry(monkeypatch, tmp
             "com.example.app",
             "--prune-missing",
         ],
-        input="y\n\n",  # confirm prune, then blank Enter for base_dir (bundle_id via flag)
+        # confirm prune, then blank Enter for base_dir/reassure_path/reassure_command
+        # (bundle_id via flag)
+        input="y\n\n\n\n",
     )
 
     assert result.exit_code == 0, result.output
@@ -293,7 +298,8 @@ def test_wizard_base_dir_prompt_writes_typed_value(monkeypatch, tmp_path):
     result = runner.invoke(
         main_module.app,
         ["--no-color", "--config", str(config_path), "init", str(FLOWS_DIR)],
-        input="com.example.app\napps/shell-app/e2e\n",  # bundle_id, then a typed base_dir
+        # bundle_id, a typed base_dir, then blank Enter for reassure_path/reassure_command
+        input="com.example.app\napps/shell-app/e2e\n\n\n",
     )
 
     assert result.exit_code == 0, result.output
@@ -318,7 +324,9 @@ def test_base_dir_flag_wins_and_skips_the_prompt(monkeypatch, tmp_path):
             "--base-dir",
             "custom/out",
         ],
-        input="com.example.app\n",  # only the bundle_id prompt — the flag skips base_dir's
+        # bundle_id, then blank Enter for reassure_path/reassure_command — the flag skips
+        # base_dir's own prompt
+        input="com.example.app\n\n\n",
     )
 
     assert result.exit_code == 0, result.output

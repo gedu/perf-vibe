@@ -84,8 +84,8 @@ than implicitly whatever `init` happens to (re-)discover on a CI runner.
 
 ## The `reassure_path` setting
 
-`perfvibe reassure import` (and its config-driven sibling, `perfvibe reassure run`,
-once it ships) read a `@callstack/reassure` `.perf` JSON-Lines file from a path you
+`perfvibe reassure import` (and its config-driven sibling, `perfvibe reassure run`)
+read a `@callstack/reassure` `.perf` JSON-Lines file from a path you
 can override per invocation with a positional argument, or set once in
 `perfvibe.toml`:
 
@@ -103,3 +103,42 @@ writes to it, so it is never anchored under `base_dir` the way `results_dir` is.
 perfvibe reassure import                      # reads config's reassure_path
 perfvibe reassure import path/to/other.perf   # overrides it for this call only
 ```
+
+## The `reassure_command` setting
+
+`perfvibe reassure run` shells out to your project's reassure invocation — whatever
+command runs your `@callstack/reassure`-instrumented test suite — then imports the
+`.perf` file it produces (`reassure_path`, above) through the same path `reassure
+import` uses. That command is `reassure_command` in `perfvibe.toml`:
+
+```toml
+reassure_command = ["yarn", "reassure"]
+```
+
+Defaults to `["npx", "reassure"]` (`DEFAULT_REASSURE_COMMAND`, `config/loader.py`)
+when unset. `perfvibe init`'s wizard offers a smarter default automatically —
+`yarn`/`pnpm` when it detects `yarn.lock`/`pnpm-lock.yaml` next to your config,
+`npx` otherwise.
+
+**`reassure_command` is accepted ONLY as a TOML array of strings — never a bare
+string.** `perfvibe` spawns it as an argv list (never through a shell), so there is
+no quoting/splitting rule that could ever misparse a path or flag containing a
+space. A string value (e.g. `reassure_command = "yarn reassure"`) is rejected
+outright as a usage error (exit `2`) rather than silently split on whitespace:
+
+```toml
+# Wrong — rejected at config-load time, exit 2:
+reassure_command = "yarn reassure"
+
+# Right:
+reassure_command = ["yarn", "reassure"]
+```
+
+```bash
+perfvibe reassure run --json   # runs reassure_command, then imports reassure_path
+```
+
+A non-zero exit from `reassure_command` makes `run` exit `3` with **no import
+attempted at all** — see [`commands.md`](./commands.md#reassure-run) for the full
+exit-code discipline. Every line the configured command prints is relayed to
+stderr only, so it can never corrupt `--json`'s stdout contract.

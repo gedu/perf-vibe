@@ -271,13 +271,12 @@ perfvibe reassure entries <import-id>
 perfvibe reassure show <name> [--import <id>]
 perfvibe reassure history <name>
 perfvibe reassure compare <name>
+perfvibe reassure run
 ```
 
-A command **group** (`import`/`list`/`entries`/`show`/`history`/`compare`/…
-are sub-commands of `reassure`), read-only except for `import`'s own
-persistence step. This page covers `import`, `list`, `entries`, `show`,
-`history`, and `compare` — `run` is added by its own slice of this
-capability, once it ships.
+A command **group** (`import`/`list`/`entries`/`show`/`history`/`compare`/
+`run` are sub-commands of `reassure`), read-only except for `import`'s own
+persistence step and `run`'s subprocess + persistence step.
 
 The flat `perfvibe reassure-import <path>` form still works exactly as before
 (same implementation, same `--json` payload) but is now **deprecated**: it is
@@ -550,18 +549,54 @@ measured", `0` means "measured, clean") and `initial_update_state`. There is
 deliberately **no** `*_delta_pct`/`*_pct` key anywhere for the update
 count — D5 is a state transition, never a delta.
 
-### Exit codes (`reassure import` / `reassure list` / `reassure entries` /
-`reassure show` / `reassure history` / `reassure compare`)
+### `reassure run`
 
-`0` success (including an empty `list` roster, an `import` of a readable file
-that recovered zero entries, an `entries` call on a real import with zero
-entries, **and a `compare` that reports a `regression` or `insufficient-data`
-verdict — see the D3 warning above**) · `2` usage error (missing/unreadable
-`.perf` path, invalid `--kind`, an unknown `entries <import-id>`, `name`
-absent from the target import in `show`, `--import <id>` naming an import
-`show` cannot find `name` in, or `name` absent from every import in
-`history`/`compare`) · `3` runtime/tooling failure (store/transaction/render).
-Like every other command, `reassure` **never** exits `1`.
+Shells out to the project's configured reassure command (`reassure_command`
+in `perfvibe.toml`, default `["npx", "reassure"]`) and, on a clean exit,
+imports `reassure_path` through the SAME parse-then-store path
+`reassure import` uses — reusing `reassure_import_v1` **verbatim** (no new
+contract): `run` performs literally the same operation `import` does, just
+sourcing its path from config instead of a CLI argument. Given the same
+`.perf` file, `reassure run` and `reassure import <path>` produce the exact
+same `--json` payload shape and exit code.
+
+`run` is the **only** command in this whole capability that spawns an
+external process. Every line the subprocess prints is relayed live to
+**stderr only** — it never reaches stdout, so a noisy `npx reassure`
+invocation (progress lines, warnings, jest output, even lines that
+themselves look like JSON) can never corrupt `--json`'s
+single-JSON-object stdout contract.
+
+```bash
+perfvibe reassure run --json   # runs the configured command, then imports
+```
+
+If the subprocess exits non-zero, `run` exits `3` and **no import is
+attempted at all** — a failed measurement must never become a persisted
+import. An invalid `reassure_command` (anything other than a non-empty TOML
+array of strings — a bare string is rejected outright, never split into
+argv) is a usage error caught at config-load time, before `run` even starts
+(exit `2`). See [`configuring-flows.md`](./configuring-flows.md#the-reassure_path-setting)
+for `reassure_path`/`reassure_command` configuration.
+
+**`--json`** → the SAME `reassure_import_v1` payload `reassure import`
+emits (`schema_version = 3`) — see the `reassure import` section above for
+its full key set. There is no separate `reassure_run_v1` contract.
+
+### Exit codes (`reassure import` / `reassure list` / `reassure entries` /
+`reassure show` / `reassure history` / `reassure compare` / `reassure run`)
+
+`0` success (including an empty `list` roster, an `import`/`run` of a
+readable file that recovered zero entries, an `entries` call on a real
+import with zero entries, **and a `compare` that reports a `regression` or
+`insufficient-data` verdict — see the D3 warning above**) · `2` usage error
+(missing/unreadable `.perf` path, invalid `--kind`, an unknown `entries
+<import-id>`, `name` absent from the target import in `show`, `--import
+<id>` naming an import `show` cannot find `name` in, `name` absent from
+every import in `history`/`compare`, or an invalid `reassure_command`) · `3`
+runtime/tooling failure (store/transaction/render, or `run`'s subprocess
+itself exiting non-zero — in which case no import is attempted). Like every
+other command, `reassure` **never** exits `1`.
 
 ---
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 
+from perf.adapters.process import CommandResult
 from perf.domain.model import (
     CaptureSpec,
     CompareResult,
@@ -33,6 +34,7 @@ __all__ = [
     "FakeProgressReporter",
     "FakeRunContextProvider",
     "FakeStore",
+    "FakeSubprocessRunner",
     "FakeSystemSampler",
     "FrozenClock",
     "NoArgRunContextProvider",
@@ -345,6 +347,38 @@ class FakeCommitLog:
     def subject(self, sha: str) -> str | None:
         self.calls.append(sha)
         return self._subject
+
+
+class FakeSubprocessRunner:
+    """`SubprocessRunner` fake exposing only `run_streamed` — the ONE seam
+    `run_reassure` (`cli/commands/reassure.py`, A12) uses to spawn `reassure
+    run`'s external process. No real process is ever started. Records every
+    call's argv as the LIST it was given (proving no shell-string
+    composition ever happens), relays each of `streamed_lines` to `on_line`
+    before returning, and lets a test configure the terminal
+    `CommandResult` the same way `run_streamed` itself would (SKILL rule
+    8: "Adapters test against recorded fixtures, not live devices")."""
+
+    def __init__(
+        self,
+        *,
+        returncode: int = 0,
+        stdout: str = "",
+        stderr: str = "",
+        streamed_lines: Sequence[str] = (),
+    ) -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+        self.streamed_lines = tuple(streamed_lines)
+        self.run_streamed_calls: list[list[str]] = []
+
+    def run_streamed(self, argv, *, env=None, cwd=None, on_line=None) -> CommandResult:
+        self.run_streamed_calls.append(list(argv))
+        for line in self.streamed_lines:
+            if on_line is not None:
+                on_line(line)
+        return CommandResult(returncode=self.returncode, stdout=self.stdout, stderr=self.stderr)
 
 
 class FakeAnalyzer:
