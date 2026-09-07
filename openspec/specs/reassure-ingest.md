@@ -13,8 +13,11 @@ nothing.
 
 Comparing reassure runs against history; history/trend views; filtering by name,
 component, or test file; budget gating on reassure metrics. Each is a distinct
-follow-up change entering through `Analyzer` (compare/history) or
-`application/budget_check_flow.py` (gating).
+follow-up change entering through `Store` read methods and pure `domain/`
+functions (compare/history) or `application/budget_check_flow.py` (gating) —
+NOT through `Analyzer`: `Analyzer.compare_latest` is flow/device/mode-keyed,
+and reassure has none of those dimensions (corrected here; a prior revision of
+this sentence said "through `Analyzer`", which was inaccurate).
 
 ## Requirements
 
@@ -253,7 +256,9 @@ already_imported == false` — no dedicated boolean key is introduced for it (se
 `--json` output MUST be `reassure_import_v1` with top-level keys EXACTLY:
 `schema_version`, `path`, `content_hash`, `kind`, `already_imported`,
 `entries_imported`, `entries_skipped`, `duration_samples_imported`,
-`count_samples_imported`, `entries_with_render_issues` — TEN keys.
+`count_samples_imported`, `entries_with_render_issues`,
+`entries_dropped_duplicate_name` — ELEVEN keys.
+(Previously: TEN keys, no duplicate-name accounting; `SCHEMA_VERSION = 2`.)
 
 `kind` is the ninth key, joining the original eight-key draft:
 `reassure_import.kind` records ONLY WHICH FILE THE BYTES CAME FROM — `'current'`,
@@ -276,6 +281,21 @@ Adding it bumped `schema_version` to **2**. The rule governing that lives in
 without a `schema_version` bump" — and this capability spec does not restate, qualify,
 or override it. `init_v1` already sits at `SCHEMA_VERSION = 2`, so bumping while the
 module keeps its `_v1` family name is the established house shape.
+
+`entries_dropped_duplicate_name` is the ELEVENTH key: the count of entries dropped
+because their `name` recurred more than once within the same import (see the new
+"Duplicate Entry-Name Detection And Dropping" requirement below). It is NOT folded
+into `entries_skipped` — `entries_skipped` counts malformed LINES only, a per-line-
+shape failure detected during parsing, while a duplicate-name drop is a per-NAME
+failure detected only after the whole file is parsed, over otherwise well-formed
+entries. Conflating the two would make `entries_skipped` describe two unrelated
+failure modes and destroy its diagnostic value. It is not derivable from any other
+key in the payload (unlike the refused `zero_entries`, below), which is what earns
+it a place. `entries_imported` MUST NOT count entries later dropped for a duplicate
+name.
+
+Adding it bumps `schema_version` to **3**. `kind` remains the ninth key and
+`entries_with_render_issues` the tenth, both unchanged from the prior revision.
 
 There MUST be no
 `samples_imported` key — one count cannot describe two independently-sized series,
@@ -301,7 +321,7 @@ nothing reads it to this day. `entries_with_render_issues` bumped to `2` instead
 - GIVEN any successful `reassure-import --json` invocation of one entry with
   `durations: [10, 12]` (length 2) and `counts: [1, 1, 1]` (length 3)
 - WHEN the payload is inspected
-- THEN its top-level keys are exactly the ten listed above, no more, no fewer, and
+- THEN its top-level keys are exactly the ELEVEN listed above, no more, no fewer, and
   `duration_samples_imported` is `2` while `count_samples_imported` is `3` — neither is
   forced to match the other
 
@@ -315,6 +335,38 @@ nothing reads it to this day. `entries_with_render_issues` bumped to `2` instead
 - GIVEN a `.perf` file with skipped bad lines
 - WHEN imported with `--json`
 - THEN stdout is exactly the JSON payload and every warning appears on stderr instead
+
+#### Scenario: Duplicate drops have their own key, never inflate entries_skipped
+- GIVEN a file with two malformed lines and one entry `name` that legitimately
+  appears three times (all otherwise well-formed)
+- WHEN imported with `--json`
+- THEN `entries_skipped` is `2`, `entries_dropped_duplicate_name` is `3`, and
+  `entries_imported` counts neither the two malformed lines nor the three
+  duplicate-name entries
+
+### Requirement: Duplicate Entry-Name Detection And Dropping (D4)
+
+After parsing all well-formed entry lines, the system MUST group them by `name`
+within one import. Any `name` occurring MORE THAN ONCE MUST have ALL its copies
+dropped — never "keep the first" or "keep the last" — because a partial keep would
+persist a silently arbitrary choice as if it were the true series point. The
+system MUST emit ONE stderr warning naming the duplicated `name` and MUST NEVER
+fail the import because of it: the import still exits `0`. Every read model in
+`reassure-read` MAY assume `name` is unique within one import as a result.
+
+#### Scenario: All copies of a duplicated name are dropped, not just the extras
+- GIVEN a file where `name: "X"` appears on three well-formed lines with different
+  values
+- WHEN imported
+- THEN zero `reassure_entry` rows named `"X"` are persisted for that import, one
+  stderr warning names `"X"`, and the command exits `0`
+
+#### Scenario: Non-duplicated entries in the same file are unaffected
+- GIVEN a file with one duplicated name and four other, unique-named, well-formed
+  entries
+- WHEN imported
+- THEN all four unique entries persist normally and only the duplicated name is
+  dropped
 
 ### Requirement: No Component or Test-File Identity
 

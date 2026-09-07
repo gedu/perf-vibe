@@ -53,17 +53,21 @@ _HASH_CHARS = 12
 
 
 def _counter_rows(payload: dict[str, Any], *, color: bool) -> list[str]:
-    """The four `*_imported` counters. `entries_with_render_issues` is painted
-    when it is NON-ZERO: it is the one counter that is a FINDING rather than a
-    volume — reassure spotted an extra render on mount — and a reader scanning
-    four numbers has no other reason to stop on it."""
+    """The four `*_imported` counters plus `entries_dropped_duplicate_name`
+    (D4). `entries_with_render_issues` and `entries_dropped_duplicate_name`
+    are painted when NON-ZERO: both are FINDINGS rather than volumes —
+    reassure spotted an extra render on mount, or this import's file
+    carried a duplicate `name` — and a reader scanning the counters has no
+    other reason to stop on either."""
 
     issues = payload["entries_with_render_issues"]
+    duplicates = payload["entries_dropped_duplicate_name"]
     rows: list[tuple[str, str, str]] = [
         ("entries", str(payload["entries_imported"]), ""),
         ("duration samples", str(payload["duration_samples_imported"]), ""),
         ("count samples", str(payload["count_samples_imported"]), ""),
         ("entries with render issues", str(issues), YELLOW if issues else ""),
+        ("duplicate names dropped", str(duplicates), YELLOW if duplicates else ""),
     ]
     return [
         "│   " + table_line([label, Cell(value, code)], _COUNTER_COLUMNS, color=color)

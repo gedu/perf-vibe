@@ -581,7 +581,14 @@ class ReassureParseResult:
     line's 1-based number with a reason from this adapter's own vocabulary;
     `partial_coverage` is `bool(skipped)`, and `diagnostic` explains a zero-
     or partial-coverage import in one actionable sentence (`None` on a clean
-    full-coverage parse)."""
+    full-coverage parse).
+
+    This type — never `ReassureEntry` — is the correct home for a diagnostic
+    fact the store never persists: `skipped` and `diagnostic` already move
+    parser-side diagnostics to the CLI without touching the persistence
+    contract, and `duplicate_names_dropped` follows the same pattern (design
+    A9 governs `ReassureEntry`'s persistence-contract boundary only, not this
+    type)."""
 
     header: ReassureHeader | None
     entries: Sequence[ReassureEntry]
@@ -589,3 +596,10 @@ class ReassureParseResult:
     skipped: Sequence[tuple[int, str]]
     partial_coverage: bool
     diagnostic: str | None = None
+    duplicate_names_dropped: Sequence[tuple[str, int]] = ()  # D4: (name, copies dropped)
+    # per duplicated `name`, first-seen order. Empty when no duplicate was
+    # found. Distinct from `skipped`'s per-LINE detail: this is per-NAME, and
+    # exists so the CLI can emit ONE stderr warning naming the duplicated
+    # test (spec "Duplicate Entry-Name Detection And Dropping") instead of
+    # one warning per dropped line — a line number in a generated `.perf`
+    # file is not actionable, but the test name is.
