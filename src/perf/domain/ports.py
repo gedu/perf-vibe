@@ -39,6 +39,7 @@ from perf.domain.model import (
     ReassureEntryRow,
     ReassureImportRow,
     ReassureParseResult,
+    ReassureSeriesPoint,
     RunContext,
     RunPoint,
     SamplerCommand,
@@ -153,7 +154,15 @@ class Store(Protocol):
 
     def reassure_entries(self, import_id: int) -> Sequence[ReassureEntryRow]: ...
 
-    # ... show/history read models (reassure_series lands in a later slice)
+    # `reassure-read` PR2a (design A2's third read method): a name-joined
+    # import window, OLDEST->NEWEST, ONE point per import that CONTAINS
+    # `name` — an import missing `name` contributes nothing (never a gap
+    # filled by a neighbor). `limit` selects the MOST RECENT `limit`
+    # imports, not the oldest. Backs both `reassure history` (PR3) and
+    # `reassure compare` (PR4b).
+    def reassure_series(self, name: str, limit: int) -> Sequence[ReassureSeriesPoint]: ...
+
+    # ... show read model (`reassure show` lands in PR2b)
 
 
 class Analyzer(Protocol):

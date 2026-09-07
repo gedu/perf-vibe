@@ -652,3 +652,27 @@ class ReassureEntryRow:
     duration: HistoryMetric | None = None  # metric_name='duration_ms', unit='ms'
     count: HistoryMetric | None = None  # metric_name='render_count', unit='count'
     initial_update_count: int | None = None
+
+
+@dataclass(frozen=True)
+class ReassureSeriesPoint:
+    """One IMPORT's slot in one test name's series over time (design D2:
+    one import = one point, always). Ordered OLDEST->NEWEST by the store,
+    matching `history_runs`'s chart order — the opposite direction from
+    `reassure_imports`'s listing order. `entry` is a full nested
+    `ReassureEntryRow` (never a raw sample array — invariant I1), so this
+    carries `initial_update_count` too, never re-derived.
+
+    `commit_hash`/`branch` are carried for the chart LABEL only and are
+    NEVER a key: nothing groups, filters, or joins on them. Two points may
+    legitimately share both (`0006_add_reassure_import_kind.sql` records a
+    real baseline/current pair that does) and must still be two distinct
+    points — never collapsed via `statistics.median_by_commit`, which this
+    type deliberately never feeds (invariant I2)."""
+
+    import_id: int
+    ordered_at: str  # COALESCE(created_date, imported_at), resolved in SQL
+    ordering_key: str  # 'created_date' | 'imported_at'
+    entry: ReassureEntryRow
+    commit_hash: str | None = None  # LABEL ONLY
+    branch: str | None = None  # LABEL ONLY

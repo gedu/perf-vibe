@@ -18,6 +18,7 @@ from perf.domain.model import (
     MarkerParseResult,
     ReassureEntryRow,
     ReassureImportRow,
+    ReassureSeriesPoint,
     RunContext,
     SamplerCommand,
     SystemSample,
@@ -264,6 +265,7 @@ class FakeStore:
         reassure_imports_result: Sequence[ReassureImportRow] = (),
         reassure_entries_result: Sequence[ReassureEntryRow] = (),
         reassure_import_exists_result: bool = True,
+        reassure_series_result: Sequence[ReassureSeriesPoint] = (),
     ) -> None:
         self._save_error = save_error
         self._next_id = 1
@@ -271,9 +273,11 @@ class FakeStore:
         self._reassure_imports_result = reassure_imports_result
         self._reassure_entries_result = reassure_entries_result
         self._reassure_import_exists_result = reassure_import_exists_result
+        self._reassure_series_result = reassure_series_result
         self.reassure_imports_calls: list[int] = []
         self.reassure_entries_calls: list[int] = []
         self.reassure_import_exists_calls: list[int] = []
+        self.reassure_series_calls: list[tuple[str, int]] = []
 
     def save_run(
         self,
@@ -319,6 +323,10 @@ class FakeStore:
     def reassure_entries(self, import_id: int) -> Sequence[ReassureEntryRow]:
         self.reassure_entries_calls.append(import_id)
         return self._reassure_entries_result
+
+    def reassure_series(self, name: str, limit: int) -> Sequence[ReassureSeriesPoint]:
+        self.reassure_series_calls.append((name, limit))
+        return self._reassure_series_result
 
 
 class FakeCommitLog:
