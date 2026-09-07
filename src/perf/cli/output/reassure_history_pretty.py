@@ -52,6 +52,7 @@ from perf.cli.output.primitives import (
     chart_lines,
     format_value,
     header_line,
+    sanitize_untrusted_text,
     sparkline,
     style,
     table_line,
@@ -87,9 +88,11 @@ def _short_commit(commit: str | None) -> str:
     """Stays local rather than joining `primitives.py`, matching
     `history_pretty._short_commit`'s own reasoning: the MISSING-value
     fallback (`-`) is this table's own rendering choice, not a shared
-    primitive."""
+    primitive. W-6: `commit_hash` is attacker-controlled `.perf` header
+    content — sanitized before truncation, so a stripped control
+    character can never survive inside the 7-char slice."""
 
-    return "-" if not commit else commit[:7]
+    return "-" if not commit else sanitize_untrusted_text(commit)[:7]
 
 
 def _date_part(ordered_at: str) -> str:
@@ -106,7 +109,8 @@ def _chart_label(point: ReassureSeriesPoint) -> str:
     module docstring for exactly which levels real store data can reach."""
 
     if point.commit_hash:
-        return point.commit_hash[:7]
+        # W-6: same attacker-controlled content as `_short_commit` above.
+        return sanitize_untrusted_text(point.commit_hash)[:7]
     if point.ordered_at:
         return _date_part(point.ordered_at)
     return f"#{point.import_id}"
@@ -241,7 +245,10 @@ def render_reassure_history(
     escapes at all."""
 
     lines: list[str] = [
-        f"┌─ perfvibe reassure history · {name} · {len(points)} import(s)",
+        # W-6: `name` may originate from attacker-controlled `.perf`
+        # content copied into the command line — sanitized before it ever
+        # reaches a real terminal.
+        f"┌─ perfvibe reassure history · {sanitize_untrusted_text(name)} · {len(points)} import(s)",
         "│",
     ]
     for series in _SERIES_LABELS:

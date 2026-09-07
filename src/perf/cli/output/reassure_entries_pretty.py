@@ -35,6 +35,7 @@ from perf.cli.output.primitives import (
     Cell,
     ColumnSpec,
     header_line,
+    sanitize_untrusted_text,
     table_line,
 )
 from perf.domain.model import HistoryMetric, ReassureEntryRow
@@ -91,7 +92,10 @@ def _row_line(row: ReassureEntryRow, *, color: bool) -> str:
     count_p50, count_p90, count_n = _metric_cells(row.count)
     return "│   " + table_line(
         [
-            Cell(row.name),
+            # W-6: `row.name` is fully attacker-controlled (a test name
+            # inside a third-party `.perf` file) — sanitized before it ever
+            # reaches a real terminal (see `primitives.sanitize_untrusted_text`).
+            Cell(sanitize_untrusted_text(row.name)),
             row.entry_type,
             str(row.runs),
             duration_p50,

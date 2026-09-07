@@ -76,13 +76,14 @@ import typer
 from perf.adapters.process import (
     CommandResult,
     SubprocessRunner,
+    SubprocessStreamError,
     bounded_diagnostics,
 )
 from perf.adapters.registry import build_store
 from perf.adapters.store_sqlite import SqliteStore
 from perf.cli.commands.reassure_import import reassure_import
 from perf.cli.output.context import NON_TTY_NUDGE, OutputContext
-from perf.cli.output.errors import emit_error, hint_for_diagnostics
+from perf.cli.output.errors import emit_error, emit_warning, hint_for_diagnostics
 from perf.cli.output.json_reporter import render_json
 from perf.cli.output.reassure_compare_pretty import render_reassure_compare
 from perf.cli.output.reassure_entries_pretty import render_reassure_entries
@@ -500,7 +501,21 @@ def reassure_compare(
     verdict information (read `--json`'s `verdicts` array instead). `name`
     absent from EVERY persisted import is a usage error (exit `2`, no
     `--json` payload, same discipline as `history`'s unknown-name case); a
-    store/render failure exits `3`. Never exit `1`."""
+    store/render failure exits `3`. Never exit `1`.
+
+    **W-5 (re-verification finding) — WALKS BACK, but SAYS SO**:
+    `store.reassure_series` only ever returns imports that CONTAIN `name`
+    (its own coverage-gap guarantee), so when the true newest import
+    overall does not measure `name` at all, the "latest" point this
+    command compares against is silently an OLDER import — the exact
+    walk-back `reassure show` refuses outright (A14). Unlike `show`, where
+    "which import" is the whole question, `compare` is a series command
+    whose suite composition changes constantly; refusing would be
+    unhelpful, so the product decision is to keep walking back but never
+    silently: a `warning:` block on stderr naming both import ids (this
+    function, below), plus `most_recent_import_id` in the `--json` payload
+    (`contracts/reassure_compare_v1.py`) so an agent can detect it from the
+    payload alone, without a second `reassure list` call."""
 
     state: dict = ctx.obj or {}
     output: OutputContext = state["output"]
@@ -518,6 +533,12 @@ def reassure_compare(
         comparison = compare_series(
             points, threshold_pct=config.threshold_pct, floors=config.floors
         )
+        # W-5: the TRUE most recent import overall, regardless of whether
+        # it measured `name` — the same `store.reassure_imports(1)` call
+        # `show`'s D8 default uses to detect exactly this gap. `points` is
+        # non-empty here, so at least one import exists; this can never
+        # come back empty.
+        most_recent_import_id = store.reassure_imports(1)[0].import_id
     except _UnknownReassureSeriesName as exc:
         emit_error(
             output,
@@ -537,9 +558,24 @@ def reassure_compare(
     # mypy without a second, redundant runtime check.
     assert comparison is not None
 
+    if comparison.latest.import_id != most_recent_import_id:
+        # W-5: name the situation concretely — WHICH test, WHICH import was
+        # actually used, WHICH import is the true newest. Fires regardless
+        # of `--json`/pretty (stderr is not the machine contract either
+        # way) and never affects the exit code (`emit_warning`'s own
+        # contract).
+        emit_warning(
+            output,
+            f"`{name}` is not in the most recent reassure import "
+            f"(import {most_recent_import_id}); the verdict below is based "
+            f"on import {comparison.latest.import_id} instead",
+        )
+
     try:
         if output.json_mode:
-            payload = build_reassure_compare_payload(comparison=comparison)
+            payload = build_reassure_compare_payload(
+                comparison=comparison, most_recent_import_id=most_recent_import_id
+            )
             typer.echo(render_json(payload))
         else:
             if output.should_nudge_stderr:
@@ -576,18 +612,65 @@ def reassure_run(ctx: typer.Context) -> None:
     become a persisted import. `reassure_command` itself is validated by
     `config/loader.py` at config-load time (a bare string or an empty
     array is a usage error, exit `2`, before this command body ever
-    runs)."""
+    runs).
+
+    A well-formed but not-installed/not-executable `reassure_command`
+    (the default, `npx reassure`, on any machine without Node) is an
+    ENVIRONMENT failure, not a config-shape one — `subprocess.Popen`
+    raises `FileNotFoundError`/`PermissionError` (both `OSError`) before a
+    `CommandResult` even exists. Caught here and mapped to the same exit
+    `3` as a non-zero subprocess exit (mirrors `context_bash_perfmeta.py`'s
+    documented `except OSError` precedent around its own runner calls) —
+    an uncaught `OSError` would otherwise escape as Python's default exit
+    `1`, forbidden by SKILL rule 7, on this tool's very first `reassure
+    run` on a Node-less machine.
+
+    R-1 (re-verification finding, CRITICAL): a `reassure_command` element
+    carrying an embedded NUL byte (reachable via a `\\u0000` TOML escape,
+    which `tomllib` accepts) makes `subprocess.Popen` raise `ValueError`,
+    NOT `OSError` — invisible to an `except OSError`-only guard. The
+    primary fix is `config/loader.py` rejecting a NUL at config-load time
+    (exit `2`, before this command body ever runs); this guard is widened
+    to `except (OSError, ValueError)` as a BACKSTOP — the same "never
+    exit 1" contract this whole method exists to hold applies to any
+    unhandled exception type, known or not, not just the two named here.
+
+    R-2 (re-verification finding, WARNING): this guard used to wrap the
+    ENTIRE `run_reassure(...)` call, so an `OSError` raised AFTER a
+    successful launch (e.g. a broken pipe while relaying the child's
+    output) was reported as "failed to launch" — sending someone to check
+    an install that worked. `SubprocessRunner.run_streamed` now raises
+    `SubprocessStreamError` (an `OSError` subclass) specifically for a
+    post-launch failure, so it is checked FIRST and reported with its own,
+    honest message; a plain `OSError`/`ValueError` still means the process
+    never started at all."""
 
     state: dict = ctx.obj or {}
     output: OutputContext = state["output"]
     config: PerfConfig = state["config"]
 
     argv = list(config.reassure_command)
-    result = run_reassure(
-        SubprocessRunner(),
-        argv,
-        on_line=lambda line: typer.echo(line, err=True),
-    )
+    try:
+        result = run_reassure(
+            SubprocessRunner(),
+            argv,
+            on_line=lambda line: typer.echo(line, err=True),
+        )
+    except SubprocessStreamError as exc:
+        emit_error(
+            output,
+            f"reassure command `{' '.join(argv)}` failed while running: {exc}; no import attempted",
+            hint="the process launched successfully and failed partway through — "
+            "check its own output above for the real cause",
+        )
+        raise typer.Exit(code=3) from None
+    except (OSError, ValueError) as exc:
+        emit_error(
+            output,
+            f"failed to launch reassure command `{' '.join(argv)}`: {exc}; no import attempted",
+            hint="check `reassure_command` in perfvibe.toml names an installed, executable binary",
+        )
+        raise typer.Exit(code=3) from None
     if result.returncode != 0:
         diagnostics = bounded_diagnostics(result.stderr)
         emit_error(

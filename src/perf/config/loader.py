@@ -230,7 +230,18 @@ def _typed_reassure_command(layers: Mapping[str, object]) -> tuple[str, ...]:
     never has, D6/A12). A missing key resolves to
     `DEFAULT_REASSURE_COMMAND`; anything else that is not a well-formed
     array of strings is a usage error (`ConfigError` -> exit 2), never a
-    silent best-effort coercion."""
+    silent best-effort coercion.
+
+    R-1 (re-verification finding): `tomllib` happily accepts a `\\u0000`
+    escape inside a basic TOML string and decodes it to a real embedded
+    NUL character — a value no OS can ever execute. `subprocess.Popen`
+    rejects it with `ValueError: embedded null byte`, which is NOT an
+    `OSError`, so it is invisible to the CLI's `except OSError` launch
+    guard and would otherwise escape as Python's default exit 1. A NUL in
+    an argv element is exactly the same class of problem as a bare string
+    or an empty array: the config value is malformed, not the
+    environment, so it is rejected HERE — exit 2 — before the command body
+    (and `Popen`) ever runs, rather than left for a runtime guard to catch."""
 
     raw = layers.get("reassure_command", list(DEFAULT_REASSURE_COMMAND))
     if not isinstance(raw, list) or not raw or not all(isinstance(item, str) for item in raw):
@@ -238,6 +249,11 @@ def _typed_reassure_command(layers: Mapping[str, object]) -> tuple[str, ...]:
             "`reassure_command` must be a non-empty TOML array of strings",
             hint='e.g. reassure_command = ["yarn", "reassure"] — a bare '
             "string is rejected outright, never split",
+        )
+    if any("\x00" in item for item in raw):
+        raise ConfigError(
+            "`reassure_command` must not contain a NUL byte in any element",
+            hint="check for a stray `\\u0000` escape in perfvibe.toml",
         )
     return tuple(raw)
 

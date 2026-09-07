@@ -319,6 +319,28 @@ def test_reassure_command_array_with_a_non_string_item_raises_config_error(tmp_p
         load_config(env={}, project_dir=tmp_path)
 
 
+def test_reassure_command_nul_byte_in_argv0_raises_config_error(tmp_path):
+    """R-1 (re-verification finding): `tomllib` accepts a `\\u0000` escape
+    inside a basic TOML string and decodes it to a real NUL character.
+    `subprocess.Popen` then raises `ValueError: embedded null byte`, which
+    is NOT an `OSError` — so a NUL-bearing `reassure_command` must be
+    rejected here, at config-load time (exit 2), rather than reach
+    `Popen` at all. Same classification as the bare-string case: a
+    control character in a config value is a malformed config."""
+    _write(tmp_path / "perfvibe.toml", 'reassure_command = ["/bin/ls\\u0000evil"]\n')
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(env={}, project_dir=tmp_path)
+    assert "reassure_command" in str(excinfo.value)
+
+
+def test_reassure_command_nul_byte_in_a_later_argument_raises_config_error(tmp_path):
+    """The NUL guard must cover every element, not just `argv[0]`."""
+    _write(tmp_path / "perfvibe.toml", 'reassure_command = ["npx", "reassure\\u0000evil"]\n')
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(env={}, project_dir=tmp_path)
+    assert "reassure_command" in str(excinfo.value)
+
+
 def test_explicit_config_path_missing_raises_config_error(tmp_path):
     """An EXPLICITLY passed `--config` that does not exist must fail loudly —
     silently falling back to defaults turns a typo'd path into a baffling

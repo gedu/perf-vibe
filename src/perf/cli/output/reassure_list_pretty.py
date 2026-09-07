@@ -29,6 +29,7 @@ from perf.cli.output.primitives import (
     Cell,
     ColumnSpec,
     header_line,
+    sanitize_untrusted_text,
     style,
     table_line,
 )
@@ -57,9 +58,11 @@ def _short_commit(commit: str | None) -> str:
     `history_pretty._short_commit`'s own reasoning for staying local (its
     module docstring: different views may want different missing-value
     fallbacks even though the `[:7]` truncation is shared, so this is not
-    yet a third caller of one shared primitive)."""
+    yet a third caller of one shared primitive). W-6: `commit_hash` is
+    attacker-controlled `.perf` header content — sanitized before
+    truncation."""
 
-    return "-" if not commit else commit[:7]
+    return "-" if not commit else sanitize_untrusted_text(commit)[:7]
 
 
 def _date_part(value: str) -> str:
@@ -71,7 +74,9 @@ def _date_part(value: str) -> str:
 
 
 def _branch_cell(branch: str | None) -> str:
-    return branch if branch else "-"
+    # W-6: `branch` is attacker-controlled `.perf` header content — LABEL
+    # ONLY (nothing keys/filters/joins on it), sanitized before rendering.
+    return sanitize_untrusted_text(branch) if branch else "-"
 
 
 def _date_cell(row: ReassureImportRow) -> Cell:

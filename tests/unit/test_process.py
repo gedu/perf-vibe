@@ -17,7 +17,14 @@ import re
 import sys
 import time
 
-from perf.adapters.process import CommandResult, SubprocessRunner, bounded_diagnostics
+import pytest
+
+from perf.adapters.process import (
+    CommandResult,
+    SubprocessRunner,
+    SubprocessStreamError,
+    bounded_diagnostics,
+)
 
 _PASSWORD = "s3cr3t-value"
 
@@ -212,6 +219,53 @@ def test_per_line_secret_scrubbing_before_relay_and_in_accumulator():
     assert _PASSWORD not in result.stdout
     assert _PASSWORD not in result.stderr
     assert "***" in "".join(relayed)
+
+
+# ===== R-2 (re-verification finding, WARNING): `run_streamed`'s launch
+# vs. post-launch `OSError`s must be distinguishable by TYPE, so a caller
+# (e.g. `reassure_run`) can report an honest phase without narrowing its
+# `except` clause in a way that would reopen R-1 (see
+# `test_cli_reassure_run.py`). A failure BEFORE the child ever starts
+# (Popen itself raising) stays a plain `OSError`/subclass — unwrapped,
+# exactly as before; a failure AFTER a successful launch (here, `on_line`
+# raising mid-stream) is wrapped in `SubprocessStreamError`. =====
+
+
+def test_post_launch_oserror_from_on_line_is_wrapped_in_subprocess_stream_error():
+    """Real launch, real child, real streaming — `on_line` raising
+    `OSError` (e.g. a broken pipe writing the relay to a closed stderr)
+    AFTER the process has already started must surface as
+    `SubprocessStreamError`, never a bare `OSError`, so a caller can tell
+    this apart from a launch failure."""
+
+    def boom(line: str) -> None:
+        raise OSError(32, "Broken pipe")
+
+    runner = SubprocessRunner()
+    with pytest.raises(SubprocessStreamError):
+        runner.run_streamed([sys.executable, "-c", "print('hi')"], on_line=boom)
+
+
+def test_subprocess_stream_error_is_still_an_oserror_subclass():
+    """A caller that only catches `OSError` broadly (every OTHER
+    `run_streamed` caller in this codebase, e.g. `driver_maestro.py`,
+    which lets it propagate to a generic `except Exception`) must keep
+    seeing exactly that — `SubprocessStreamError` must never become
+    invisible to a broad `except OSError`."""
+
+    assert issubclass(SubprocessStreamError, OSError)
+
+
+def test_launch_failure_before_popen_starts_is_never_wrapped():
+    """The COUNTERPART proof: a failure that happens BEFORE the child ever
+    starts (a nonexistent binary, so `Popen` itself raises) must stay a
+    plain, unwrapped `OSError` subclass — never `SubprocessStreamError`,
+    which exists to mean specifically 'launched, then failed'."""
+
+    runner = SubprocessRunner()
+    with pytest.raises(OSError) as excinfo:
+        runner.run_streamed(["definitely-not-a-real-binary-xyz"])
+    assert not isinstance(excinfo.value, SubprocessStreamError)
 
 
 # ===== bounded_diagnostics =====

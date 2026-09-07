@@ -10,8 +10,9 @@ code carries NO verdict information. An agent MUST read this payload's
 `verdicts` array (each entry's `status`) to learn the actual result; see
 `AGENTS.md` and `CLAUDE.md` for the full agent-facing warning.
 
-`schema_version=1`. Top-level FLAT dict with exactly EIGHT keys: `name`,
+`schema_version=1`. Top-level FLAT dict with exactly NINE keys: `name`,
 `latest_import_id` (the import `verdicts` were computed against),
+`most_recent_import_id` (W-5 re-verification finding, see below),
 `baseline_import_n` (IMPORTS, never commits — `ReassureComparison`'s
 honest name for the naming friction `regression.classify`'s own
 `baseline_commit_n` parameter carries, design "The Verdict Function"),
@@ -22,19 +23,56 @@ this builder never touches it), and the THREE flat D5 keys:
 — `None` means "never measured", `0` means "measured, clean"; the two
 facts must never collapse) and `initial_update_state`.
 
+**`most_recent_import_id` (W-5, added at `SCHEMA_VERSION = 1` — free,
+because there are no shipped consumers yet; adding a key after release
+would need a bump, per the "no second source of truth" rule this module
+otherwise defends)**: `reassure_series` (the store method both `compare`
+and `history` call) only ever returns imports that CONTAIN `name` — its
+own coverage-gap guarantee. So when the newest import overall does NOT
+measure `name` at all, `latest_import_id` silently means "the newest
+import that still measured this test", not "the newest import, period" —
+exactly the walk-back `reassure show` refuses outright (A14). The product
+decision for `compare` (a series command, unlike `show`) is to keep
+walking back but SAY SO: a stderr `warning:` block (see `cli/commands/
+reassure.py`) plus this key, so an agent parsing `--json` alone can detect
+the situation without a second `reassure list` call. `most_recent_import_id`
+is genuinely NEW information — the CLI resolves it via a SEPARATE
+`store.reassure_imports(1)` call (the same one `show`'s D8 default uses)
+and passes it in; it is never derivable from anything else already on this
+wire, so adding it does not repeat the mistake `baseline_commit_n` made
+(see below). Equals `latest_import_id` in the normal case (no walk-back).
+
 There is deliberately NO `*_delta_pct`/`*_pct` field anywhere for the
 update count (D5 is a state transition, never a delta — design A13).
 `None` survives serialization because Python `None` maps to JSON `null`
 natively (`json_reporter`'s sanitizer only rewrites non-finite floats).
 
-Each verdict entry mirrors `contracts/compare_v1.py`'s own per-verdict
-shape (`metric`, `unit`, `direction`, `latest_value`, `baseline_value`,
-`delta_pct`, `threshold_pct`, `floor`, `status`, `sample_n`,
-`baseline_commit_n`) — this module owns that mapping independently rather
-than importing `compare_v1`'s private `_verdict_payload`, the same way
+Each verdict entry mirrors MOST of `contracts/compare_v1.py`'s own
+per-verdict shape (`metric`, `unit`, `direction`, `latest_value`,
+`baseline_value`, `delta_pct`, `threshold_pct`, `floor`, `status`,
+`sample_n`) — this module owns that mapping independently rather than
+importing `compare_v1`'s private `_verdict_payload`, the same way
 `budget_check_v1.py` owns its own `_gated_verdict_payload` rather than
 reusing `compare_v1`'s (spec "Five new `_v1` contracts... own contract
 test with exact key set/count").
+
+**Deliberately NOT `baseline_commit_n`** (re-verification finding W-2,
+fixed here): `compare_v1`/`budget_check_v1`'s own `baseline_commit_n` is
+honest in the FLOW world, where the count really is distinct commits. In
+reassure, `Verdict.baseline_commit_n` is set to `baseline_import_n`
+(`domain/reassure_compare.py`'s `_classify_series`, reusing
+`regression.classify`'s existing threshold guard rather than a second
+one) — so emitting it here would put the SAME value on the wire TWICE,
+under two names, one of them the exact commit-flavored vocabulary D2
+exists to keep out of reassure (`commit_hash` MUST NEVER be a grouping
+key) and A7 rejected `config.min_baseline_commits` for. A consumer
+reading a per-verdict `baseline_commit_n: 3` would reasonably (and
+wrongly) conclude three DISTINCT COMMITS contributed, when two imports on
+the same commit both count. The top-level `baseline_import_n` already
+carries this count under its honest name; the per-verdict key was
+mechanically derivable from it, which "no second source of truth"
+forbids. Costs nothing to drop now (`SCHEMA_VERSION = 1`, no shipped
+consumers yet); dropping it after release would need a version bump.
 
 Mirrors `contracts/reassure_show_v1.py`'s pure-builder pattern: this
 function accepts an already-computed `ReassureComparison` — it never calls
@@ -64,6 +102,10 @@ def _direction(verdict: Verdict) -> str:
 
 
 def _verdict_payload(verdict: Verdict) -> dict[str, Any]:
+    # `verdict.baseline_commit_n` is DELIBERATELY absent — see the module
+    # docstring's "Deliberately NOT baseline_commit_n" section (W-2): it is
+    # `baseline_import_n` under commit-flavored vocabulary, already on the
+    # wire at the top level under its honest name.
     return {
         "metric": verdict.metric_name,
         "unit": verdict.unit,
@@ -75,22 +117,28 @@ def _verdict_payload(verdict: Verdict) -> dict[str, Any]:
         "floor": verdict.floor,
         "status": verdict.status,
         "sample_n": verdict.sample_n,
-        "baseline_commit_n": verdict.baseline_commit_n,
     }
 
 
-def build_reassure_compare_payload(*, comparison: ReassureComparison) -> dict[str, Any]:
+def build_reassure_compare_payload(
+    *, comparison: ReassureComparison, most_recent_import_id: int
+) -> dict[str, Any]:
     """Builds the stable `--json` verdict payload for `reassure compare
     <name>`. `comparison` is the already-computed `ReassureComparison`
     (`domain.reassure_compare.compare_series`'s return value, guaranteed
     non-`None` by the CLI's own unknown-name guard) — this builder only
-    shapes the dict, it never classifies or resolves anything itself."""
+    shapes the dict, it never classifies or resolves anything itself.
+    `most_recent_import_id` (W-5) is likewise resolved by the CLI, via a
+    separate `store.reassure_imports(1)` call — this builder never decides
+    which import is "latest" OR "most recent overall" (the CLI's job, per
+    A8/D8), it only shapes what it is handed."""
 
     update_count = comparison.update_count
     return {
         "schema_version": SCHEMA_VERSION,
         "name": comparison.name,
         "latest_import_id": comparison.latest.import_id,
+        "most_recent_import_id": most_recent_import_id,
         "baseline_import_n": comparison.baseline_import_n,
         "verdicts": [_verdict_payload(verdict) for verdict in comparison.verdicts],
         "initial_update_count": update_count.latest,

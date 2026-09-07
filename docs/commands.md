@@ -518,6 +518,27 @@ explicit `insufficient-data` status — never a silent `stable`.
 > confirmed regression, and it does not gate on `reassure` data at all (D3
 > keeps `reassure` out of gating in v1).
 
+> ⚠️ **`compare` can silently walk back to an older import — but it always
+> says so.** `reassure_series` (the store method behind both `compare` and
+> `history`) only ever returns imports that *contain* `name`. So if the
+> newest import overall never measured `name` at all, the verdict above is
+> computed against an **older** import instead — unlike `reassure show`,
+> which refuses outright in the same situation (A14). `compare` keeps
+> walking back because it is a series command and a suite's composition
+> changes constantly, but it never does so silently: a `warning:` block is
+> printed to **stderr** (present in both pretty and `--json` mode; stdout
+> stays byte-pure either way) naming `name` and both import ids, and the
+> `--json` payload carries `most_recent_import_id` alongside
+> `latest_import_id` so an agent can detect the gap from the payload alone.
+> When they differ, the verdict is stale relative to the newest import.
+
+```text
+$ perfvibe reassure compare "Solo renders"
+warning: `Solo renders` is not in the most recent reassure import (import 5); the verdict below is based on import 4 instead
+┌─ perfvibe reassure compare · Solo renders · baseline 3 import(s)
+...
+```
+
 ```text
 ┌─ perfvibe reassure compare · WidgetPanel renders correctly · baseline 5 import(s)
 │
@@ -535,15 +556,20 @@ The D5 sentence below the table follows the exact same six-shape table as
 never a second copy of the wording.
 
 **`--json`** → `reassure_compare_v1` payload (`schema_version = 1`): a FLAT
-dict with exactly eight keys: `schema_version`, `name`, `latest_import_id`
-(the import the verdicts were computed against), `baseline_import_n`
-(**imports**, never commits — the honest name for the naming friction
-`regression.classify`'s own `baseline_commit_n` parameter carries),
-`verdicts` (a list, FIXED order — `duration_ms` then `render_count`, never
-re-sorted; each entry has `metric`, `unit`, `direction`, `latest_value`,
-`baseline_value`, `delta_pct`, `threshold_pct`, `floor`, `status`,
-`sample_n`, `baseline_commit_n` — the SAME per-verdict shape `perf compare`
-already uses), and the THREE flat D5 keys `initial_update_count`,
+dict with exactly nine keys: `schema_version`, `name`, `latest_import_id`
+(the import the verdicts were computed against), `most_recent_import_id`
+(the **true** newest import overall, regardless of whether it contains
+`name` — compare this against `latest_import_id`: when they differ, the
+verdict was walked back to an older import and the stderr warning above
+fired), `baseline_import_n` (**imports**, never commits — the honest name
+for the naming friction `regression.classify`'s own `baseline_commit_n`
+parameter carries), `verdicts` (a list, FIXED order — `duration_ms` then
+`render_count`, never re-sorted; each entry has `metric`, `unit`,
+`direction`, `latest_value`, `baseline_value`, `delta_pct`, `threshold_pct`,
+`floor`, `status`, `sample_n` — the SAME per-verdict shape `perf compare`
+already uses, minus `baseline_commit_n`, which would duplicate
+`baseline_import_n` under commit-flavored vocabulary D2 keeps out of
+reassure), and the THREE flat D5 keys `initial_update_count`,
 `baseline_initial_update_count` (both `int` or `null` — `null` means "never
 measured", `0` means "measured, clean") and `initial_update_state`. There is
 deliberately **no** `*_delta_pct`/`*_pct` key anywhere for the update

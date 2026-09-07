@@ -350,3 +350,154 @@ def test_exit_1_never_appears_anywhere_in_this_suite(monkeypatch, tmp_path: Path
     result = runner.invoke(main_module.app, ["--json", "reassure", "compare", _NAME])
 
     assert result.exit_code != 1
+
+
+# ===== W-5: walk-back to an older import warns, on stderr AND in --json =====
+#
+# `reassure_series` only ever returns imports that CONTAIN `name` (its own
+# coverage-gap guarantee — PR2a). So when the newest import overall does not
+# measure `name` at all, `compare_series`'s `points[-1]` silently means "the
+# newest import that still measured this test", not "the newest import,
+# period" — a walk-back `reassure show` (A14) refuses outright. Per the
+# product decision, `compare` keeps walking back (refusing would be
+# unhelpful for a series command whose suite composition changes constantly)
+# but MUST say so: a `warning:` block on stderr naming both import ids, plus
+# a `most_recent_import_id` key in the payload an agent can compare against
+# `latest_import_id` without a second call.
+
+
+def _import_missing_name(tmp_path: Path, filename: str, *, created_date: str) -> int:
+    return _import(
+        _write_perf_file(
+            tmp_path,
+            filename,
+            created_date=created_date,
+            entry_lines=[_entry_line(name="SomeOtherTest")],
+        )
+    )
+
+
+def test_walked_back_import_warns_on_stderr_naming_both_imports(monkeypatch, tmp_path: Path):
+    db_path = tmp_path / "perf.db"
+    _patch_load_config(monkeypatch, db_path=str(db_path))
+    containing_ids = [
+        _import(
+            _write_perf_file(
+                tmp_path,
+                f"containing{day}.perf",
+                created_date=f"2026-07-0{day}T00:00:00.000Z",
+                entry_lines=[_entry_line()],
+            )
+        )
+        for day in range(1, 4)
+    ]
+    newest_id = _import_missing_name(
+        tmp_path, "newest.perf", created_date="2026-07-04T00:00:00.000Z"
+    )
+
+    result = runner.invoke(main_module.app, ["--json", "reassure", "compare", _NAME])
+
+    assert result.exit_code == 0, result.output
+    assert "warning:" in result.stderr.lower()
+    assert _NAME in result.stderr
+    assert str(containing_ids[-1]) in result.stderr
+    assert str(newest_id) in result.stderr
+
+
+def test_walked_back_payload_carries_both_import_ids(monkeypatch, tmp_path: Path):
+    db_path = tmp_path / "perf.db"
+    _patch_load_config(monkeypatch, db_path=str(db_path))
+    containing_ids = [
+        _import(
+            _write_perf_file(
+                tmp_path,
+                f"containing{day}.perf",
+                created_date=f"2026-08-0{day}T00:00:00.000Z",
+                entry_lines=[_entry_line()],
+            )
+        )
+        for day in range(1, 4)
+    ]
+    newest_id = _import_missing_name(
+        tmp_path, "newest.perf", created_date="2026-08-04T00:00:00.000Z"
+    )
+
+    result = runner.invoke(main_module.app, ["--json", "reassure", "compare", _NAME])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["latest_import_id"] == containing_ids[-1]
+    assert payload["most_recent_import_id"] == newest_id
+    assert payload["latest_import_id"] != payload["most_recent_import_id"]
+
+
+def test_walked_back_json_stdout_stays_byte_pure(monkeypatch, tmp_path: Path):
+    db_path = tmp_path / "perf.db"
+    _patch_load_config(monkeypatch, db_path=str(db_path))
+    for day in range(1, 4):
+        _import(
+            _write_perf_file(
+                tmp_path,
+                f"containing{day}.perf",
+                created_date=f"2026-09-0{day}T00:00:00.000Z",
+                entry_lines=[_entry_line()],
+            )
+        )
+    _import_missing_name(tmp_path, "newest.perf", created_date="2026-09-04T00:00:00.000Z")
+
+    result = runner.invoke(main_module.app, ["--json", "reassure", "compare", _NAME])
+
+    assert result.exit_code == 0, result.output
+    json.loads(result.stdout)  # raises if stdout carries anything but the payload
+
+
+def test_walked_back_pretty_mode_also_warns_on_stderr(monkeypatch, tmp_path: Path):
+    db_path = tmp_path / "perf.db"
+    _patch_load_config(monkeypatch, db_path=str(db_path))
+    for day in range(1, 4):
+        _import(
+            _write_perf_file(
+                tmp_path,
+                f"containing{day}.perf",
+                created_date=f"2026-10-0{day}T00:00:00.000Z",
+                entry_lines=[_entry_line()],
+            )
+        )
+    _import_missing_name(tmp_path, "newest.perf", created_date="2026-10-04T00:00:00.000Z")
+
+    result = runner.invoke(main_module.app, ["reassure", "compare", _NAME])
+
+    assert result.exit_code == 0, result.output
+    assert "warning:" in result.stderr.lower()
+
+
+def test_name_in_newest_import_emits_no_warning_at_all(monkeypatch, tmp_path: Path):
+    """[unmissable] The negative that keeps the warning meaning something: the
+    normal case — `name` IS in the newest import — must emit NOTHING on
+    stderr about a walk-back, or the signal stops being trustworthy."""
+    db_path = tmp_path / "perf.db"
+    _patch_load_config(monkeypatch, db_path=str(db_path))
+    for day in range(1, 4):
+        _import(
+            _write_perf_file(
+                tmp_path,
+                f"baseline{day}.perf",
+                created_date=f"2026-11-0{day}T00:00:00.000Z",
+                entry_lines=[_entry_line()],
+            )
+        )
+    _import(
+        _write_perf_file(
+            tmp_path,
+            "latest.perf",
+            created_date="2026-11-04T00:00:00.000Z",
+            entry_lines=[_entry_line()],
+        )
+    )
+
+    result = runner.invoke(main_module.app, ["--json", "reassure", "compare", _NAME])
+
+    assert result.exit_code == 0, result.output
+    assert "warning:" not in result.stderr.lower()
+    payload = json.loads(result.stdout)
+    assert payload["most_recent_import_id"] == payload["latest_import_id"]
