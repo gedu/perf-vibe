@@ -142,6 +142,15 @@ class Store(Protocol):
 
     def reassure_imports(self, limit: int) -> Sequence[ReassureImportRow]: ...
 
+    # `reassure-read` PR1c: NOT in design A2's original three-method list.
+    # Added while implementing `reassure entries <import-id>`'s usage-error
+    # check — `reassure_imports(limit)` is a WINDOWED roster (a real id
+    # outside `--limit` is not "unknown"), and `reassure_entries(import_id)`
+    # returns `()` for BOTH an unknown id and a real-but-empty import, which
+    # the spec requires to exit differently (`2` vs `0`). This narrow,
+    # UNBOUNDED single-row lookup is the only unambiguous check.
+    def reassure_import_exists(self, import_id: int) -> bool: ...
+
     def reassure_entries(self, import_id: int) -> Sequence[ReassureEntryRow]: ...
 
     # ... show/history read models (reassure_series lands in a later slice)
