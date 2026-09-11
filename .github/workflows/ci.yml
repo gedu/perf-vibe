@@ -63,3 +63,12 @@ jobs:
           python examples/demo-compare/seed.py > /dev/null
           perfvibe --json --config examples/demo-compare/perfvibe.toml compare demo > /dev/null
           echo "compare exited $? on a seeded regression (expected 0)"
+
+          # Same contract on the reassure side, and the commands the README's
+          # reassure tour tells people to run — so the tour cannot go stale
+          # without the build noticing.
+          python examples/demo-reassure/seed.py > /dev/null
+          perfvibe --json --config examples/demo-reassure/perfvibe.toml reassure list > /dev/null
+          perfvibe --json --config examples/demo-reassure/perfvibe.toml reassure history "CartPanel renders" > /dev/null
+          perfvibe --json --config examples/demo-reassure/perfvibe.toml reassure compare "CartPanel renders" > /dev/null
+          echo "reassure compare exited $? on a seeded regression (expected 0)"
