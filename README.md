@@ -92,6 +92,51 @@ echo "exit: $?"   # → 1
 
 ---
 
+## The other half: React render timings
+
+Everything above measures a running app on a device. `perfvibe reassure` covers
+the other side — [`@callstack/reassure`](https://github.com/callstack/reassure)
+render timings from your JavaScript test run, which need no device at all.
+
+```bash
+# Seed four recorded .perf imports: three stable, one regressed.
+python examples/demo-reassure/seed.py
+perfvibe --config examples/demo-reassure/perfvibe.toml reassure compare "CartPanel renders"
+```
+```text
+┌─ perfvibe reassure compare · CartPanel renders · baseline 3 import(s)
+│
+│      METRIC               LATEST     BASELINE          Δ  STATUS             TREND
+│   ────────────────────────────────────────────────────────────────────────────────
+│   ✗  duration_ms        142.0 ms     102.0 ms   ↑ +39.2%  REGRESSION         ▁▁▁█
+│   ✗  render_count      2.0 count    1.0 count  ↑ +100.0%  REGRESSION         ▁▁▁█
+│
+│   ✗ extra mount render introduced (0 -> 1)
+└─
+```
+
+That last line is reassure's most actionable finding and the reason this
+capability exists: the component started doing an **extra render on mount**. It
+is reported as a state change, never as a percentage, because `0 -> 1` has no
+meaningful delta.
+
+On your own project you would not import fixtures by hand — let the tool drive
+reassure and keep the history for you:
+
+```bash
+perfvibe reassure run                          # run reassure, then import what it produced
+perfvibe reassure list                         # what has been collected
+perfvibe reassure history "CartPanel renders"  # two independent charts, one per series
+```
+
+**`reassure compare` always exits `0`, even on that regression** — it reports and
+never gates. If you are scripting it, read `--json`'s `verdicts[].status`; the
+exit code carries no verdict. Full walkthrough in
+[`examples/demo-reassure/`](./examples/demo-reassure/), full contract in
+[`docs/commands.md`](./docs/commands.md).
+
+---
+
 ## Install
 
 **One-liner (recommended)** — installs the `perfvibe` command globally and isolated
@@ -131,12 +176,13 @@ python3.11 -m venv .venv          # any Python 3.11+ works — see Development
 | `perfvibe budget-check <flow>` | The **CI gate** — reuses `compare`'s verdict; any regression fails. | **on regression** |
 | `perfvibe history <flow>` | Export a flow's full run series (machine-readable chart data). | never |
 | `perfvibe markers snippet` / `markers doctor` | Emit a paste-ready `[PERF]` marker snippet / diagnose a logcat line against the same parser `run` uses. Read-only. | never |
-| `perfvibe reassure import` / `list` / … | Import and read back persisted [`@callstack/reassure`](https://github.com/callstack/reassure) results. Read-only. | never |
+| `perfvibe reassure <sub>` | Seven subcommands over [`@callstack/reassure`](https://github.com/callstack/reassure) results: `run` and `import` **persist**, `list`/`entries`/`show`/`history`/`compare` read back. | never |
 | `perfvibe init <flows-dir>` | Scaffold or merge the `perfvibe.toml` flow config. | never |
 
-Only `budget-check` ever exits `1`. `run` persists, `compare`/`history`/`reassure`
-report, `markers` diagnoses, and `init` configures — none of them gate, so a
-regression under `compare` still exits `0`.
+Only `budget-check` ever exits `1`. `run` and `reassure run`/`reassure import`
+persist, `compare`/`history` and the other `reassure` subcommands report,
+`markers` diagnoses, and `init` configures — none of them gate, so a regression
+under either `compare` still exits `0`.
 **Full flags, JSON payloads, and per-command detail live in
 [`docs/commands.md`](./docs/commands.md).**
 
