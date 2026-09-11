@@ -1,0 +1,15 @@
+# Device-free demo config for the `reassure` sub-app (see README.md in this
+# directory). Nothing here touches `driver`/`sampler`/`marker_source`: reassure
+# data comes from a JavaScript test run, not from a device, so the read
+# commands only need `db_path`. `[flows]` stays empty on purpose — reassure
+# imports are a SEPARATE store from the flow world and are never joined with,
+# or compared against, `run`/`compare`/`history` data.
+
+db_path = "examples/demo-reassure/perfvibe.db"
+
+# Where `reassure import` (and `reassure run`) looks when no path is given.
+# The demo passes explicit fixture paths instead, so this is here to show the
+# key exists rather than because the demo depends on it.
+reassure_path = "examples/demo-reassure/fixtures/regression.perf"
+
+[flows]
